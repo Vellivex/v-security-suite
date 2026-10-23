@@ -17,8 +17,11 @@ function json(data,status=200,extra={}){return reply(JSON.stringify(data),status
 async function readBounded(request){
   if(Number(request.headers.get('content-length')||0)>12000)throw new Error('too_large');
   const reader=request.body?.getReader();if(!reader)throw new Error('invalid');
-  const chunks=[];let total=0;
-  for(;;){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>12000){await reader.cancel();throw new Error('too_large');}chunks.push(value);}
+  const chunks=[];let total=0,completed=false,timer;
+  // A total deadline prevents slow/trickled bodies from retaining the handler.
+  const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('read_timeout')),10000);});
+  try{for(;;){const {done,value}=await Promise.race([reader.read(),deadline]);if(done){completed=true;break;}total+=value.length;if(total>12000)throw Error('too_large');chunks.push(value);}}
+  finally{clearTimeout(timer);if(!completed){try{reader.cancel().catch(()=>{});}catch{}}reader.releaseLock();}
   const bytes=new Uint8Array(total);let offset=0;for(const value of chunks){bytes.set(value,offset);offset+=value.length;}
   const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes),data=JSON.parse(text);
   // JSON.parse otherwise silently chooses the last duplicate field.
@@ -32,7 +35,7 @@ export async function feedback(request,env,now=new Date()){
   if(request.method!=='POST')return json({error:'Method not allowed.'},405,{'Allow':'POST'});
   if(request.headers.get('origin')!==url.origin)return json({error:'Please submit from the Vellivex website.'},403);
   if(request.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json')return json({error:'JSON required.'},415);
-  let data;try{data=await readBounded(request);}catch(error){return json({error:error.message==='too_large'?'Report is too large.':'Invalid report.'},error.message==='too_large'?413:400);}
+  let data;try{data=await readBounded(request);}catch(error){if(error.message==='read_timeout')return json({error:'Report upload timed out. Keep your report and try again.'},408);return json({error:error.message==='too_large'?'Report is too large.':'Invalid report.'},error.message==='too_large'?413:400);}
   if(!data||typeof data!=='object'||Array.isArray(data))return json({error:'Invalid report.'},400);
   if(Object.keys(data).some(key=>!['id','product','kind','os','message','safe','elapsed','website'].includes(key)))return json({error:'Invalid report.'},400);
   if(data.website)return json({error:'Unable to accept this submission.'},400);

@@ -28,3 +28,12 @@ The full suite has 117 passing Node tests. Website-specific checks use the actua
 Six low-volume direct HTTP probes to the custom domain (home, security page, feedback read, .env, .git/config and a report-list path) received HTTP 403, error code 1010, from this environment. These responses do not prove that the origin itself returned its intended responses/headers; no successful live API write or production load test was performed. A separate normal-browser check on the custom domain displayed the expected method-denied JSON for GET /api/feedback and the fixed 404 page for /.env and /.git/config. This verifies visible responses only, not raw status codes or headers. Native deployment success is separate evidence from the blocked direct HTTP probes.
 
 No production feedback records were read, altered or deleted. This pass does not audit registrar/hosting account credentials, MFA, provider infrastructure, TLS configuration outside the Worker, or resistance to distributed denial of service. Application-level per-network limits do not guarantee a global spam or cost limit against many separate networks. There is no claim of an impregnable website.
+
+
+## Follow-up: stalled upload handling (source 0.3.7)
+
+Reproduced before fix: a feedback body that never finishes leaves the handler pending, with no application-level read deadline. Periodic chunks also keep it pending indefinitely at this layer. Two synthetic regressions verified that no response had been produced after advancing a controlled clock beyond ten seconds.
+
+The bounded reader now has one ten-second deadline for the entire body, shared across all reads rather than renewed for each chunk. It cancels incomplete reads without awaiting a possibly stuck cancellation and releases the reader lock. An expired upload returns HTTP 408 with the existing isolation/no-store headers and a message instructing the visitor to retain and retry their report. The timer is cleared when the body finishes or fails. The 12,000-byte limit remains in force. Both formerly failing tests pass, including a stalled cancellation promise and trickled chunks.
+
+Complete suite: 119 passing Node tests; build and assembled artifact validation run separately. Timing regressions use a controlled local clock and synthetic streams, not a production slow-request attack. Hosting-level timeouts and distributed denial-of-service protection are separate and are not established by this change. App versions are unchanged.
