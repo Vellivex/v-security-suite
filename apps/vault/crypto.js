@@ -23,12 +23,29 @@ function unbase64(text, min, max) {
   if (btoa(raw)!==text) throw new Error('Encrypted package must use canonical base64.');
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 }
+// JSON.parse keeps only the last duplicate member. Reject ambiguous top-level
+// names (including escaped spellings) rather than relaying a parser-dependent
+// package. JSON syntax has already been validated before this scan runs.
+function rejectDuplicateMembers(text) {
+  const tokens=text.match(/"(?:[^"\\]|\\[\s\S])*"|[{}\[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g)||[];
+  const names=new Set();let depth=0,expectKey=false;
+  for(const token of tokens){
+    if(token==='{'||token==='['){depth++;if(depth===1)expectKey=true;}
+    else if(token==='}'||token===']')depth--;
+    else if(depth===1&&token===',')expectKey=true;
+    else if(depth===1&&expectKey&&token[0]==='"'){
+      const name=JSON.parse(token);if(names.has(name))throw new Error('Encrypted package contains duplicate fields.');
+      names.add(name);expectKey=false;
+    }
+  }
+}
 export function inspectEnvelope(text) {
   if (typeof text !== 'string' || text.length > 200000) throw new Error('Encrypted package is too large.');
   let obj;
   try { obj = JSON.parse(text); } catch { throw new Error('Choose a valid VVault encrypted package.'); }
   const keys = ['format','version','kdf','iterations','cipher','salt','iv','ciphertext'];
   if (!obj || Array.isArray(obj) || Object.keys(obj).length !== keys.length || keys.some(k => !Object.hasOwn(obj,k)) || obj.format !== 'VVAULT' || obj.version !== 1 || obj.kdf !== 'PBKDF2-SHA256' || obj.iterations !== ITERATIONS || obj.cipher !== 'AES-256-GCM') throw new Error('Unsupported or invalid encrypted package.');
+  rejectDuplicateMembers(text);
   const salt = unbase64(obj.salt,16,16), iv = unbase64(obj.iv,12,12), ciphertext = unbase64(obj.ciphertext,16,MAX_PLAINTEXT+16);
   return {salt, iv, ciphertext};
 }
@@ -62,5 +79,5 @@ export async function decryptMessage(text,passphrase) {
   let bytes;
   try {bytes=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv,additionalData:aad,tagLength:128},key,ciphertext));}
   catch {throw new Error('Unable to unlock. The passphrase is wrong or the package has changed.');}
-  try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}finally{bytes.fill(0);}
+  try{return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}finally{bytes.fill(0);}
 }

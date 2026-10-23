@@ -20,4 +20,4 @@ VGuard 0.1.2-candidate fixes two reproduced startup races and adds screen/backup
 
 ## Adversarial follow-up
 
-VGuard 0.1.3-candidate restricts export destinations; browser tools 0.2.1 harden Unicode, concurrent crypto and offline cache isolation. Website feedback and redirect attack cases are fixed and regression-tested. See [the detailed review](docs/ADVERSARIAL-REVIEW-2026-10-23.md) for current evidence and limits; the earlier hardening section is historical. No independent audit or phone-runtime validation is claimed.
+VGuard 0.1.3-candidate restricts export destinations; browser tools 0.2.2 harden Unicode, concurrent crypto and offline cache isolation. Website feedback and redirect attack cases are fixed and regression-tested. See [the detailed review](docs/ADVERSARIAL-REVIEW-2026-10-23.md) for current evidence and limits; the earlier hardening section is historical. No independent audit or phone-runtime validation is claimed.

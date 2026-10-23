@@ -18,3 +18,19 @@ test('a crypto result cannot repopulate the page after hiding it',async()=>{cons
 test('a file read completing after clear cannot restore its package',async()=>{const fileRead=deferred(),t=setup('relay');t.els['relay-file'].files=[{size:100,text:()=>fileRead.promise}];const pending=t.els['relay-file'].emit('change');await t.els['clear-session'].emit('click');fileRead.resolve('old synthetic ciphertext');await pending;assert.equal(t.els['relay-package'].value,'');assert.equal(t.els.result.value,'');assert.equal(t.els['share-package'].disabled,true);});
 test('clipboard completion cannot replace the locked status',async()=>{const t=setup();t.els.result.value='synthetic copied value';const pending=t.els['copy-result'].emit('click');await t.els['clear-session'].emit('click');const locked=t.els['app-status'].textContent;t.copyWork.resolve();await pending;assert.equal(t.els['app-status'].textContent,locked);});
 test('edit, clear and repeated submit cannot multiply unfinished crypto jobs',async()=>{let calls=0;const work=deferred(),t=setup('vault',{encryptMessage:()=>{calls++;return work.promise;}});const first=t.els['vault-form'].emit('submit');for(let i=0;i<30;i++){t.els.message.value='edited '+i;await t.els.message.emit('input');await t.els['clear-session'].emit('click');await t.els['vault-form'].emit('submit');assert.equal(t.els['vault-submit'].disabled,true);}assert.equal(calls,1);work.resolve('stale result');await first;assert.equal(t.els.result.value,'');assert.equal(t.els['vault-submit'].disabled,false);});
+
+test('seeded lock/edit/mode/restore schedules never publish a retired crypto result',async()=>{
+ let seed=0x191023;const next=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return seed>>>0;};
+ for(let i=0;i<120;i++){
+  const t=setup(),pending=t.els['vault-form'].emit('submit');
+  const action=next()%4;
+  if(action===0){t.document.hidden=true;await t.document.emit('visibilitychange');}
+  else if(action===1)await t.window.emit('pageshow',{persisted:true});
+  else if(action===2){t.els['vault-mode'].value='decrypt';await t.els['vault-mode'].emit('change');}
+  else{t.els.message.value='New retained draft '+i;await t.els.message.emit('input');}
+  assert.equal(t.els['vault-submit'].disabled,true);
+  t.cryptoWork.resolve('Must never return to the page');await pending;
+  assert.equal(t.els.result.value,'');assert.equal(t.els['vault-submit'].disabled,false);
+  assert.equal(t.els.message.value,action===3?'New retained draft '+i:'');
+ }
+});

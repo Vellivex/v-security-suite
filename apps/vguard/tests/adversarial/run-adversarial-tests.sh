@@ -33,6 +33,8 @@ fi
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.RevocationRaceTests
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.PackageIdentityRaceTests
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.ExportTargetTests
-"$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.ParserStress
+for vguard_parser_seed in 0x564755415244 0x13579bdf 0x2468ace0 0x7fffffff; do
+  "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.ParserStress "$vguard_parser_seed"
+done
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.LifecycleStress
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.CoreTests

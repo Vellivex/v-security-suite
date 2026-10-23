@@ -43,3 +43,16 @@ See releases/VGuard-0.1.3-Build-Report.json and Package-Verification.txt. No wor
 Use Node 24+, Python 3 and Java (host harness). Run `npm test`, `bash apps/vguard/tests/adversarial/run-adversarial-tests.sh`, and `python3 apps/vguard/validation/UI-Logic-Checks.py`. Native build instructions are in apps/vguard/README.md. Run `npm run build` and `npm run validate` after providing the signed release artifacts. Full signed build reproducibility is not demonstrated.
 
 References for reviewed platform boundaries: Android DocumentsContract / ContentResolver documentation and WHATWG Encoding Standard. TextEncoder converts JavaScript text through Unicode scalar-value strings; rejecting unpaired surrogates before encoding avoids replacement-character aliases.
+
+
+## Follow-up passes — browser release 0.2.2
+
+Three additional focused passes completed after the initial release:
+
+1. **Exact plaintext preservation.** A synthetic message starting with U+FEFF decrypted without that character. This was reproduced against 0.2.1. Set UTF-8 TextDecoder `ignoreBOM:true` so an authenticated leading marker remains part of the message. Leading/repeated markers, NUL, CR/LF, tabs and astral Unicode now round-trip exactly. Independent Python/Web Crypto interoperability was rerun in both directions with a leading U+FEFF.
+2. **Ambiguous envelope parsing.** The previous parser accepted conflicting duplicate JSON fields using the last value. This was a low-severity parser-ambiguity issue, not a demonstrated decryption or authentication bypass. Reject duplicate top-level member names, including escaped equivalent spellings, while continuing to accept whitespace and reordered valid members. The scan runs only after bounded JSON syntax and envelope shape validation. Added 2,000 seeded invalid-field mutations and 100 missing-field cases.
+3. **Stale async results and native stress expansion.** Added 120 deterministic lock/hide/mode-change/history-restore/edit schedules against the actual browser handlers in the host DOM harness. No retired crypto result was restored. The production Java parser was exercised with four deterministic seeds: 3,000,400 calls total. Native engine, export, revocation, package-identity, 300-cycle lifecycle and CSV suites also pass. No additional native production change was justified by this pass; the signed VGuard 0.1.3 APK is unchanged.
+
+The updated Node suite has **49 passing tests**, zero failed or skipped. No newly reproduced failure remains in these covered cases after the fixes. This is bounded evidence, not proof of impregnable software; physical Android/iOS, real network-leak behavior, mobile sharing, independent audit and reproducible builds remain outstanding as above. Initial 0.2.1 counts earlier in this report are historical.
+
+The previous hardening release was verified live on www.vellivex.com: synthetic Unicode encrypt/decrypt, ciphertext tamper rejection with empty output, VRelay valid/invalid format handling, successful offline update to 0.2.1, honest unchanged-update status and one private feedback row whose acknowledgement matched owner-only database readback. GitHub workflow run 39996439854 passed for commit 9a3523433f052fab0ca971594514891775fc64fd. Those browser observations apply to 0.2.1; the 0.2.2 automated checks above are separate.

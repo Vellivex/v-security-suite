@@ -1,3 +1,9 @@
+VELLIVEX — ADDITIONAL ADVERSARIAL PASSES, 23 OCTOBER 2026
+
+VVault/VRelay 0.2.2 preserve authenticated leading U+FEFF characters exactly and reject ambiguous duplicate JSON member names, including escaped equivalents. Added 2,100 malformed-envelope cases and 120 asynchronous lock/edit schedules. Python interoperability rerun with a leading Unicode marker. 49 Node tests pass.
+
+VGuard 0.1.3 APK unchanged. Expanded production parser stress across four seeds: 3,000,400 calls. Full native host harness and independent CSV checks pass. No real-phone or independent-audit pass is claimed.
+
 VELLIVEX — ADVERSARIAL HARDENING, 23 OCTOBER 2026
 
 VGuard 0.1.3-candidate restricts exports to explicitly granted document destinations, rechecks before writing and catches provider failures. Retains earlier VPN startup fixes. Signed with the original certificate; compilation, signature, manifest and alignment checked. Real Android routing remains unverified.

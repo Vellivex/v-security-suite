@@ -8,3 +8,20 @@ test('modified nonce, salt and format rejected',async()=>{const original=JSON.pa
 test('malformed/oversized envelopes and plaintext rejected before expensive work',async()=>{for(const input of ['null','[]','{}','bad','x'.repeat(200001)])assert.throws(()=>inspectEnvelope(input));await assert.rejects(encryptMessage('message','short'));await assert.rejects(encryptMessage('',phrase));await assert.rejects(encryptMessage('a'.repeat(MAX_PLAINTEXT+1),phrase));});
 test('maximum-size message round-trips at the documented boundary',async()=>{const message='a'.repeat(MAX_PLAINTEXT);const encrypted=await encryptMessage(message,phrase);assert.equal(await decryptMessage(encrypted,phrase),message);});
 test('unpaired Unicode surrogates cannot silently change messages or alias passphrases',async()=>{const valid=await encryptMessage('Valid synthetic message',phrase);for(const malformed of ['\ud800','\udfff','before\ud800after','\ud800\ud800','\udc00\ud800']){await assert.rejects(encryptMessage(malformed,phrase),/Unicode/);await assert.rejects(encryptMessage('test message',phrase+malformed),/Unicode/);await assert.rejects(decryptMessage(valid,phrase+malformed),/Unicode/);}const message='Valid astral characters 🛡️🧪';assert.equal(await decryptMessage(await encryptMessage(message,phrase+'🧪'),phrase+'🧪'),message);});
+
+test('leading BOM and control characters are preserved exactly after authenticated decryption',async()=>{
+ for(const message of ['\ufeffLeading marker','\ufeff\ufefftwo markers','\u0000\r\n\t\ufeff🛡️','\ufeff'])assert.equal(await decryptMessage(await encryptMessage(message,phrase),phrase),message);
+});
+test('duplicate and escaped duplicate envelope members are rejected without rejecting whitespace or order',async()=>{
+ const encrypted=await encryptMessage('Synthetic ambiguity check',phrase),obj=JSON.parse(encrypted);
+ for(const prefix of ['"version":999,','"version":1,','"ver\\u0073ion":1,','"ciphertext":"AAAA",'])assert.throws(()=>inspectEnvelope('{'+prefix+encrypted.slice(1)),/duplicate/);
+ assert.doesNotThrow(()=>inspectEnvelope(JSON.stringify(Object.fromEntries(Object.entries(obj).reverse()),null,2)));
+ assert.equal(await decryptMessage(JSON.stringify(obj,null,2),phrase),'Synthetic ambiguity check');
+});
+test('seeded malformed envelope mutations stay bounded and cannot pass unchecked',async()=>{
+ const original=JSON.parse(await encryptMessage('Synthetic mutation target',phrase));let state=0x6e2c19b5;const rand=()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return state>>>0;};
+ const fields=['format','version','kdf','iterations','cipher','salt','iv','ciphertext'];
+ const invalid=[null,{},[],true,false,0,-1,'',String.fromCharCode(0),'!'.repeat(40),'A'.repeat(200001)];
+ for(let i=0;i<2000;i++){const field=fields[rand()%fields.length],obj={...original,[field]:invalid[rand()%invalid.length]};assert.throws(()=>inspectEnvelope(JSON.stringify(obj)));}
+ for(let i=0;i<100;i++){const obj={...original};delete obj[fields[rand()%fields.length]];assert.throws(()=>inspectEnvelope(JSON.stringify(obj)));}
+});

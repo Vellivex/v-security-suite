@@ -7,8 +7,8 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
 | VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.2.1 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
-| VRelay | Browser 0.2.1 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VVault | Browser 0.2.2 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| VRelay | Browser 0.2.2 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault and VRelay retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
@@ -51,6 +51,6 @@ VVault/VRelay process message data in browser memory. Optional service-worker in
 
 See `docs/ACCEPTANCE.md`, `docs/TEST-RESULTS.md` and SECURITY.md. Automated successes do not imply actual phone enforcement or an independent audit. No reproducible-build claim is made.
 
-## Security hardening 0.2.1 / VGuard 0.1.3
+## Security hardening 0.2.2 / VGuard 0.1.3
 
 See `docs/ADVERSARIAL-REVIEW-2026-10-23.md`. The native candidate was rebuilt and signature-verified with the existing update identity; device runtime remains unverified. Browser sessions now clear on hide/exit/history restoration and idle expiry. Pending operations cannot repopulate a cleared/edited session. Crypto pages block app-initiated network connections; installed offline assets use release hashes and no network fallback. Signing files, native build output, feedback and runtime secrets are excluded from public source bundles.

@@ -2,7 +2,8 @@ package app.vguard.firewall;
 import java.util.*;
 public final class ParserStress {
  public static void main(String[] args){
-  Random random=new Random(0x564755415244L);long trials=0,parsed=0;long begin=System.nanoTime();
+  long seed=args.length==0?0x564755415244L:Long.decode(args[0]);
+  Random random=new Random(seed);long trials=0,parsed=0;long begin=System.nanoTime();
   for(int i=0;i<150000;i++){
    int n=i%1000==0?65575:random.nextInt(513);byte[] p=new byte[n];random.nextBytes(p);
    if(n>0 && i%3!=0)p[0]=(byte)((i%2==0?0x40:0x60)|(p[0]&15));
@@ -14,6 +15,6 @@ public final class ParserStress {
    for(int j=0;j<extensionCount;j++){p[40+j*8]=(byte)(j==extensionCount-1?17:0);p[41+j*8]=0;}
    PacketInfo.parse(p,p.length);trials++;
   }
-  System.out.println("PASS parser stress: "+trials+" calls, "+parsed+" metadata results; no exception, control-character metadata, or invalid port; elapsedMs="+(System.nanoTime()-begin)/1000000);
+  System.out.println("PASS parser stress seed="+seed+": "+trials+" calls, "+parsed+" metadata results; no exception, control-character metadata, or invalid port; elapsedMs="+(System.nanoTime()-begin)/1000000);
  }
 }

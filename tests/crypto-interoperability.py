@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 root=Path(__file__).resolve().parent.parent
 password='synthetic orchard river violet 23'
-message='Independent interoperability test — 第二行 🛡️\nSynthetic data only.'
+message='\ufeffIndependent interoperability test — 第二行 🛡️\nSynthetic data only.'
 aad=b'VVAULT:1:PBKDF2-SHA256:600000:AES-256-GCM'
 def node(source,data):
     result=subprocess.run(['node','--input-type=module','-e',source],input=json.dumps(data),text=True,capture_output=True,cwd=root,check=True)

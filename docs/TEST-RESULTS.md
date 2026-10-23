@@ -35,4 +35,4 @@ See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 22 
 
 ## Adversarial follow-up — current candidate
 
-Current release: VGuard 0.1.3-candidate and browser tools 0.2.1. See [ADVERSARIAL-REVIEW-2026-10-23.md](ADVERSARIAL-REVIEW-2026-10-23.md) for the current 45-test Node suite, real SQLite concurrency checks, 750,100 parser calls, 300 lifecycle cycles and export restrictions. Historical observations above do not certify this candidate on a phone.
+Current release: VGuard 0.1.3-candidate and browser tools 0.2.2. See [ADVERSARIAL-REVIEW-2026-10-23.md](ADVERSARIAL-REVIEW-2026-10-23.md) for the current 49-test Node suite, real SQLite concurrency checks, 3,000,400 parser calls over four seeds, 300 lifecycle cycles and export restrictions. Historical observations above do not certify this candidate on a phone.
