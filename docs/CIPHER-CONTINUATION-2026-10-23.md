@@ -21,3 +21,5 @@ Second follow-up: research 0.1.2 / source 0.3.2 closes four reproduced camera co
 Third follow-up: research 0.1.3 / source 0.3.3 closes contact-confirmation withdrawal and pasted-frame edit races, and rejects inconsistent RSA private-key representations in encrypted backups. Expanded authenticated-backup, signature mutation and parser-depth attack campaigns bring the suite to 102 tests. See the attack report for exact scope and limits.
 
 Fourth follow-up: research 0.1.4 / source 0.3.4 enforces the AES-256 outer key policy at the receiver. Replay saturation/concurrency, 256 corrupt complete QR campaigns and maximum four-byte Unicode boundaries bring the suite to 106 tests. See the attack report for reproduction and limits.
+
+Fifth follow-up: app remains 0.1.4; source/evidence 0.3.5 adds five unauthorized-access regressions (attacker impersonation, public-key substitution, independent factors, 512 signature mutations and backup splicing). No additional bypass reproduced. Full suite: 111 tests. Real-device/cross-engine and independent review gates remain open.

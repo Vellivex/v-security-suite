@@ -68,3 +68,16 @@ Additional campaigns passed without another defect:
 - A 2,048-byte message made entirely of four-byte Unicode characters round-trips exactly; the next character is refused.
 
 Complete suite: 106 Node tests, including prior malformed backup, parser, hostile QR and lifecycle regressions. Build, offline manifest and assembled artifact checks run separately. Physical phone/camera testing and independent review are still unverified. This pass does not establish resistance to every attacker or constitute an independent audit.
+
+
+## Fifth follow-up: unauthorized-access checks (app 0.1.4 unchanged / source 0.3.5)
+
+Objective: attempt to reveal plaintext or assume an already verified identity without the required credentials. Five new regressions pass without another reproduced bypass:
+
+- A separate attacker's valid signing key cannot impersonate the verified sender, even when the attacker knows the conversation secret and copies the victim fingerprint into the signed envelope.
+- Replacing either the encryption or signature public key changes the full contact fingerprint. A package encrypted to a substituted card is refused by the original recipient. This depends on users actually comparing the full fingerprint through a trusted separate channel; the browser cannot authenticate that channel.
+- A different private key cannot unwrap the package, even with the expected recipient fingerprint and correct conversation secret. The actual recipient key still cannot open it with a missing or wrong conversation secret. A subsequent valid open succeeds, showing failed attempts did not consume replay state.
+- All 512 single-bit mutations of the original 64-byte signature are rejected without changing replay state. This is a finite mutation campaign, not exhaustive cryptanalysis.
+- Salt, nonce, ciphertext and public card spliced between independently encrypted backups are rejected, including when both backups use the same passphrase. Wrong passphrases fail; the unmodified backup still restores.
+
+Stopping criterion for this pass: no reproducible unauthorized plaintext disclosure or verified-sender impersonation in these campaigns, and no failing checks in the full 111-test suite. The application protocol/UI version stays 0.1.4 because this follow-up adds test evidence without a production logic change. Build and artifact validation also pass. All tests are internal and synthetic, primarily Node Web Crypto plus mocked UI lifecycle checks. No physical two-phone/camera test, target mobile browser cross-engine test, independent cryptographic audit, malicious-origin resistance, durable replay protection, ratchet or forward secrecy is established. A compromised unlocked Vault or compromised code origin remains outside the protection claimed here. Further repetitions of these checks cannot establish that every possible attack is blocked.
