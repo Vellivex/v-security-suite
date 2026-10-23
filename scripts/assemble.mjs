@@ -8,8 +8,9 @@ const assets={};
 for(const [path,file,type] of [
  ['/style.css','web/style.css','text/css; charset=utf-8'],['/site.js','web/site.js','text/javascript; charset=utf-8'],['/app.js','web/app.js','text/javascript; charset=utf-8'],['/session.js','web/session.js','text/javascript; charset=utf-8'],['/offline.js','web/offline.js','text/javascript; charset=utf-8'],['/apps/crypto.js','apps/vault/crypto.js','text/javascript; charset=utf-8']
 ])assets[path]={body:await readFile(resolve(root,file),'utf8'),type};
-assets['/icon.svg']={body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="38" fill="#0b100d"/><path d="M35 43h29l32 83 32-83h29l-49 115H84z" fill="#c7df9b"/></svg>',type:'image/svg+xml'};
-assets['/manifest.webmanifest']={body:JSON.stringify({name:'V Security experimental tools',short_name:'V Tools',id:'/apps/vault',start_url:'/apps/vault',scope:'/apps/',display:'standalone',background_color:'#0b100d',theme_color:'#0b100d',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]}),type:'application/manifest+json'};
+for(const name of ['vellivex-mark.svg','vellivex-logo.svg','vellivex-logo-dark.svg'])assets['/brand/'+name]={body:await readFile(resolve(root,'web/brand',name),'utf8'),type:'image/svg+xml'};
+assets['/icon.svg']={body:await readFile(resolve(root,'web/brand/vellivex-mark.svg'),'utf8'),type:'image/svg+xml'};
+assets['/manifest.webmanifest']={body:JSON.stringify({name:'Vellivex experimental tools',short_name:'Vellivex',id:'/apps/vault',start_url:'/apps/vault',scope:'/apps/',display:'standalone',background_color:'#0a101b',theme_color:'#0a101b',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]}),type:'application/manifest+json'};
 // Canonical HTML is transported as plain text so hosting-layer HTML injection
 // cannot alter the bytes checked by SRI. Only the verified cached copy is HTML.
 for(const name of ['vault','relay'])assets['/offline/'+name]={body:page('/apps/'+name),type:'text/plain; charset=utf-8',offlineDocument:true};

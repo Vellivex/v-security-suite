@@ -1,4 +1,4 @@
-# V Security experimental suite
+# Vellivex experimental suite
 
 Open-source phone privacy tools, with an experimental small beta before a wider launch.
 
@@ -10,7 +10,7 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | VVault | Browser 0.2.0 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
 | VRelay | Browser 0.2.0 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
-`V Security` is a working umbrella brand. Custom domain and final brand are not yet registered by this project.
+Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault and VRelay retain their product names. Domain activation depends on DNS verification and HTTPS provisioning.
 
 ## Source and licence
 
@@ -26,7 +26,7 @@ bash apps/vguard/tests/adversarial/run-adversarial-tests.sh
 python3 apps/vguard/validation/UI-Logic-Checks.py
 ```
 
-VGuard's native build instructions are in `apps/vguard/README.md`. The original preview APK is available on the beta website alongside its matching source. Its earlier test report is in `releases/`.
+VGuard's native build instructions are in `apps/vguard/README.md`. The rebuilt candidate APK is available on the beta website alongside its matching source. Its earlier test report is in `releases/`.
 
 The browser encryption core is `apps/vault/crypto.js`. The browser interfaces are rendered by `server/pages.js` and use `web/app.js`; VRelay deliberately never requests a passphrase.
 

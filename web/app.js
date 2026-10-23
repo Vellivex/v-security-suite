@@ -63,5 +63,5 @@ if(relay){
 $('offline-enable')?.addEventListener('click',async()=>{try{
   const result=await installOfflineTools(navigator.serviceWorker);
   $('offline-enable').textContent='Check offline files for updates';
-  say(result.waiting?'Offline files installed with integrity checks. Close all V tool tabs, then reopen before testing offline use.':'Offline files installed with integrity checks. Disconnect every network and reload to verify offline use on your phone.');
+  say(result.waiting?'Offline files installed with integrity checks. Close all Vellivex tool tabs, then reopen before testing offline use.':'Offline files installed with integrity checks. Disconnect every network and reload to verify offline use on your phone.');
 }catch(error){say(error.message,true);}});

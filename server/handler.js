@@ -25,7 +25,7 @@ async function readBounded(request){
 export async function feedback(request,env){
   const url=new URL(request.url);
   if(request.method!=='POST')return json({error:'Method not allowed.'},405,{'Allow':'POST'});
-  if(request.headers.get('origin')!==url.origin)return json({error:'Please submit from the V Security website.'},403);
+  if(request.headers.get('origin')!==url.origin)return json({error:'Please submit from the Vellivex website.'},403);
   if(!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))return json({error:'JSON required.'},415);
   let data;try{data=await readBounded(request);}catch(error){return json({error:error.message==='too_large'?'Report is too large.':'Invalid report.'},error.message==='too_large'?413:400);}
   if(!data||typeof data!=='object'||Array.isArray(data))return json({error:'Invalid report.'},400);
