@@ -20,7 +20,12 @@ async function readBounded(request){
   const chunks=[];let total=0;
   for(;;){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>12000){await reader.cancel();throw new Error('too_large');}chunks.push(value);}
   const bytes=new Uint8Array(total);let offset=0;for(const value of chunks){bytes.set(value,offset);offset+=value.length;}
-  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+  const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes),data=JSON.parse(text);
+  // JSON.parse otherwise silently chooses the last duplicate field.
+  const tokens=text.match(/"(?:[^"\\]|\\[\s\S])*"|[{}\[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g)||[];
+  const names=new Set();let depth=0,key=false;
+  for(const token of tokens){if(token==='{'||token==='['){depth++;if(depth===1)key=true;}else if(token==='}'||token===']')depth--;else if(depth===1&&token===',')key=true;else if(depth===1&&key&&token[0]==='"'){const name=JSON.parse(token);if(names.has(name))throw Error('invalid');names.add(name);key=false;}}
+  return data;
 }
 export async function feedback(request,env,now=new Date()){
   const url=new URL(request.url);
@@ -29,10 +34,11 @@ export async function feedback(request,env,now=new Date()){
   if(request.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json')return json({error:'JSON required.'},415);
   let data;try{data=await readBounded(request);}catch(error){return json({error:error.message==='too_large'?'Report is too large.':'Invalid report.'},error.message==='too_large'?413:400);}
   if(!data||typeof data!=='object'||Array.isArray(data))return json({error:'Invalid report.'},400);
+  if(Object.keys(data).some(key=>!['id','product','kind','os','message','safe','elapsed','website'].includes(key)))return json({error:'Invalid report.'},400);
   if(data.website)return json({error:'Unable to accept this submission.'},400);
   if(data.safe!=='on'||!Number.isFinite(data.elapsed)||data.elapsed<1500||data.elapsed>86400000)return json({error:'Please complete the safety checkbox and try again.'},400);
   const allowedProduct=['VGuard','VVault','VRelay','VCipher','Website'],allowedKind=['bug','idea','test','security','deletion'],allowedOS=['Android','iPhone/iPad','Desktop','Other'];
-  if(!allowedProduct.includes(data.product)||!allowedKind.includes(data.kind)||!allowedOS.includes(data.os)||typeof data.message!=='string'||data.message.trim().length<20||data.message.length>3000||typeof data.id!=='string'||data.id.length!==36||!/^\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b$/i.test(data.id))return json({error:'Check the product, device and report text (20–3,000 characters).'},400);
+  if(!allowedProduct.includes(data.product)||!allowedKind.includes(data.kind)||!allowedOS.includes(data.os)||typeof data.message!=='string'||!data.message.isWellFormed()||data.message.trim().length<20||data.message.length>3000||typeof data.id!=='string'||data.id.length!==36||!/^\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b$/i.test(data.id))return json({error:'Check the product, device and report text (20–3,000 characters).'},400);
   if(!env.DB||typeof env.FEEDBACK_RATE_SECRET!=='string'||env.FEEDBACK_RATE_SECRET.length<32)return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
   const created=now.toISOString(),id=data.id.toLowerCase(),message=data.message.trim();
   const network=request.headers.get('cf-connecting-ip')||'unknown-network';
