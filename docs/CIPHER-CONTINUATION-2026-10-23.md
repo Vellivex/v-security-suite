@@ -15,3 +15,5 @@ The V Cipher pages block app-initiated network connections; only their local cam
 ## Adversarial follow-up
 
 Research build 0.1.1 fixes six reproduced structural/boundary/lifecycle defects. See [CIPHER-ATTACK-REVIEW-2026-10-23.md](CIPHER-ATTACK-REVIEW-2026-10-23.md). The suite now includes 91 passing Node tests, 10,000 malformed QR strings, recipient-side plaintext limits and camera/collector/replay race regressions. Original 79-test counts above describe the initial continuation.
+
+Second follow-up: research 0.1.2 / source 0.3.2 closes four reproduced camera concurrency/cancellation defects. Six new UI regressions include seven plaintext cancellation boundaries and three backup-unlock boundaries. Full suite: 97 tests. See the second-follow-up section of the attack report.

@@ -27,3 +27,17 @@ Other hardening: primitive transfer objects are refused explicitly; scanner pixe
 Final suite: 91 Node tests, zero failed/skipped. Tests intentionally reproduced failures before the changes above and pass after fixes. Exact assembled Worker/module routes, offline digests, release download checksums and isolation headers are validated separately by `npm run validate`.
 
 Remaining gates: physical two-device scanning, mobile camera permission/background behavior, reliable offline deployment on target phones, performance/battery, independent protocol/security review. Replay tracking remains session-only; no ratchet, forward secrecy or delivery backend is added by this fix. Browser offline indicators are not proof of physical isolation, and memory erasure is not guaranteed.
+
+
+## Second follow-up: camera concurrency (0.1.2 / source 0.3.2)
+
+Four additional UI failures were reproduced with deferred operations before fixing them:
+
+| Finding | Reproduction | Fix |
+| --- | --- | --- |
+| Camera could overlap cryptographic work | Start camera while identity generation is pending; camera permission is requested and could later feed input into the same session. | Refuse camera start while a cryptographic/UI task is busy. |
+| Older transfer file could populate a newer scan session | Start a file read, start the camera, then complete the file read; old package is published. | Starting a scan advances the session generation, retiring older file reads. |
+| Stop did not retire pending QR verification | Decode a frame, pause collection verification, stop camera, then complete verification; old transfer and status appear after Stop. | Stop advances the session generation before closing tracks; pending results cannot publish. |
+| Selecting a backup left invalidated camera tracks active | Start camera on Vault, then select a backup. Tracks remain live despite the changed session. | Backup selection stops camera and clears its video/canvas state. |
+
+All four regression tests failed before these changes and passed afterward. Additional deferred-completion matrices cover seven decryption cancellation boundaries (lock, hidden tab, page close, reconnection, isolation removal, backup selection and camera stop) and three backup-unlock cancellation boundaries. The complete suite now has 97 Node tests; physical camera/device validation and an independent audit remain outstanding. No cryptographic authentication bypass was demonstrated in this follow-up.
