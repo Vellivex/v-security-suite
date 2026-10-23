@@ -43,3 +43,9 @@ Public source archives require an exact reviewed path manifest, reject links and
 ## Additional attack pass — site 0.4.1
 
 VVault/VRelay 0.2.7 keep unsupported-browser cryptography disabled across session/UI transitions and clean failed download object URLs. V Cipher 0.1.7 coalesces repeated QR completion verification, retains failure until reset, rejects backward collection clocks and cleans failed download URLs. Feedback HMAC-provider errors fail closed with a generic isolated 503. See `docs/ATTACK-PASS-2026-10-23.md` for reproductions, native/campaign/browser evidence and remaining limits.
+
+## Key and delivery hardening — site 0.5.0
+
+V Cipher 0.1.8 restores/activates non-extractable private session keys after compatible encrypted-backup creation. Raw session-key re-export is refused; retain the original backup. This reduces accidental export, not compromised-code oracle use or memory exposure. VVault/VRelay 0.2.8 and Cipher offline delivery verify body bytes and reconstruct release-pinned headers, preventing altered cache metadata from relaxing their policy. New QR dependency checks bind generated runtime bytes to retained upstream source and local transforms.
+
+The unchanged VGuard 0.1.3 APK's eight payload entries were reproduced by a clean unsigned compilation from public source, with fresh signature verification of the official APK. This is payload/toolchain evidence, not signed-container byte identity or real-phone enforcement. See `docs/KEY-AND-DELIVERY-HARDENING-2026-10-23.md` and `docs/VGUARD-PAYLOAD-REBUILD-2026-10-23.md`.

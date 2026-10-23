@@ -78,12 +78,14 @@ export function makeWorker(page,notFound,assets){return {async fetch(request,env
   if(path==='/api/feedback')return feedback(request,env);
   if(request.method!=='GET'&&request.method!=='HEAD')return reply('Method not allowed',405,'text/plain; charset=utf-8',{'Allow':'GET, HEAD'});
   if(path!== '/'&&path.endsWith('/')){url.pathname=path.slice(0,-1);return reply(null,308,'text/plain',{'Location':url.href});}
-  if(path==='/robots.txt')return reply('User-agent: *\nDisallow: /\n',200,'text/plain; charset=utf-8');
+  if(path==='/robots.txt')return reply('User-agent: *\nAllow: /blog\nDisallow: /\nSitemap: https://www.vellivex.com/sitemap.xml\n',200,'text/plain; charset=utf-8');
+  if(path==='/sitemap.xml')return reply(request.method==='HEAD'?null:'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+["/blog", "/blog/test-local-message-encryption", "/blog/transfer-ciphertext-without-sharing-the-passphrase", "/blog/android-firewall-test-checklist", "/blog/read-security-claims-before-testing"].map(p=>'<url><loc>https://www.vellivex.com'+p+'</loc></url>').join('')+'</urlset>',200,'application/xml; charset=utf-8');
   const asset=assets[path];
   if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:asset.offlineDocument?{...(path.startsWith('/offline/cipher/')?{'Permissions-Policy':"camera=(self), microphone=(), geolocation=(), payment=()"}:{}),'Cache-Control':'no-store, no-transform','Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")+(path.startsWith('/offline/cipher/')?'; media-src blob:':'')}:{});}
   const content=page(path);
   const cipherTool=path==='/apps/cipher/vault'||path==='/apps/cipher/relay';
   const headers=(path==='/apps/vault'||path==='/apps/relay'||cipherTool)?{'Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")} : {};
+  if(content&&(path==='/blog'||path.startsWith('/blog/')))headers['X-Robots-Tag']='index, follow';
   if(cipherTool)headers['Content-Security-Policy']+='; media-src blob:';
   if(cipherTool)headers['Permissions-Policy']="camera=(self), microphone=(), geolocation=(), payment=()";
   return reply(request.method==='HEAD'?null:content||notFound(),content?200:404,'text/html; charset=utf-8',headers);

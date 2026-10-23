@@ -3,13 +3,16 @@
     "url": "https://github.com/nayuki/QR-Code-generator/blob/master/typescript-javascript/qrcodegen.ts",
     "source_sha256": "e332e4ab0c2530fdd5a412387c389385b51592701ae7b04abdd948bb44976fa0",
     "license": "MIT",
-    "transform": "Node stripTypeScriptTypes transform mode; export namespace"
+    "transform": "Node stripTypeScriptTypes transform mode; append ESM named export: export {qrcodegen};",
+    "runtime_sha256": "11d5493c0fb7ab39326fa393cc198747eb6140467ce01c8691133d4d735d1bed",
+    "generator_node": "v24.19.0"
   },
   "decoder": {
     "url": "https://github.com/cozmo/jsQR/blob/master/dist/jsQR.js",
     "source_sha256": "3b16531e458e494c20bd00b8302ce282c479a4de31fd299e896569383e6e41a2",
     "license": "Apache-2.0",
-    "transform": "local UMD module wrapper, ESM default export"
+    "transform": "local UMD module wrapper, ESM default export",
+    "runtime_sha256": "58bbe63c2e45b565bca7792364fc35aab91ee19ba5d0c9403f7b02ad68479a1c"
   },
   "retrieved": "2026-10-23"
 }

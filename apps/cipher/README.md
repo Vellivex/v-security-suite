@@ -1,4 +1,4 @@
-# V Cipher — recovered two-phone project, 0.1.7 research
+# V Cipher — recovered two-phone project, 0.1.8 research
 
 This continues the original `private-line-prototype.zip` (11 October 2026), whose source is preserved as non-executable historical text in recovery/. The original had RSA-OAEP identity encryption, ECDSA signatures and password-encrypted backups, but no QR implementation. The continuation fixes backup binding, bounds parsing, adds a cryptographically required conversation-secret layer, numbered QR transfers and local camera scanning. It is not independently audited.
 
@@ -17,3 +17,7 @@ Install offline files before disabling all networks and reloading. Vault operati
 Camera scanning is local, throttled and bounded to 960px frames; permission is requested only after clicking Start. Tracks are stopped on lock/hide/exit, including late permission results. Paste-frame fallback supports testing without a camera. Real two-phone/camera compatibility remains unverified.
 
 Run `node --test tests/cipher.test.mjs tests/cipher-ui.test.mjs tests/server.test.mjs`. Tests include actual QR encoder pixels decoded by the independently implemented bundled decoder, identity/backup/tamper/secret/replay tests and simulated lifecycle races. These are not actual Android/iPhone tests.
+
+### Session key export
+
+Restored identity keys are non-extractable. Newly generated keys first produce the encrypted VCVAULT2 backup, then are re-imported as non-extractable keys before UI activation. Keep and verify the original backup file: an active/restored session cannot be exported again. Backup file compatibility and fingerprints are unchanged. Non-extractability reduces accidental raw-key export; compromised page code can still invoke signing/decryption, and JavaScript cannot promise memory erasure.

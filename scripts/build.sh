@@ -4,6 +4,7 @@ set -euo pipefail
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 dist_root="$project_root/dist"
 
+node "$project_root/scripts/verify-vendor.mjs"
 python3 "$project_root/scripts/verify-vguard-release.py" --require-apk
 python3 "$project_root/scripts/source-archives.py"
 node "$project_root/scripts/assemble.mjs"

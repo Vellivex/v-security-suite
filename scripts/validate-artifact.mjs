@@ -28,7 +28,7 @@ console.log("Artifact is valid ESM and exports default.fetch");
 // Exercise the exact assembled Worker and embedded downloads, not only source.
 const deployedWorker=workerModule.default;
 const origin='https://artifact.vellivex.test';
-for(const path of ['/apps/cipher','/apps/cipher/vault','/apps/cipher/relay','/','/beta','/apps/guard','/apps/vault','/apps/relay','/source','/trust','/privacy','/terms','/feedback','/security','/brand','/roadmap']){
+for(const path of ['/blog','/blog/test-local-message-encryption','/blog/transfer-ciphertext-without-sharing-the-passphrase','/blog/android-firewall-test-checklist','/blog/read-security-claims-before-testing','/apps/cipher','/apps/cipher/vault','/apps/cipher/relay','/','/beta','/apps/guard','/apps/vault','/apps/relay','/source','/trust','/privacy','/terms','/feedback','/security','/brand','/roadmap']){
   const response=await deployedWorker.fetch(new Request(origin+path),{});
   assert.equal(response.status,200,path);
   assert.equal(response.headers.get('X-Content-Type-Options'),'nosniff');
@@ -50,6 +50,12 @@ console.log('Assembled routes, isolation headers, embedded download checksums an
 // Check every offline manifest entry against the exact bytes it downloads.
 const sw=await deployedWorker.fetch(new Request(origin+'/sw.js'),{}),swText=await sw.text();
 const offlineFiles=JSON.parse(/const FILES=(\[.*\]);/.exec(swText)[1]);
-for(const file of offlineFiles){const response=await deployedWorker.fetch(new Request(origin+(file.source||file.url)),{});assert.equal(response.status,200,file.url);const bytes=new Uint8Array(await response.arrayBuffer());assert.equal('sha256-'+createHash('sha256').update(bytes).digest('base64'),file.integrity,file.url);}
+for(const file of offlineFiles){
+ const response=await deployedWorker.fetch(new Request(origin+(file.source||file.url)),{});assert.equal(response.status,200,file.url);
+ const bytes=new Uint8Array(await response.arrayBuffer());assert.equal('sha256-'+createHash('sha256').update(bytes).digest('base64'),file.integrity,file.url);
+ const canonical=await deployedWorker.fetch(new Request(origin+file.url),{});assert.equal(canonical.status,200,file.url);
+ assert.deepEqual(file.headers,Object.fromEntries(canonical.headers),'Offline response policy '+file.url);
+ assert.equal(createHash('sha256').update(new Uint8Array(await canonical.arrayBuffer())).digest('base64'),file.integrity.slice(7),'Canonical offline bytes '+file.url);
+}
 for(const path of ['/apps/cipher/protocol.js','/apps/cipher/qr.js','/apps/cipher/vendor/qrcodegen.js','/apps/cipher/vendor/jsqr.js','/apps/vault/crypto.js','/cipher-ui.js']){const response=await deployedWorker.fetch(new Request(origin+path),{});assert.equal(response.status,200,path);assert.match(response.headers.get('Content-Type'),/javascript/);}
-console.log('Cipher module dependencies and all offline manifest digests agree.');
+console.log('Cipher module dependencies, offline manifest digests and canonical response headers agree.');

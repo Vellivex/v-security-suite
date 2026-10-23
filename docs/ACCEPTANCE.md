@@ -6,4 +6,4 @@
 4. Real beta feedback. Triaged defects, published release notes and regression results.
 5. Final brand/domain checks, operating identity and appropriate published legal/privacy details before commercial launch.
 6. Costed paid offering and explicitly accepted billing/trial flow. No automatic conversion is active in this beta.
-7. Store distribution, release/update signing process and reproducible-build work. No store acceptance or bit-identical build is currently claimed.
+7. Store distribution, release/update signing process and reproducible-build work. All eight unsigned VGuard payload entries were reproduced with the documented toolchain; store acceptance and byte-identical signed containers are not claimed.

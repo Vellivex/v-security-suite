@@ -22,3 +22,6 @@ jobs:
         run: python3 apps/vguard/validation/UI-Logic-Checks.py
       - name: Native source fingerprints and release policy (APK absent in public source checkout)
         run: python3 scripts/verify-vguard-release.py
+
+      - name: QR dependency source and generated-runtime verification
+        run: node scripts/verify-vendor.mjs

@@ -2,7 +2,8 @@
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
-import {page} from '../server/pages.js';
+import {page,notFound} from '../server/pages.js';
+import {makeWorker} from '../server/handler.js';
 import {offlineRelease} from './offline-release.mjs';
 const root=resolve(import.meta.dirname,'..');
 const assets={};
@@ -20,15 +21,22 @@ assets['/manifest.webmanifest']={body:JSON.stringify({name:'Vellivex experimenta
 for(const name of ['vault','relay'])assets['/offline/'+name]={body:page('/apps/'+name),type:'text/plain; charset=utf-8',offlineDocument:true};
 for(const role of ['vault','relay'])assets['/offline/cipher/'+role]={body:page('/apps/cipher/'+role),type:'text/plain; charset=utf-8',offlineDocument:true};
 const offlinePaths=['/apps/vault/crypto.js','/apps/cipher/vault','/apps/cipher/relay','/apps/cipher/protocol.js','/apps/cipher/qr.js','/apps/cipher/vendor/qrcodegen.js','/apps/cipher/vendor/jsqr.js','/cipher-ui.js','/apps/vault','/apps/relay','/apps/crypto.js','/app.js','/session.js','/offline.js','/site.js','/style.css','/icon.svg','/manifest.webmanifest'];
-const offlineManifest=offlinePaths.map(url=>({url,...(url==='/apps/vault'||url==='/apps/relay'||url.startsWith('/apps/cipher/')&&!url.endsWith('.js')?{source:url.replace('/apps/','/offline/'),type:'text/html; charset=utf-8'}:{}),integrity:'sha256-'+createHash('sha256').update(assets[url]?.body??page(url)).digest('base64')}));
+// Generate canonical response metadata from the same handler as live delivery.
+// Transport responses use text/plain; the pinned policy is for the real tool URL.
+const offlineWorker=makeWorker(page,notFound,assets);
+const offlineManifest=await Promise.all(offlinePaths.map(async url=>{
+ const response=await offlineWorker.fetch(new Request('https://offline.vellivex.test'+url),{});
+ if(response.status!==200)throw Error('Unable to prepare offline asset '+url);
+ return {url,...(url==='/apps/vault'||url==='/apps/relay'||url.startsWith('/apps/cipher/')&&!url.endsWith('.js')?{source:url.replace('/apps/','/offline/')}:{}),headers:Object.fromEntries(response.headers),integrity:'sha256-'+createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('base64')};
+}));
 assets['/sw.js']={body:offlineRelease(offlineManifest,await readFile(resolve(root,'web/sw.js'),'utf8')).source,type:'text/javascript; charset=utf-8'};
 for(const name of ['VGuard-0.1.3-candidate.apk','VGuard-Source-GPL.zip','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip','V-Security-Source.zip','VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt','SHA256SUMS.txt']){
  const binary=name.endsWith('.apk')||name.endsWith('.zip');
  assets['/downloads/'+name]={body:await readFile(resolve(root,'releases',name),binary?'base64':'utf8'),base64:binary,type:name.endsWith('.apk')?'application/vnd.android.package-archive':name.endsWith('.zip')?'application/zip':name.endsWith('.json')?'application/json':'text/plain; charset=utf-8',download:binary?name:undefined};
 }
 let pages=await readFile(resolve(root,'server/pages.js'),'utf8');
-pages=(await readFile(resolve(root,'server/cipher-pages.js'),'utf8')).replaceAll('export function ','function ')+'\n'+pages.replace("import {cipherContent} from './cipher-pages.js';\n",'').replaceAll('export function ','function ');
-let handler=await readFile(resolve(root,'server/handler.js'),'utf8');handler=handler.replaceAll('export async function ','async function ').replaceAll('export function ','function ');
+pages=(await readFile(resolve(root,'server/cipher-pages.js'),'utf8')).replaceAll('export function ','function ')+'\n'+pages.replace("import {cipherContent} from './cipher-pages.js';\n",'').replaceAll('export function ','function ').replaceAll('export const ','const ');
+let handler=await readFile(resolve(root,'server/handler.js'),'utf8');handler=handler.replaceAll('export async function ','async function ').replaceAll('export function ','function ').replaceAll('export const ','const ');
 await mkdir(resolve(root,'worker'),{recursive:true});
 await writeFile(resolve(root,'worker/index.js'),pages+'\n'+handler+'\nconst ASSETS='+JSON.stringify(assets)+';\nexport default makeWorker(page,notFound,ASSETS);\n');
 console.log('Assembled self-contained Worker with '+Object.keys(assets).length+' assets.');

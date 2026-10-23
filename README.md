@@ -7,9 +7,9 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
 | VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.2.7 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
-| V Cipher | Browser 0.1.7 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
-| VRelay | Browser 0.2.7 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VVault | Browser 0.2.8 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| V Cipher | Browser 0.1.8 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
+| VRelay | Browser 0.2.8 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault, VRelay and V Cipher retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
@@ -50,7 +50,7 @@ VVault/VRelay process message data in browser memory. Optional service-worker in
 
 ## Release gates
 
-See `docs/ACCEPTANCE.md`, `docs/TEST-RESULTS.md` and SECURITY.md. Automated successes do not imply actual phone enforcement or an independent audit. No reproducible-build claim is made.
+See `docs/ACCEPTANCE.md`, `docs/TEST-RESULTS.md` and SECURITY.md. Automated successes do not imply actual phone enforcement or an independent audit. Unsigned VGuard payload reproduction is documented separately; byte-identical signed APK containers are not claimed.
 
 ## Security hardening 0.2.3 / VGuard 0.1.3
 
@@ -65,3 +65,11 @@ V Cipher resumes the recovered Private Line prototype. Open `/apps/cipher` for i
 `source-archives.py` packages the exact paths in `scripts/source-manifest.json`. New source files need explicit manifest review; links, private/runtime file types and missing/unlisted paths stop the build. Keep signing/runtime data outside source directories. This policy prevents accidental inclusion; a reviewed text file can still contain sensitive content and must be inspected before adding it.
 
 `python3 scripts/verify-vguard-release.py` verifies native source fingerprints and policy. Use `--require-apk` when validating a release checkout; SDK-backed signature checks remain a separate, explicit result. Matching source hashes are not a reproducible-build proof.
+
+## Stronger key and offline-delivery controls
+
+V Cipher makes restored and activated private session keys non-extractable. Fresh identity creation exports its encrypted backup before hardening the session keys; keep that original backup. Re-exporting an active/restored session is intentionally refused. VCVAULT2 backup format compatibility is retained. This does not stop compromised JavaScript using an unlocked key or prove secure memory erasure.
+
+Offline releases pin both response bodies and canonical response headers, including MIME, network policy and isolation. Header-only cache modifications cannot relax those policies. The trusted origin and worker remain part of the trust boundary.
+
+Run `node scripts/verify-vendor.mjs` to check retained QR source/runtime hashes and exact local transforms. Run `python3 scripts/verify-vguard-payload.py --sdk /absolute/path/to/android-sdk` to reproduce and compare all eight VGuard payload entries without signing. See `docs/VGUARD-PAYLOAD-REBUILD-2026-10-23.md` for the toolchain and scope.

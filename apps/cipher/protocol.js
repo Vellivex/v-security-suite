@@ -27,7 +27,20 @@ export async function importCard(text){const card=parse(text,5000);shape(card,['
 export async function generateIdentity(){const a=await C.generateKey({name:'RSA-OAEP',modulusLength:3072,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']),b=await C.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);const card={type:'PLCONTACT1',enc:await C.exportKey('jwk',a.publicKey),sig:await C.exportKey('jwk',b.publicKey)},pub=await importCard(JSON.stringify(card));return {...pub,dec:a.privateKey,sign:b.privateKey};}
 async function passwordKey(pass,salt){if(typeof pass!=='string'||pass.length<14||pass.length>1024||!pass.isWellFormed())throw Error('Use a well-formed passphrase of 14–1,024 characters.');const bytes=E.encode(pass);try{const k=await C.importKey('raw',bytes,'PBKDF2',false,['deriveKey']);return await C.deriveKey({name:'PBKDF2',hash:'SHA-256',salt,iterations:600000},k,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}finally{bytes.fill(0);}}
 const backupAAD=card=>E.encode(canonical({type:'VCVAULT2',card}));
-export async function exportIdentity(mine,pass){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await passwordKey(pass,salt);const bytes=E.encode(JSON.stringify({dec:await C.exportKey('jwk',mine.dec),sign:await C.exportKey('jwk',mine.sign)}));try{return JSON.stringify({type:'VCVAULT2',card:mine.card,salt:b64(salt),iv:b64(iv),cipher:b64(await C.encrypt({name:'AES-GCM',iv,additionalData:backupAAD(mine.card)},key,bytes))});}finally{bytes.fill(0);}}
+export async function exportIdentity(mine,pass){if(mine?.dec?.extractable!==true||mine?.sign?.extractable!==true)throw Error('Session private keys cannot be exported. Keep the original encrypted backup.');const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await passwordKey(pass,salt);const bytes=E.encode(JSON.stringify({dec:await C.exportKey('jwk',mine.dec),sign:await C.exportKey('jwk',mine.sign)}));try{return JSON.stringify({type:'VCVAULT2',card:mine.card,salt:b64(salt),iv:b64(iv),cipher:b64(await C.encrypt({name:'AES-GCM',iv,additionalData:backupAAD(mine.card)},key,bytes))});}finally{bytes.fill(0);}}
+// Backup creation is the only stage that needs extractable private keys.
+// Replacing these references cannot revoke copies retained by other code.
+export async function hardenIdentity(mine){
+ const protect=async(key,algorithm,usage)=>{
+  if(key.extractable===false)return key;
+  const bytes=new Uint8Array(await C.exportKey('pkcs8',key));
+  try{return await C.importKey('pkcs8',bytes,algorithm,false,[usage]);}
+  finally{bytes.fill(0);}
+ };
+ const dec=await protect(mine.dec,{name:'RSA-OAEP',hash:'SHA-256'},'decrypt'),sign=await protect(mine.sign,{name:'ECDSA',namedCurve:'P-256'},'sign');
+ // Commit only after both imports succeed; failures retain the staged identity.
+ mine.dec=dec;mine.sign=sign;return mine;
+}
 // Validate redundant private-key representations before the platform imports them.
 // Some providers use CRT fields and silently ignore an inconsistent RSA d.
 function privateKeys(secrets,card){
@@ -42,7 +55,7 @@ function privateKeys(secrets,card){
 }
 export async function importIdentity(text,pass){const obj=parse(text,20000);shape(obj,['type','card','salt','iv','cipher']);if(obj.type!=='VCVAULT2')throw Error('Choose a V Cipher 2 encrypted backup. Legacy backups need a separately reviewed migration.');const pub=await importCard(JSON.stringify(obj.card)),salt=un64(obj.salt,16,16),iv=un64(obj.iv,12,12),cipher=un64(obj.cipher,16,12000),key=await passwordKey(pass,salt);let bytes;
  try{bytes=new Uint8Array(await C.decrypt({name:'AES-GCM',iv,additionalData:backupAAD(obj.card)},key,cipher));const secrets=parse(D.decode(bytes),12000);shape(secrets,['dec','sign']);privateKeys(secrets,obj.card);
- const dec=await C.importKey('jwk',secrets.dec,{name:'RSA-OAEP',hash:'SHA-256'},true,['decrypt']),sign=await C.importKey('jwk',secrets.sign,{name:'ECDSA',namedCurve:'P-256'},true,['sign']);
+ const dec=await C.importKey('jwk',secrets.dec,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']),sign=await C.importKey('jwk',secrets.sign,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
  // Bind restored private keys to the authenticated public card by actual operations.
  const challenge=crypto.getRandomValues(new Uint8Array(32)),wrapped=await C.encrypt({name:'RSA-OAEP'},pub.encrypt,challenge),opened=new Uint8Array(await C.decrypt({name:'RSA-OAEP'},dec,wrapped));
  if(opened.length!==challenge.length||opened.some((v,i)=>v!==challenge[i]))fail();opened.fill(0);
