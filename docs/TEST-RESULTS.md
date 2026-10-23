@@ -36,3 +36,7 @@ See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 22 
 ## Adversarial follow-up — current candidate
 
 Current release: VGuard 0.1.3-candidate and browser tools 0.2.2. See [ADVERSARIAL-REVIEW-2026-10-23.md](ADVERSARIAL-REVIEW-2026-10-23.md) for the current 49-test Node suite, real SQLite concurrency checks, 3,000,400 parser calls over four seeds, 300 lifecycle cycles and export restrictions. Historical observations above do not certify this candidate on a phone.
+
+## Browser 0.2.3 broad follow-up
+
+55 Node tests pass. Cached responses are hash-checked on each read after a reproduced post-install corruption failure. Added 35 authenticated-tampering cases, base64/type boundaries, a 500-request local SQLite concurrency burst, and Origin confusion checks. Exact assembled Worker/download validation is included in `npm run validate`. No new physical-device evidence is claimed.

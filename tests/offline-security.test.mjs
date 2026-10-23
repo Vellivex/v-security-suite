@@ -26,3 +26,10 @@ test('worker-only changes cannot reuse and delete the active release cache',asyn
 test('reinstall verifies an existing release without rewriting or deleting its cache',async()=>{const valid=runtime({cached:true,failDownload:true});let work;valid.events.install({waitUntil(value){work=value;}});await work;assert.equal(valid.calls.length,0);assert.deepEqual(valid.deleted,[]);const damaged=runtime({cached:true,damaged:true});damaged.events.install({waitUntil(value){work=value;}});await assert.rejects(work,/integrity/);assert.equal(damaged.calls.length,0);assert.deepEqual(damaged.deleted,[]);});
 
 test('unchanged active worker does not claim its cache was reverified',async()=>{const active=worker('activated');const result=await installOfflineTools({async register(){return {active,async update(){}};}});assert.deepEqual(result,{waiting:false,unchanged:true});});
+
+test('post-install cache corruption cannot become executable offline code',async()=>{const r=runtime({cached:true,damaged:true});let pending;r.events.fetch({request:new Request('https://v.test/app.js'),respondWith(value){pending=value;}});const response=await pending;assert.equal(response.status,503);assert.ok(!(await response.text()).includes('damaged'));assert.equal(r.calls.length,0);});
+
+test('corrupted offline HTML is refused and a valid script retains its verified body',async()=>{
+ for(const document of [false,true]){const r=runtime({cached:true,damaged:true,document});let pending;r.events.fetch({request:new Request('https://v.test'+(document?'/apps/vault':'/app.js')),respondWith(p){pending=p;}});assert.equal((await pending).status,503);assert.equal(r.calls.length,0);}
+ const r=runtime({cached:true});let pending;r.events.fetch({request:new Request('https://v.test/app.js?ignored-query=1'),respondWith(p){pending=p;}});const response=await pending;assert.equal(response.status,200);assert.equal(await response.text(),'source');assert.equal(r.calls.length,0);
+});

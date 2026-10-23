@@ -49,3 +49,19 @@ test('identical concurrent retries reconcile even when the first fills quota slo
  assert.equal(sqlite.prepare('SELECT count(*) n FROM feedback').get().n,10);
  }finally{sqlite.close();}
 });
+
+test('500-request local burst remains atomic and never exposes feedback content',async()=>{
+ const {sqlite,DB}=database(),env={DB,FEEDBACK_RATE_SECRET:secret};
+ try{const results=await Promise.all(Array.from({length:500},()=>feedback(request({...base,id:crypto.randomUUID()}),env)));
+ assert.equal(results.filter(r=>r.status===201).length,10);assert.equal(results.filter(r=>r.status===429).length,490);
+ assert.equal(sqlite.prepare('SELECT count(*) n FROM feedback').get().n,10);
+ for(const response of results)assert.ok(!(await response.text()).includes(base.message));
+ }finally{sqlite.close();}
+});
+test('foreign, opaque and suffix-confusion origins fail before database access',async()=>{
+ const env={FEEDBACK_RATE_SECRET:secret,DB:{prepare(){throw Error('origin reached database');}}};
+ for(const bad of [null,'null','https://vellivex.test.attacker.test','http://vellivex.test','https://attacker.test',origin+', https://attacker.test']){
+ const headers={'content-type':'application/json'};if(bad!==null)headers.origin=bad;
+ const response=await feedback(new Request(origin+'/api/feedback',{method:'POST',headers,body:JSON.stringify({...base,id:crypto.randomUUID()})}),env);assert.equal(response.status,403);
+ }
+});

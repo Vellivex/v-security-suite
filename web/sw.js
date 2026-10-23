@@ -27,8 +27,21 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
   }catch(error){if(!existed)await caches.delete(CACHE);throw error;}
 })()));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('v-tools-')&&key!==CACHE).map(key=>caches.delete(key))))));
+const unavailable=()=>new Response('Offline files failed verification or are incomplete. Save any encrypted files you need, close all Vellivex tool tabs, clear this site’s stored data in browser settings, then reopen online and enable offline use. Clearing site data removes offline files.',{status:503,headers:{'Content-Type':'text/plain','Cache-Control':'no-store'}});
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
-  if(event.request.method!=='GET'||url.origin!==self.location.origin||!FILES.some(file=>file.url===url.pathname))return;
-  event.respondWith(caches.open(CACHE).then(cache=>cache.match(url.pathname)).then(response=>response||new Response('Offline files are incomplete. Save any encrypted files you need, close all Vellivex tool tabs, clear this site’s stored data in browser settings, then reopen online and enable offline use. Clearing site data removes offline files.',{status:503,headers:{'Content-Type':'text/plain','Cache-Control':'no-store'}})));
+  if(event.request.method!=='GET'||url.origin!==self.location.origin)return;
+  const file=FILES.find(file=>file.url===url.pathname);if(!file)return;
+  event.respondWith((async()=>{
+    try{
+      const cache=await caches.open(CACHE),response=await cache.match(file.url);
+      if(!response?.ok)return unavailable();
+      // Installation checks cannot detect later storage corruption. Recheck the
+      // exact response body before returning any executable code or HTML.
+      const bytes=await response.clone().arrayBuffer();
+      const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+      if('sha256-'+btoa(String.fromCharCode(...digest))!==file.integrity)return unavailable();
+      return response;
+    }catch{return unavailable();}
+  })());
 });

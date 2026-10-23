@@ -1,3 +1,7 @@
+VELLIVEX — BROAD FOLLOW-UP, 23 OCTOBER 2026
+
+Browser tools 0.2.3 verify each cached response body before serving offline HTML/code. Post-install corruption fails closed with recovery instructions; no silent network fallback. 55 Node tests pass, including 35 authenticated-tampering cases and a 500-request local SQLite burst. Exact assembled Worker/download validation added. VGuard 0.1.3 APK unchanged. Real-phone validation and independent audit remain outstanding.
+
 VELLIVEX — ADDITIONAL ADVERSARIAL PASSES, 23 OCTOBER 2026
 
 VVault/VRelay 0.2.2 preserve authenticated leading U+FEFF characters exactly and reject ambiguous duplicate JSON member names, including escaped equivalents. Added 2,100 malformed-envelope cases and 120 asynchronous lock/edit schedules. Python interoperability rerun with a leading Unicode marker. 49 Node tests pass.

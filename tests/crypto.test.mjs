@@ -25,3 +25,26 @@ test('seeded malformed envelope mutations stay bounded and cannot pass unchecked
  for(let i=0;i<2000;i++){const field=fields[rand()%fields.length],obj={...original,[field]:invalid[rand()%invalid.length]};assert.throws(()=>inspectEnvelope(JSON.stringify(obj)));}
  for(let i=0;i<100;i++){const obj={...original};delete obj[fields[rand()%fields.length]];assert.throws(()=>inspectEnvelope(JSON.stringify(obj)));}
 });
+
+test('authenticated decryption rejects bit flips, truncation and cross-envelope splicing',async()=>{
+ const a=JSON.parse(await encryptMessage('Synthetic authenticated attack target 🛡️',phrase));
+ const b=JSON.parse(await encryptMessage('Different independently encrypted message',phrase));
+ let rejected=0;const ciphertext=Buffer.from(a.ciphertext,'base64');
+ for(let i=0;i<24;i++){const bytes=Buffer.from(ciphertext);bytes[Math.floor(i*bytes.length/24)]^=1<<(i%8);await assert.rejects(decryptMessage(JSON.stringify({...a,ciphertext:bytes.toString('base64')}),phrase));rejected++;}
+ for(const field of ['salt','iv','ciphertext']){await assert.rejects(decryptMessage(JSON.stringify({...a,[field]:b[field]}),phrase));rejected++;}
+ for(let n=1;n<=8;n++){await assert.rejects(decryptMessage(JSON.stringify({...a,ciphertext:ciphertext.subarray(0,-n).toString('base64')}),phrase));rejected++;}
+ assert.equal(rejected,35);
+});
+test('noncanonical base64 aliases and hostile field types never pass structural validation',async()=>{
+ const obj=JSON.parse(await encryptMessage('Synthetic canonical field test',phrase));
+ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+ const alias=obj.salt.slice(0,-3)+alphabet[alphabet.indexOf(obj.salt.at(-3))+1]+'==';
+ assert.deepEqual(Buffer.from(alias,'base64'),Buffer.from(obj.salt,'base64'));
+ assert.throws(()=>inspectEnvelope(JSON.stringify({...obj,salt:alias})),/canonical/);
+ for(const field of ['salt','iv','ciphertext'])for(const bad of [null,[],{},true,16,' '+obj[field],obj[field]+'\n',obj[field].replace(/=/g,''),obj[field]+'AAAA']){
+  if(bad===obj[field]||field==='iv'&&bad===obj[field].replace(/=/g,''))continue;
+  // Appending complete ciphertext bytes is structurally valid, but must fail GCM.
+  if(field==='ciphertext'&&bad===obj[field]+'AAAA'&&!obj[field].includes('='))continue;
+  assert.throws(()=>inspectEnvelope(JSON.stringify({...obj,[field]:bad})));
+ }
+});
