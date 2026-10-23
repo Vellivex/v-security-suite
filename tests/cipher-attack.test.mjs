@@ -29,3 +29,13 @@ test('public-key substitution changes the full contact fingerprint and cannot in
 test('recipient private key and independent conversation secret remain separately necessary',async()=>{const attacker=await generateIdentity();await assert.rejects(open({...attacker,fingerprint:bob.fingerprint},a,message,phrase));for(const wrong of ['','wrong','synthetic incorrect independent conversation secret']){const seen=new Set();await assert.rejects(open(bob,a,message,wrong,seen));assert.equal(seen.size,0);}assert.equal(await open(bob,a,message,phrase),'Synthetic boundary attack');});
 test('all 512 single-bit signature forgeries are rejected without replay-state changes',async()=>{const v=JSON.parse(message),signature=Buffer.from(v.signature,'base64');for(let bit=0;bit<512;bit++){const altered=Buffer.from(signature);altered[bit>>>3]^=1<<(bit&7);const seen=new Set();await assert.rejects(open(bob,a,JSON.stringify({...v,signature:altered.toString('base64')}),phrase,seen),/signature failed/);assert.equal(seen.size,0);}});
 test('encrypted backup components cannot be spliced across independently encrypted identities',async()=>{const {exportIdentity,importIdentity}=await import('../apps/cipher/protocol.js'),password='synthetic backup splice orchard',one=JSON.parse(await exportIdentity(alice,password)),two=JSON.parse(await exportIdentity(bob,password));for(const field of ['salt','iv','cipher','card'])await assert.rejects(importIdentity(JSON.stringify({...one,[field]:two[field]}),password));for(const wrong of ['synthetic wrong backup password','synthetic backup splice orcharD'])await assert.rejects(importIdentity(JSON.stringify(one),wrong));const restored=await importIdentity(JSON.stringify(one),password);assert.equal(restored.fingerprint,alice.fingerprint);});
+test('a full replay tracker refuses before any WebCrypto operation',async t=>{
+ const calls=[];
+ for(const name of ['importKey','digest','verify','decrypt','deriveKey']){
+  const original=crypto.subtle[name].bind(crypto.subtle);
+  t.mock.method(crypto.subtle,name,(...args)=>{calls.push(name);return original(...args);});
+ }
+ const full=new Set(Array.from({length:1024},(_,i)=>'synthetic-full:'+i));
+ await assert.rejects(open(bob,a,message,phrase,full),/tracker is full/);
+ assert.deepEqual(calls,[]);assert.equal(full.size,1024);
+});

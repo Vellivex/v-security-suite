@@ -6,7 +6,7 @@ import {installOfflineTools} from '/offline.js';
 const $=id=>document.getElementById(id);
 const say=(message,error=false)=>{const el=$('app-status');if(el){el.textContent=message;el.dataset.error=String(error);}};
 const vault=$('vault-form'),relay=$('relay-form');
-let cryptoBusy=false;
+let cryptoBusy=false,offlineBusy=false;
 function resetTransfer(){if(relay){$('result').value='';$('share-package').disabled=true;$('download-package').disabled=true;}}
 const session=new SessionScope(reason=>{
   document.querySelectorAll('[data-sensitive]').forEach(el=>{el.value='';});
@@ -61,9 +61,9 @@ if(relay){
   $('download-package').addEventListener('click',()=>{try{inspectEnvelope($('result').value);download($('result').value,'v-relay-message.vvault');}catch(error){say(error.message,true);}});
   $('share-package').addEventListener('click',async()=>{const token=session.generation;try{const text=$('result').value;inspectEnvelope(text);if(!navigator.share){say('Sharing is unavailable here. Copy or download the encrypted package instead.');return;}await navigator.share({title:'V encrypted package',text});if(session.current(token))say('Share completed. Share the passphrase separately.');}catch(error){if(session.current(token)&&error.name!=='AbortError')say('Sharing failed. Copy or download the package instead.',true);}});
 }
-$('offline-enable')?.addEventListener('click',async()=>{const token=session.generation;try{
+$('offline-enable')?.addEventListener('click',async()=>{if(offlineBusy)return;offlineBusy=true;const button=$('offline-enable'),token=session.generation;button.disabled=true;try{
   const result=await installOfflineTools(navigator.serviceWorker);
   if(!session.current(token))return;
   $('offline-enable').textContent='Check offline files for updates';
   say(result.unchanged?'No new offline release found. Existing files were not rechecked. Disconnect and reload to verify; if files are missing, save encrypted downloads, close tool tabs, clear this site’s stored data in browser settings, then reopen online and enable offline use.':result.waiting?'Offline files installed with integrity checks. Close all Vellivex tool tabs, then reopen before testing offline use.':'Offline files installed with integrity checks. Disconnect every network and reload to verify offline use on your phone.');
-}catch(error){if(session.current(token))say(error.message,true);}});
+}catch(error){if(session.current(token))say(error.message,true);}finally{offlineBusy=false;button.disabled=false;}});

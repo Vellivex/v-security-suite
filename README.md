@@ -7,9 +7,9 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
 | VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.2.5 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
-| V Cipher | Browser 0.1.5 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
-| VRelay | Browser 0.2.5 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VVault | Browser 0.2.6 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| V Cipher | Browser 0.1.6 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
+| VRelay | Browser 0.2.6 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault, VRelay and V Cipher retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
@@ -59,3 +59,9 @@ See `docs/ADVERSARIAL-REVIEW-2026-10-23.md`. The native candidate was rebuilt an
 ## Recovered two-phone QR project
 
 V Cipher resumes the recovered Private Line prototype. Open `/apps/cipher` for its guide, `/apps/cipher/vault` for the offline role and `/apps/cipher/relay` for ciphertext/public-card transport. See `apps/cipher/README.md` and `docs/CIPHER-CONTINUATION-2026-10-23.md`. It is separate from the ordinary VVault/VRelay passphrase tools.
+
+## Reviewed source packaging and native release checks
+
+`source-archives.py` packages the exact paths in `scripts/source-manifest.json`. New source files need explicit manifest review; links, private/runtime file types and missing/unlisted paths stop the build. Keep signing/runtime data outside source directories. This policy prevents accidental inclusion; a reviewed text file can still contain sensitive content and must be inspected before adding it.
+
+`python3 scripts/verify-vguard-release.py` verifies native source fingerprints and policy. Use `--require-apk` when validating a release checkout; SDK-backed signature checks remain a separate, explicit result. Matching source hashes are not a reproducible-build proof.

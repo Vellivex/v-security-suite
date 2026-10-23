@@ -56,3 +56,42 @@ test('offline activation removes retired tool caches while retaining current and
  vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-current').replace('__ASSET_MANIFEST__','[]'),{self,Response,caches:{async keys(){return ['v-tools-current','v-tools-retired','unrelated-cache'];},async delete(name){deleted.push(name);}}});
  let work;events.activate({waitUntil(p){work=p;}});await work;assert.deepEqual(deleted,['v-tools-retired']);
 });
+
+async function flush(){for(let i=0;i<12;i++)await Promise.resolve();}
+function deadlineClock(){let id=0;const jobs=new Map();return {jobs,schedule(fn,ms){const key=++id;jobs.set(key,{fn,ms});return key;},cancel(key){jobs.delete(key);},expire(){const pending=[...jobs.values()];jobs.clear();for(const {fn} of pending)fn();}};}
+for(const phase of ['register','update','install'])test(`offline ${phase} cannot outlive the total installation deadline`,async()=>{
+ const clock=deadlineClock(),never=new Promise(()=>{}),installing=worker('installing');let updates=0;
+ const registration={...(phase==='install'?{installing}:{active:worker('activated')}),async update(){updates++;return never;}};
+ const pending=installOfflineTools({register:()=>phase==='register'?never:Promise.resolve(registration)},clock);
+ await flush();assert.equal(clock.jobs.size,1,'the deadline covers every phase');assert.equal([...clock.jobs.values()][0].ms,30000);
+ const rejected=assert.rejects(pending,/timed out/);clock.expire();await rejected;assert.equal(clock.jobs.size,0);assert.equal(updates,phase==='update'?1:0);
+});
+test('late registration after timeout cannot start an update or claim installation',async()=>{
+ const clock=deadlineClock();let resolve,updates=0;const registration=new Promise(r=>resolve=r);
+ const pending=installOfflineTools({register:()=>registration},clock);await flush();
+ const rejected=assert.rejects(pending,/timed out/);clock.expire();await rejected;
+ resolve({active:worker('activated'),async update(){updates++;}});await flush();assert.equal(updates,0);assert.equal(clock.jobs.size,0);
+});
+test('one deadline covers registration, update and settling and removes its worker listener',async()=>{
+ const clock=deadlineClock();let register,update;const registrationWork=new Promise(r=>register=r),updateWork=new Promise(r=>update=r);
+ const installing=worker('installing');let listeners=0;const add=installing.addEventListener.bind(installing),remove=installing.removeEventListener.bind(installing);
+ installing.addEventListener=(...args)=>{listeners++;add(...args);};installing.removeEventListener=(...args)=>{listeners--;remove(...args);};
+ const registration={active:worker('activated'),async update(){await updateWork;this.installing=installing;}};
+ const pending=installOfflineTools({register:()=>registrationWork},clock);await flush();const first=[...clock.jobs.keys()][0];
+ register(registration);await flush();assert.deepEqual([...clock.jobs.keys()],[first]);update();await flush();assert.deepEqual([...clock.jobs.keys()],[first]);assert.equal(listeners,1);
+ const rejected=assert.rejects(pending,/timed out/);clock.expire();await rejected;assert.equal(listeners,0);installing.change('installed');await flush();assert.equal(clock.jobs.size,0);
+});
+test('late native registration or update rejections after timeout are consumed',async()=>{
+ for(const phase of ['register','update']){
+  const clock=deadlineClock();let reject;const native=new Promise((_,r)=>reject=r);
+  const pending=installOfflineTools({register:()=>phase==='register'?native:Promise.resolve({active:worker('activated'),update:()=>native})},clock);
+  await flush();const rejected=assert.rejects(pending,/timed out/);clock.expire();await rejected;
+  reject(Error('Late native failure'));await flush();assert.equal(clock.jobs.size,0);
+ }
+});
+test('successful offline completion clears its single deadline and state listener',async()=>{
+ const clock=deadlineClock(),installing=worker('installing');let listeners=0;const add=installing.addEventListener.bind(installing),remove=installing.removeEventListener.bind(installing);
+ installing.addEventListener=(...args)=>{listeners++;add(...args);};installing.removeEventListener=(...args)=>{listeners--;remove(...args);};
+ const pending=installOfflineTools({register:async()=>({installing})},clock);await flush();assert.equal(clock.jobs.size,1);assert.equal(listeners,1);
+ installing.change('installed');assert.deepEqual(await pending,{waiting:true,unchanged:false});assert.equal(clock.jobs.size,0);assert.equal(listeners,0);
+});

@@ -1,3 +1,8 @@
+VELLIVEX — RESOURCE AND RELEASE-INTEGRITY HARDENING, 23 OCTOBER 2026
+
+Site 0.4.0 / VVault and VRelay 0.2.6 / V Cipher 0.1.6 research. VGuard 0.1.3-candidate APK unchanged.
+Offline installation is bounded across registration/update/worker checks and repeated pending page requests are refused. V Cipher rejects an already-full replay tracker before expensive crypto while retaining its concurrent final check. Source packaging now requires an exact reviewed file manifest and rejects external links and forbidden private/runtime file types. Embedded APK bytes must match the build report as well as their checksum. Added native source/release-policy verification and fresh official SDK verification of the unchanged signed APK. See docs/RESOURCE-AND-RELEASE-HARDENING-2026-10-23.md for reproductions, evidence and limitations. No production-readiness or physical-phone pass is claimed.
+
 VELLIVEX — LAUNCH-CONFIDENCE HARDENING, 23 OCTOBER 2026
 
 Site 0.3.9 / VVault and VRelay 0.2.5 / V Cipher 0.1.5 research.

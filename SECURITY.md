@@ -33,3 +33,9 @@ V Cipher 0.1.1 adds recipient-side plaintext limits, strict identity-field valid
 ## Launch-confidence hardening — site 0.3.9
 
 VVault/VRelay 0.2.5 and V Cipher 0.1.5 request disabled spelling, correction, writing suggestions, autofill and translation on sensitive text. These are browser hints, not protection against extensions, cloud keyboards or a compromised device. V Cipher now commits new identities only after requesting their backup download and rechecking the session. The feedback form has a whole-exchange deadline and preserves uncertain retries. See `docs/LAUNCH-CONFIDENCE-REVIEW-2026-10-23.md` for reproduced cases and the remaining launch blockers. No real-phone or independent review pass is claimed.
+
+## Resource and release-integrity hardening — site 0.4.0
+
+Offline installation has one 30-second page-task deadline covering registration, update and worker checks. Repeated requests from the same pending page task are refused. The browser may still complete native work after a timeout; this is not cross-tab cancellation. V Cipher refuses an already-full replay tracker before performing expensive cryptography, retaining its final concurrent-capacity guard.
+
+Public source archives require an exact reviewed path manifest, reject links and private/runtime file types, and validate inputs before writing archives. Downloaded VGuard bytes must match both their checksum and build report. Native release checks bind current source fingerprints and policy to metadata; fresh official SDK checks verify the unchanged APK signature and compiled manifest. No real-device or reproducible-build completion is implied. See `docs/RESOURCE-AND-RELEASE-HARDENING-2026-10-23.md`.

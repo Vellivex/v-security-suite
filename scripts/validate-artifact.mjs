@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {validateReleaseBinding} from "./artifact-binding.mjs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,9 +43,7 @@ for(const line of (await sums.text()).trim().split('\n')){
   assert.equal(response.status,200,name);
   assert.equal(createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('hex'),expected,name);
 }
-const build=await deployedWorker.fetch(new Request(origin+'/downloads/VGuard-0.1.3-Build-Report.json'),{});
-const report=await build.json(),guard=await deployedWorker.fetch(new Request(origin+'/apps/guard'),{});
-assert.ok((await guard.text()).includes(report.sha256));
+await validateReleaseBinding(deployedWorker,origin);
 const missing=await deployedWorker.fetch(new Request(origin+'/nonexistent-test-page'),{});assert.equal(missing.status,404);
 console.log('Assembled routes, isolation headers, embedded download checksums and APK metadata agree.');
 

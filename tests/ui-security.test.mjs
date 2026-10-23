@@ -68,3 +68,17 @@ for(const kind of ['vault','relay'])test(`${kind}: current offline completion st
  const t=setup(kind,{installOfflineTools:async()=>({waiting:true})});await t.els['offline-enable'].emit('click');
  assert.match(t.els['app-status'].textContent,/installed with integrity checks/);assert.equal(t.els['offline-enable'].textContent,'Check offline files for updates');
 });
+
+for(const kind of ['vault','relay'])test(`${kind}: repeated offline clicks and lock cannot multiply unfinished installation jobs`,async()=>{
+ let calls=0;const work=deferred(),t=setup(kind,{installOfflineTools:()=>{calls++;return work.promise;}});
+ const first=t.els['offline-enable'].emit('click');assert.equal(t.els['offline-enable'].disabled,true);
+ for(let i=0;i<12;i++){await t.els['clear-session'].emit('click');await t.els['offline-enable'].emit('click');}
+ assert.equal(calls,1);const status=t.els['app-status'].textContent;work.resolve({waiting:true});await first;
+ assert.equal(t.els['app-status'].textContent,status);assert.equal(t.els['offline-enable'].disabled,false);
+ await t.els['offline-enable'].emit('click');assert.equal(calls,2);assert.equal(t.els['offline-enable'].disabled,false);
+});
+for(const kind of ['vault','relay'])test(`${kind}: offline failure releases its button for a deliberate retry`,async()=>{
+ let calls=0;const t=setup(kind,{installOfflineTools:()=>{calls++;return Promise.reject(Error('Synthetic install failure'));}});
+ await t.els['offline-enable'].emit('click');assert.equal(t.els['offline-enable'].disabled,false);assert.match(t.els['app-status'].textContent,/install failure/);
+ await t.els['offline-enable'].emit('click');assert.equal(calls,2);assert.equal(t.els['offline-enable'].disabled,false);
+});
