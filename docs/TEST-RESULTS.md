@@ -13,3 +13,18 @@
 Actual Android blocking, lifecycle, performance and battery behaviour. Browser behaviour on physical phones. Independent security review. Reproducible builds. Store acceptance. Customer feedback. No such result may be inferred from host tests.
 
 Live website UI, downloads, encryption and feedback storage results are recorded separately once executed.
+
+## Live browser observations — 23 October 2026
+
+- Deployed homepage, VVault, VRelay and feedback UI opened in the connected Chrome browser.
+- VVault encrypted a synthetic Unicode test message; wrong passphrase was rejected; the correct passphrase restored the exact message.
+- VRelay accepted that same encrypted envelope and preserved it byte-for-byte in its transfer field; saving became enabled. Native sharing/delivery and physical phone file import were not exercised.
+- The feedback form submitted a clearly labelled synthetic test report. The success reference matched an independently read private D1 row: `fe6e7831-f039-4ec9-b037-be7b7788e2d2`. This is test evidence, not customer feedback.
+- Public source repository and GPL licence availability verified with GitHub connector.
+- Assembled Worker: 25 local route/asset/download responses plus homepage internal links checked successfully.
+- Direct unauthenticated HTTP from the execution environment returned HTTP 403 before asset checks; anonymous external access has not been independently confirmed from that environment.
+- Browser automation intermittently returned HTTP 503. The crypto and feedback results above were subsequently observed successfully; no unexecuted checks are counted as passes.
+
+Remaining: real Android/iPhone devices, native Android enforcement, offline reload, PWA install behaviour, downloaded file integrity through the live browser, sharing/delivery, independent review and genuine external tester feedback.
+
+Responsive UI: homepage tested with a 390-pixel viewport, with no horizontal overflow; mobile navigation opened successfully. A viewport override is a layout test, not a physical-phone result.
