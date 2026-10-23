@@ -10,7 +10,7 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | VVault | Browser 0.2.0 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
 | VRelay | Browser 0.2.0 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
-Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault and VRelay retain their product names. Domain activation depends on DNS verification and HTTPS provisioning.
+Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault and VRelay retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
 ## Source and licence
 
