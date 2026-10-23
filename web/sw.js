@@ -5,9 +5,12 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(CACHE);
   try{
     for(const file of FILES){
-      const request=new Request(file.url,{integrity:file.integrity,cache:'reload',redirect:'error'});
+      const request=new Request(file.source||file.url,{integrity:file.integrity,cache:'reload',redirect:'error'});
       const response=await fetch(request);if(!response.ok)throw Error('Offline asset unavailable');
-      await cache.put(file.url,response);
+      if(file.type){
+        const headers=new Headers(response.headers);headers.set('Content-Type',file.type);
+        await cache.put(file.url,new Response(await response.arrayBuffer(),{status:200,headers}));
+      }else await cache.put(file.url,response);
     }
   }catch(error){await caches.delete(CACHE);throw error;}
 })()));

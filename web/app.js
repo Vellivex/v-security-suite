@@ -2,6 +2,7 @@
 import '/site.js';
 import {encryptMessage,decryptMessage,inspectEnvelope} from '/apps/crypto.js';
 import {SessionScope} from '/session.js';
+import {installOfflineTools} from '/offline.js';
 const $=id=>document.getElementById(id);
 const say=(message,error=false)=>{const el=$('app-status');if(el){el.textContent=message;el.dataset.error=String(error);}};
 const vault=$('vault-form'),relay=$('relay-form');
@@ -60,9 +61,7 @@ if(relay){
   $('share-package').addEventListener('click',async()=>{const token=session.generation;try{const text=$('result').value;inspectEnvelope(text);if(!navigator.share){say('Sharing is unavailable here. Copy or download the encrypted package instead.');return;}await navigator.share({title:'V encrypted package',text});if(session.current(token))say('Share completed. Share the passphrase separately.');}catch(error){if(session.current(token)&&error.name!=='AbortError')say('Sharing failed. Copy or download the package instead.',true);}});
 }
 $('offline-enable')?.addEventListener('click',async()=>{try{
-  if(!('serviceWorker'in navigator))throw new Error('Offline installation is unavailable in this browser.');
-  const registration=await navigator.serviceWorker.register('/sw.js',{scope:'/apps/',updateViaCache:'none'});
-  await registration.update();await navigator.serviceWorker.ready;
+  const result=await installOfflineTools(navigator.serviceWorker);
   $('offline-enable').textContent='Check offline files for updates';
-  say(registration.waiting?'Updated offline files are ready. Close all V tool tabs, then reopen to use them.':'Offline files installed with integrity checks. Disconnect every network and reload to verify offline use on your phone.');
+  say(result.waiting?'Offline files installed with integrity checks. Close all V tool tabs, then reopen before testing offline use.':'Offline files installed with integrity checks. Disconnect every network and reload to verify offline use on your phone.');
 }catch(error){say(error.message,true);}});

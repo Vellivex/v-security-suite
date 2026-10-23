@@ -1,0 +1,8 @@
+817a990e143be19d3d377427fd5f09750fbed1ae05663ab9acc0f4898e4bb636  VGuard-0.1.2-candidate.apk
+920021d0a3cfc8c8f3a1104d365bb51f3074bb2c987d09c5926fc38355673bc4  VGuard-Source-GPL.zip
+1c38e2caddf946fff669e769f04b2f8ed69a92ec49c1ee41fe86b3992859588b  VGuard-0.1.1-Source-GPL.zip
+821dd2ced792dba8a8b7face31023132d5a76fc6eaf39880a5aa3708e1cbb0be  V-Security-Source.zip
+c4f7a1dd4af1fab8dbaf1272a4e40088b152831d87141cc99133fdc53a6afece  VGuard-0.1.2-Build-Report.json
+8e2a95776bf2ad56aca0ba13999a16134107a1e4e2f22f905cb84f08eae5fa7d  VGuard-0.1.2-Package-Verification.txt
+8960219cb91e75112d465955f2acbb1d6bf752bc85293b281400a2a2867fc09c  VGuard-0.1.2-Security-Notes.txt
+634f138e67ad50e2c92fc520632f52dfdc958f3351c83525f42be418ccd382c2  RELEASE-NOTES.txt

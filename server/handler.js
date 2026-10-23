@@ -55,7 +55,7 @@ export function makeWorker(page,notFound,assets){return {async fetch(request,env
   if(path!== '/'&&path.endsWith('/'))return reply(null,308,'text/plain',{'Location':path.slice(0,-1)+url.search});
   if(path==='/robots.txt')return reply('User-agent: *\nDisallow: /\n',200,'text/plain; charset=utf-8');
   const asset=assets[path];
-  if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:{});}
+  if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:asset.offlineDocument?{'Cache-Control':'no-store, no-transform','Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")}:{});}
   const content=page(path);
   const headers=(path==='/apps/vault'||path==='/apps/relay')?{'Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")} : {};
   return reply(request.method==='HEAD'?null:content||notFound(),content?200:404,'text/html; charset=utf-8',headers);

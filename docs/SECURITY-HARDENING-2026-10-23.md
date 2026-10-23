@@ -21,6 +21,7 @@ This is a code-hardening and test-evidence report, not an independent audit or a
 - Imported files clear the previous transfer before validation; stale or oversized input cannot accidentally share an older package.
 - Crypto pages apply CSP `connect-src 'none'` and `form-action 'none'`. No message/passphrase upload feature exists.
 - Offline installation pins exact release hashes, rejects redirects and partial installation, separates cache versions and returns an error for missing installed assets instead of silently fetching replacement network code. These checks protect against mixed/corrupt delivery; a compromised delivery origin can also replace the worker and its declared hashes.
+- Live Chrome testing caught hosting-layer HTML injection changing an offline document's bytes. Canonical documents now travel as plain text with integrity checks and become HTML only inside the verified cache. Installation waits for worker state and reports rejected file checks rather than claiming success.
 - Envelope validation now rejects noncanonical base64 and invalid encryption passphrase types. AES-GCM/PBKDF2 settings and compatibility remain unchanged.
 
 ### Website and release process
@@ -32,13 +33,15 @@ This is a code-hardening and test-evidence report, not an independent audit or a
 
 ## Executed evidence
 
-- 22 web/server/session/offline tests passed, including actual production event handlers with deferred crypto/file/copy completions. The live Chrome check exposed a native timer receiver binding error; timer wrappers and a browser-behaviour regression now cover it.
+- 27 web/server/session/offline tests passed, including actual production event handlers with deferred crypto/file/copy completions. The live Chrome check exposed a native timer receiver binding error; timer wrappers and a browser-behaviour regression now cover it. Offline regressions cover canonical document headers, verified HTML reconstruction, initial installation, failed installation and waiting updates.
 - Independent Python `cryptography` AES-GCM/PBKDF2 decrypted a Web Crypto envelope, and Web Crypto decrypted an independently produced Python envelope. Synthetic Unicode messages only. This is interoperability testing, not cryptographic certification.
 - 20,132 native parser/rule assertions passed.
 - Existing native adversarial harness: 18 scenarios / 2,192 assertions, zero failures, plus the targeted revocation and two package-identity timing regressions.
 - 321 CSV encoder cases passed using Python's independent CSV parser.
 - Full native APK build, alignment, manifest/permission and signature verification passed. Candidate SHA-256: `817a990e143be19d3d377427fd5f09750fbed1ae05663ab9acc0f4898e4bb636`.
 - Assembled offline asset hashes, download routes and public archive exclusion checks passed locally.
+- Live Chrome 154 encrypted and decrypted a synthetic message successfully, cleared the original encryption draft and passphrase, and visibly locked after two minutes without activity. The HMAC-configured live feedback flow returned a saved reference and the matching synthetic row was independently verified through owner database tools. These are desktop checks, not physical-phone evidence.
+- The public GitHub regression workflow completed successfully for the first hardening commit and the browser timer fix. Later changes require their own observed run results.
 
 ## Limits and next gates
 
