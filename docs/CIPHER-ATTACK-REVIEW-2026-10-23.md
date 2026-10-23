@@ -41,3 +41,17 @@ Four additional UI failures were reproduced with deferred operations before fixi
 | Selecting a backup left invalidated camera tracks active | Start camera on Vault, then select a backup. Tracks remain live despite the changed session. | Backup selection stops camera and clears its video/canvas state. |
 
 All four regression tests failed before these changes and passed afterward. Additional deferred-completion matrices cover seven decryption cancellation boundaries (lock, hidden tab, page close, reconnection, isolation removal, backup selection and camera stop) and three backup-unlock cancellation boundaries. The complete suite now has 97 Node tests; physical camera/device validation and an independent audit remain outstanding. No cryptographic authentication bypass was demonstrated in this follow-up.
+
+
+## Third follow-up: trust withdrawal and malicious interiors (0.1.3 / source 0.3.3)
+
+Three additional failures reproduced before fixes:
+
+- Withdrawing the contact fingerprint confirmation while decryption was pending did not retire that operation, so plaintext could still appear. Withdrawal now locks the session, drops the identity, stops scanning and clears sensitive fields and QR output. This is a user trust-withdrawal failure, not a cryptographic signature bypass.
+- Editing the manual pasted-frame input during pending QR verification did not retire the older transfer. It now participates in input invalidation, suppressing the older completion and clearing previously displayed output.
+
+- A correctly encrypted/authenticated backup with RSA `d` replaced by `AA` still restored on the tested provider, which relied on valid redundant CRT fields. This was not a backup encryption or identity authentication bypass: it required construction of a backup with its passphrase and matching private CRT parameters. Import now requires exact private JWK fields, key purposes, canonical bounded integers and consistent RSA modulus/exponent/CRT relationships, plus the existing actual encryption/signature identity challenges. Valid generated backups still restore.
+
+Expanded attack campaigns pass: seventeen malformed but correctly encrypted/authenticated backup interiors (including duplicate private-key members, invalid UTF-8, wrong keys, invalid private key material and unsupported curves); 160 seeded binary mutations across IV, wrapped key, ciphertext and signature plus each signed address/ID field, all rejected without consuming replay state; excessive JSON nesting up to 1,998 levels and escaped duplicate public-card members; primitive/prototype-shaped transfer inputs rejected. These use synthetic identities and messages only.
+
+Complete suite: 102 Node tests. Both new UI regressions and the malformed RSA backup regression failed before the fixes and pass afterward. Build and assembled artifact validation cover offline asset integrity and headers. Real two-phone camera testing, mobile lifecycle testing and independent cryptographic review remain outstanding.

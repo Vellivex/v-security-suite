@@ -28,8 +28,20 @@ export async function generateIdentity(){const a=await C.generateKey({name:'RSA-
 async function passwordKey(pass,salt){if(typeof pass!=='string'||pass.length<14||pass.length>1024||!pass.isWellFormed())throw Error('Use a well-formed passphrase of 14–1,024 characters.');const bytes=E.encode(pass);try{const k=await C.importKey('raw',bytes,'PBKDF2',false,['deriveKey']);return await C.deriveKey({name:'PBKDF2',hash:'SHA-256',salt,iterations:600000},k,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}finally{bytes.fill(0);}}
 const backupAAD=card=>E.encode(canonical({type:'VCVAULT2',card}));
 export async function exportIdentity(mine,pass){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await passwordKey(pass,salt);const bytes=E.encode(JSON.stringify({dec:await C.exportKey('jwk',mine.dec),sign:await C.exportKey('jwk',mine.sign)}));try{return JSON.stringify({type:'VCVAULT2',card:mine.card,salt:b64(salt),iv:b64(iv),cipher:b64(await C.encrypt({name:'AES-GCM',iv,additionalData:backupAAD(mine.card)},key,bytes))});}finally{bytes.fill(0);}}
+// Validate redundant private-key representations before the platform imports them.
+// Some providers use CRT fields and silently ignore an inconsistent RSA d.
+function privateKeys(secrets,card){
+ const r=secrets.dec,e=secrets.sign;
+ shape(r,['kty','n','e','d','p','q','dp','dq','qi','alg','ext','key_ops']);
+ shape(e,['kty','crv','x','y','d','ext','key_ops']);
+ if(r.kty!=='RSA'||r.alg!=='RSA-OAEP-256'||r.ext!==true||r.n!==card.enc.n||r.e!==card.enc.e||!Array.isArray(r.key_ops)||r.key_ops.length!==1||r.key_ops[0]!=='decrypt')fail();
+ if(e.kty!=='EC'||e.crv!=='P-256'||e.ext!==true||e.x!==card.sig.x||e.y!==card.sig.y||!Array.isArray(e.key_ops)||e.key_ops.length!==1||e.key_ops[0]!=='sign')fail();jwkBytes(e.d,32);
+ const integer=(value,max)=>{if(typeof value!=='string'||!/^[A-Za-z0-9_-]+$/.test(value))fail();const bytes=un64(value.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-value.length%4)%4),1,max);if(bytes[0]===0)fail();return BigInt('0x'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''));};
+ const n=integer(r.n,384),d=integer(r.d,384),p=integer(r.p,192),q=integer(r.q,192),dp=integer(r.dp,192),dq=integer(r.dq,192),qi=integer(r.qi,192);
+ if(p<=2n||q<=2n||p===q||p%2n!==1n||q%2n!==1n||p*q!==n||d<=1n||d>=n||dp!==d%(p-1n)||dq!==d%(q-1n)||65537n*d%(p-1n)!==1n||65537n*d%(q-1n)!==1n||qi>=p||qi*q%p!==1n)fail();
+}
 export async function importIdentity(text,pass){const obj=parse(text,20000);shape(obj,['type','card','salt','iv','cipher']);if(obj.type!=='VCVAULT2')throw Error('Choose a V Cipher 2 encrypted backup. Legacy backups need a separately reviewed migration.');const pub=await importCard(JSON.stringify(obj.card)),salt=un64(obj.salt,16,16),iv=un64(obj.iv,12,12),cipher=un64(obj.cipher,16,12000),key=await passwordKey(pass,salt);let bytes;
- try{bytes=new Uint8Array(await C.decrypt({name:'AES-GCM',iv,additionalData:backupAAD(obj.card)},key,cipher));const secrets=parse(D.decode(bytes),12000);shape(secrets,['dec','sign']);
+ try{bytes=new Uint8Array(await C.decrypt({name:'AES-GCM',iv,additionalData:backupAAD(obj.card)},key,cipher));const secrets=parse(D.decode(bytes),12000);shape(secrets,['dec','sign']);privateKeys(secrets,obj.card);
  const dec=await C.importKey('jwk',secrets.dec,{name:'RSA-OAEP',hash:'SHA-256'},true,['decrypt']),sign=await C.importKey('jwk',secrets.sign,{name:'ECDSA',namedCurve:'P-256'},true,['sign']);
  // Bind restored private keys to the authenticated public card by actual operations.
  const challenge=crypto.getRandomValues(new Uint8Array(32)),wrapped=await C.encrypt({name:'RSA-OAEP'},pub.encrypt,challenge),opened=new Uint8Array(await C.decrypt({name:'RSA-OAEP'},dec,wrapped));
