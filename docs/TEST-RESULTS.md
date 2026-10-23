@@ -44,3 +44,7 @@ Current release: VGuard 0.1.3-candidate and browser tools 0.2.2. See [ADVERSARIA
 ## Storage and interruption pass — 0.2.3 unchanged
 
 63 Node tests pass, zero failed/skipped. Added six storage/verification fault branches, worker routing/cache-retirement boundaries, crypto rejection with draft preservation, late rejection after lock, failed and out-of-order file reads, and late share failure. No new defect reproduced; no production app change. See the detailed adversarial report for scope.
+
+## V Cipher continuation
+
+79 Node tests pass across the suite, including 16 new Cipher/protocol/UI/route tests. Actual encoder matrices decode with the independent bundled QR decoder; no physical-camera test is claimed. New coverage includes signed double-layer messages, backup card/private-key binding, session replay, mixed/corrupt QR frames, offline key-use gates, late camera permissions and stale file/key completions. Exact assembled offline manifest digests and module dependencies also pass.

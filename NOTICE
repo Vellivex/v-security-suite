@@ -3,3 +3,5 @@ Copyright (C) 2026 Vellivex contributors
 Original project code is licensed under GPL-3.0-or-later.
 Android SDK and JDK tools are not included and retain their own licences.
 Vellivex branding is not a grant of trademark rights.
+
+V Cipher QR components: Project Nayuki QR Code generator (MIT, license in source); jsQR by its contributors (Apache-2.0, apps/cipher/vendor/jsqr-LICENSE.txt). Vendored locally with source hashes in PROVENANCE.json. No runtime CDN.

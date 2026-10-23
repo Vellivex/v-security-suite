@@ -23,3 +23,7 @@ VGuard 0.1.2-candidate fixes two reproduced startup races and adds screen/backup
 VGuard 0.1.3-candidate restricts export destinations; browser tools 0.2.2 harden Unicode, concurrent crypto and offline cache isolation. Website feedback and redirect attack cases are fixed and regression-tested. See [the detailed review](docs/ADVERSARIAL-REVIEW-2026-10-23.md) for current evidence and limits; the earlier hardening section is historical. No independent audit or phone-runtime validation is claimed.
 
 Browser 0.2.3 also checks cached response bodies on every offline read. Missing or corrupted files fail closed. This does not protect a compromised origin or guarantee browser-storage security.
+
+## V Cipher recovered QR project
+
+V Cipher 0.1 research is now a fourth experimental product: signed recipient encryption, an independently required inner conversation secret, encrypted identity backups with public/private binding, and bounded multi-frame QR. Its Vault browser gate cannot prove physical isolation. Replay records last one unlocked session. It has no forward secrecy, ratchet, delivery backend or independent audit. Real camera/two-device tests remain unverified. See `apps/cipher/README.md` and `docs/CIPHER-CONTINUATION-2026-10-23.md`.

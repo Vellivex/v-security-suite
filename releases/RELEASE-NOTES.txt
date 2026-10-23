@@ -1,3 +1,7 @@
+VELLIVEX — V CIPHER CONTINUATION, 23 OCTOBER 2026
+
+Site/source release 0.3.0 adds V Cipher 0.1 research beside the existing tools. Recovered the original Private Line two-phone source. Added signed recipient encryption plus a separate required conversation secret, authenticated identity backups with private/public matching, bounded numbered QR generation/reassembly, local camera decoder and explicit offline Vault / online Relay screens. 79 Node tests and assembled Worker/offline digest checks pass. No physical two-phone/camera or independent-audit pass is claimed. Existing VVault/VRelay remain 0.2.3 and VGuard APK remains 0.1.3.
+
 VELLIVEX — BROAD FOLLOW-UP, 23 OCTOBER 2026
 
 Browser tools 0.2.3 verify each cached response body before serving offline HTML/code. Post-install corruption fails closed with recovery instructions; no silent network fallback. 55 Node tests pass, including 35 authenticated-tampering cases and a 500-request local SQLite burst. Exact assembled Worker/download validation added. VGuard 0.1.3 APK unchanged. Real-phone validation and independent audit remain outstanding.

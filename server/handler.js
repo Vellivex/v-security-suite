@@ -31,7 +31,7 @@ export async function feedback(request,env,now=new Date()){
   if(!data||typeof data!=='object'||Array.isArray(data))return json({error:'Invalid report.'},400);
   if(data.website)return json({error:'Unable to accept this submission.'},400);
   if(data.safe!=='on'||!Number.isFinite(data.elapsed)||data.elapsed<1500||data.elapsed>86400000)return json({error:'Please complete the safety checkbox and try again.'},400);
-  const allowedProduct=['VGuard','VVault','VRelay','Website'],allowedKind=['bug','idea','test','security','deletion'],allowedOS=['Android','iPhone/iPad','Desktop','Other'];
+  const allowedProduct=['VGuard','VVault','VRelay','VCipher','Website'],allowedKind=['bug','idea','test','security','deletion'],allowedOS=['Android','iPhone/iPad','Desktop','Other'];
   if(!allowedProduct.includes(data.product)||!allowedKind.includes(data.kind)||!allowedOS.includes(data.os)||typeof data.message!=='string'||data.message.trim().length<20||data.message.length>3000||typeof data.id!=='string'||data.id.length!==36||!/^\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b$/i.test(data.id))return json({error:'Check the product, device and report text (20–3,000 characters).'},400);
   if(!env.DB||typeof env.FEEDBACK_RATE_SECRET!=='string'||env.FEEDBACK_RATE_SECRET.length<32)return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
   const created=now.toISOString(),id=data.id.toLowerCase(),message=data.message.trim();
@@ -65,8 +65,11 @@ export function makeWorker(page,notFound,assets){return {async fetch(request,env
   if(path!== '/'&&path.endsWith('/')){url.pathname=path.slice(0,-1);return reply(null,308,'text/plain',{'Location':url.href});}
   if(path==='/robots.txt')return reply('User-agent: *\nDisallow: /\n',200,'text/plain; charset=utf-8');
   const asset=assets[path];
-  if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:asset.offlineDocument?{'Cache-Control':'no-store, no-transform','Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")}:{});}
+  if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:asset.offlineDocument?{...(path.startsWith('/offline/cipher/')?{'Permissions-Policy':"camera=(self), microphone=(), geolocation=(), payment=()"}:{}),'Cache-Control':'no-store, no-transform','Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")+(path.startsWith('/offline/cipher/')?'; media-src blob:':'')}:{});}
   const content=page(path);
-  const headers=(path==='/apps/vault'||path==='/apps/relay')?{'Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")} : {};
+  const cipherTool=path==='/apps/cipher/vault'||path==='/apps/cipher/relay';
+  const headers=(path==='/apps/vault'||path==='/apps/relay'||cipherTool)?{'Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")} : {};
+  if(cipherTool)headers['Content-Security-Policy']+='; media-src blob:';
+  if(cipherTool)headers['Permissions-Policy']="camera=(self), microphone=(), geolocation=(), payment=()";
   return reply(request.method==='HEAD'?null:content||notFound(),content?200:404,'text/html; charset=utf-8',headers);
 }};}
