@@ -31,4 +31,4 @@ Responsive UI: homepage tested with a 390-pixel viewport, with no horizontal ove
 
 ## Subsequent hardening release
 
-See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 21 browser/server/session/offline regressions, independent cryptographic interoperability checks and native race fixes. Earlier live browser observations above apply to the prior beta; current-release live observations must be recorded separately.
+See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 22 browser/server/session/offline regressions, independent cryptographic interoperability checks and native race fixes. Earlier live browser observations above apply to the prior beta; current-release live observations must be recorded separately.

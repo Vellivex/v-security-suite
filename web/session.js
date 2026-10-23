@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 export class SessionScope {
-  constructor(onLock,{idleMs=120000,schedule=setTimeout,cancel=clearTimeout}={}) {
+  constructor(onLock,{idleMs=120000,schedule=(fn,delay)=>setTimeout(fn,delay),cancel=id=>clearTimeout(id)}={}) {
     this.generation=0; this.onLock=onLock; this.idleMs=idleMs;
     this.schedule=schedule; this.cancel=cancel; this.timer=null;
   }

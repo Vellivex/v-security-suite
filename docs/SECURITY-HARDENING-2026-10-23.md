@@ -32,7 +32,7 @@ This is a code-hardening and test-evidence report, not an independent audit or a
 
 ## Executed evidence
 
-- 21 web/server/session/offline tests passed, including actual production event handlers with deferred crypto/file/copy completions.
+- 22 web/server/session/offline tests passed, including actual production event handlers with deferred crypto/file/copy completions. The live Chrome check exposed a native timer receiver binding error; timer wrappers and a browser-behaviour regression now cover it.
 - Independent Python `cryptography` AES-GCM/PBKDF2 decrypted a Web Crypto envelope, and Web Crypto decrypted an independently produced Python envelope. Synthetic Unicode messages only. This is interoperability testing, not cryptographic certification.
 - 20,132 native parser/rule assertions passed.
 - Existing native adversarial harness: 18 scenarios / 2,192 assertions, zero failures, plus the targeted revocation and two package-identity timing regressions.
