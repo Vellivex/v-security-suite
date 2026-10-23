@@ -1,3 +1,7 @@
+VELLIVEX — V CIPHER ADVERSARIAL FOLLOW-UP, 23 OCTOBER 2026
+
+V Cipher 0.1.1 / site 0.3.1 fixes structural fingerprint validation, receiver plaintext limits, camera lifetime on operation changes, asynchronous QR-reset retirement, stale outgoing QR display and replay updates from retired decryptions. 91 Node tests pass, including 10,000 hostile QR strings and synthetic rotated/inverted/noise decoding tests. Physical phones and independent review remain outstanding.
+
 VELLIVEX — V CIPHER CONTINUATION, 23 OCTOBER 2026
 
 Site/source release 0.3.0 adds V Cipher 0.1 research beside the existing tools. Recovered the original Private Line two-phone source. Added signed recipient encryption plus a separate required conversation secret, authenticated identity backups with private/public matching, bounded numbered QR generation/reassembly, local camera decoder and explicit offline Vault / online Relay screens. 79 Node tests and assembled Worker/offline digest checks pass. No physical two-phone/camera or independent-audit pass is claimed. Existing VVault/VRelay remain 0.2.3 and VGuard APK remains 0.1.3.

@@ -1,0 +1,29 @@
+# V Cipher adversarial follow-up — 23 October 2026
+
+Scope: V Cipher research 0.1 → 0.1.1, site/source 0.3.1. Internal source review and local synthetic fault/attack tests. Not an independent audit or physical phone test.
+
+## Reproduced findings and fixes
+
+| Finding | Evidence before fix | Change |
+| --- | --- | --- |
+| Relay structural validation accepted non-text sender/recipient fingerprints | `inspectMessage` accepted null/number/object/array/boolean fields because its fingerprint helper returned false without throwing. Recipient identity comparison still refused these packages; no sender-authentication bypass was demonstrated. | Require canonical 32-byte base64 strings and exact message ID length before handling a package. |
+| Receiver did not enforce the advertised plaintext bound | A correctly signed package containing a 2,500-byte inner message decrypted even though the sender UI limit was 2,048 bytes. | Recipient checks UTF-8 byte length and nonempty plaintext independently after authenticated decryption, before display/replay commit. Sender rejects excessive code-unit length before allocating encoded bytes. |
+| Invalidated camera could remain active | Switching from camera scanning to another operation invalidated its token but left its tracks running and loop discarding results. | Stop camera and clear scan canvas before changing operations. Regression asserts tracks close and video source clears. |
+| QR reset did not retire asynchronous collector verification | Resetting between final-frame submission and hash completion still let Collector.add return the old transfer. UI session guards already suppressed publication. | Collector epoch checked after each asynchronous verification stage; reset rejects retired completions itself. |
+| Old outgoing QR remained after receiving a new transfer | Incoming collection completed and replaced the package text while the earlier displayed QR stayed visible. | Clear outgoing QR/text/canvas before publishing the newly received transfer. |
+| Retired decryption consumed replay state for undisplayed text | Editing during pending decryption suppressed the plaintext but the old operation still mutated the shared replay set; retry then incorrectly looked replayed. | Decrypt into a private trial replay set; commit it only if the operation is current and its plaintext will be published. |
+
+Other hardening: primitive transfer objects are refused explicitly; scanner pixel inputs require a typed byte array. Existing exact QR-frame syntax checks already rejected trailing newlines and were retained.
+
+## Expanded verification
+
+- 10,000 seeded hostile QR strings rejected without populating a transfer.
+- 30 mixed-transfer/conflicting-frame/reset/reordered-valid campaigns complete only the intended package.
+- Actual QR matrices decode when rotated, inverted and combined; 100 seeded camera-noise images produce no QR result. These are synthetic pixels, not camera photographs.
+- Malformed public key material, weak/wrong algorithms, unexpected private fields, wrong EC curves and key usages rejected.
+- Correctly signed malformed inner JSON/UTF-8 rejected; failed decryption does not consume a replay ID.
+- Prior wrong-secret, wrong-recipient, tamper, backup binding, simultaneous replay, frame corruption, offline gates and lifecycle tests remain in the suite.
+
+Final suite: 91 Node tests, zero failed/skipped. Tests intentionally reproduced failures before the changes above and pass after fixes. Exact assembled Worker/module routes, offline digests, release download checksums and isolation headers are validated separately by `npm run validate`.
+
+Remaining gates: physical two-device scanning, mobile camera permission/background behavior, reliable offline deployment on target phones, performance/battery, independent protocol/security review. Replay tracking remains session-only; no ratchet, forward secrecy or delivery backend is added by this fix. Browser offline indicators are not proof of physical isolation, and memory erasure is not guaranteed.

@@ -11,3 +11,7 @@ Verification includes independent identities, Unicode preservation, wrong secret
 Not verified: real two-phone camera transfer, Android/iOS browser behavior while fully isolated, durable replay history, device hardening, mobile performance, independent protocol audit or reproducible signed native packaging. No delivery backend or forward secrecy is implemented. Do not present the historical test report as an independent audit. Do not claim the new build is production secure or physically air-gapped.
 
 The V Cipher pages block app-initiated network connections; only their local camera permission is enabled, without microphone permission. Ordinary VVault/VRelay retain camera denial. Camera images are decoded locally, never uploaded by the app. The website still serves ordinary requests while online.
+
+## Adversarial follow-up
+
+Research build 0.1.1 fixes six reproduced structural/boundary/lifecycle defects. See [CIPHER-ATTACK-REVIEW-2026-10-23.md](CIPHER-ATTACK-REVIEW-2026-10-23.md). The suite now includes 91 passing Node tests, 10,000 malformed QR strings, recipient-side plaintext limits and camera/collector/replay race regressions. Original 79-test counts above describe the initial continuation.

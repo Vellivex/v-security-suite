@@ -48,3 +48,7 @@ Current release: VGuard 0.1.3-candidate and browser tools 0.2.2. See [ADVERSARIA
 ## V Cipher continuation
 
 79 Node tests pass across the suite, including 16 new Cipher/protocol/UI/route tests. Actual encoder matrices decode with the independent bundled QR decoder; no physical-camera test is claimed. New coverage includes signed double-layer messages, backup card/private-key binding, session replay, mixed/corrupt QR frames, offline key-use gates, late camera permissions and stale file/key completions. Exact assembled offline manifest digests and module dependencies also pass.
+
+## V Cipher adversarial follow-up
+
+91 Node tests pass. Six reproduced V Cipher defects fixed; see `CIPHER-ATTACK-REVIEW-2026-10-23.md`. New campaigns include 10,000 hostile QR strings, 30 mixed/conflict/reordering sequences and rotated/inverted/noisy synthetic images. No real-phone or independent audit pass is claimed.

@@ -27,3 +27,5 @@ Browser 0.2.3 also checks cached response bodies on every offline read. Missing 
 ## V Cipher recovered QR project
 
 V Cipher 0.1 research is now a fourth experimental product: signed recipient encryption, an independently required inner conversation secret, encrypted identity backups with public/private binding, and bounded multi-frame QR. Its Vault browser gate cannot prove physical isolation. Replay records last one unlocked session. It has no forward secrecy, ratchet, delivery backend or independent audit. Real camera/two-device tests remain unverified. See `apps/cipher/README.md` and `docs/CIPHER-CONTINUATION-2026-10-23.md`.
+
+V Cipher 0.1.1 adds recipient-side plaintext limits, strict identity-field validation, collector reset cancellation, camera shutdown on operation switches and transactional session replay updates. See `docs/CIPHER-ATTACK-REVIEW-2026-10-23.md` for reproduced findings and limits.
