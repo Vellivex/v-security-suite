@@ -1,0 +1,9 @@
+/build/
+/.local-signing/
+/local.properties
+*.jks
+*.p12
+*.keystore
+*.pass
+__pycache__/
+/tests/.classes/

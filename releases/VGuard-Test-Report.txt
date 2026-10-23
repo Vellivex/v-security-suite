@@ -1,0 +1,219 @@
+VGUARD 0.1.1-PREVIEW — TEST REPORT
+Test date: 10 October 2026 (UTC)
+
+RESULT: AUTOMATED CHECKS AND ANDROID 15 INSTALLATION PASSED.
+LIVE FIREWALL AND NATIVE INTERFACE TESTING REMAIN UNVERIFIED.
+
+Six defects were corrected and the fixed preview was rebuilt. The automated
+checks below passed, and Android 15 accepted the exact signed APK. Android
+system startup and graphics failures prevented VGuard from opening in the
+available software emulator. This is not a fully tested or independently
+audited security release. The unexecuted device cases are listed explicitly.
+
+BUILD UNDER TEST
+
+Package: app.vguard.firewall
+Version: 0.1.1-preview (version code 2)
+Minimum Android version: Android 10 / API 29
+Target API: 35; compile API: 36; build-tools: 36.0.0
+APK size: 86,543 bytes
+APK SHA256:
+  6a94a9fd9cdc13afcb37f48fabefa076ea4b4bf742896c7b26d7f832d9cbbafe
+Signing certificate SHA256:
+  7bdb5a95a45f735a175580a937eb5c7ec55a2c886ce038ed106c1dfa1f3ff049
+
+The candidate uses the same signing identity as the earlier 0.1.0 preview.
+Every result in this report applies only to the specified artifact or the
+production source identified by its associated validation record.
+
+SIX DEFECTS FOUND AND FIXED
+
+1. Export during rotation. The CSV snapshot previously lived only in the
+   Activity and could be lost when the screen rotated in the document picker.
+   The snapshot now survives Activity recreation in memory. Process loss is
+   reported as an interrupted export. Packet metadata is not put into saved
+   Android instance-state.
+
+2. App-list access on small screens. Fixed controls could consume the list's
+   available height in landscape, with large text, or with the keyboard open.
+   The controls now scroll with the list; branding and navigation temporarily
+   collapse during keyboard search so the app rows remain reachable.
+
+3. Notification-denial recovery. The settings button could repeatedly request
+   a denied notification permission. It now opens the actual Android app
+   notification settings screen.
+
+4. Unavailable saved app rules. Uninstalled apps could leave a saved selection
+   with no visible row to remove it, and package changes left the list stale.
+   Unavailable selections now have removable rows and installed-app changes
+   refresh the resumed interface.
+
+5. Stale VPN-consent context. An old consent request could apply an outdated
+   profile after the saved choice changed elsewhere. VGuard now rechecks the
+   requested profile and package set when consent returns, and asks for a new
+   Start action when that context changed or was lost.
+
+6. An installed app sharing a selected UID. Installing an unselected package
+   with the same Android UID could widen the current block without triggering
+   revalidation. This defect was reproduced in the controlled engine harness.
+   The live session now tracks its validated UIDs and revalidates relevant UID
+   package events. An incomplete shared-UID group stops with an explicit error.
+   This was unintended blocking of an unselected app, not a demonstrated leak.
+
+The verification method for each fix matters: source review and compilation
+support the five UI corrections; the engine regression was executed against
+controlled Android framework stubs. Actual Android outcomes appear separately.
+
+COMPLETED AUTOMATED AND PACKAGE CHECKS
+
+Core parser and rule checks — PASSED
+  20,132 assertions against production code on the JVM. Coverage includes
+  IPv4/IPv6 bounds, IP options and extension chains, fragments, truncated and
+  invalid buffers, 20,000 seeded hostile random inputs, self exclusion, empty
+  defaults, package-name sanitation and immutable rule copies.
+
+Adversarial engine checks — PASSED
+  18 scenarios, 2,192 assertions, zero failures. Actual production engine files
+  were compiled against 25 controlled framework stubs. Checks include empty,
+  missing and shared-UID selections; consent/foreground/establishment failures;
+  packet reader errors; revocation; stale-worker isolation; rule changes;
+  package update/uninstall events; private rule storage; real injected-packet
+  counters; and the bounded metadata history.
+
+  The API 29/33/35 code-path checks in this suite use stubs. They are not tests
+  on those Android OS versions. Assertion counts include invariants and data
+  fields and must not be described as thousands of distinct security tests.
+
+CSV encoder checks — PASSED
+  321 cases. The production Java encoder's output was parsed by Python's
+  independent CSV implementation. Coverage includes Unicode, quotes, commas,
+  carriage returns, line feeds, null and empty values. The total includes 66
+  formula-leading cases neutralised with an apostrophe. No spreadsheet
+  application execution is claimed.
+
+Native build and package integrity — PASSED
+  Full production Java compilation, resource compilation, DEX packaging,
+  alignment and APK signature verification succeeded. The APK has a valid v3
+  signature from the expected preview key, valid ZIP entries, no duplicate
+  entries, no test stubs and no native libraries. Its 48 defined classes are
+  production or generated app classes.
+
+Manifest and privacy inspection — PASSED
+  Exactly the four intended requested permissions are present:
+  QUERY_ALL_PACKAGES, FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE and
+  POST_NOTIFICATIONS. VGuard declares no INTERNET, location, microphone or
+  camera permission. Application backup and always-on VPN support are disabled.
+  The exported VPN service requires android.permission.BIND_VPN_SERVICE.
+
+  Source inspection finds no outbound socket, traffic forwarder, account,
+  analytics or remote service. These are source/package findings; they do not
+  independently prove the phone kernel's routing or another app's behaviour.
+
+ANDROID RUNTIME RESULTS
+
+Installation on Android 15 / API 35 — PASSED
+  The exact fixed APK installed successfully at 20:29:48 UTC on 10 October
+  2026, with exit status 0 and Android's Success response. Package inspection
+  confirmed app.vguard.firewall installed for user 0 and MainActivity declared.
+  The separate Blocked and Allowed test-probe APKs also installed successfully.
+
+Actual VGuard execution — BLOCKED BY TEST ENVIRONMENT
+  The Android 15 guest had not completed its first user unlock. Launch did not
+  reach VGuard, and Android's system-server watchdog subsequently terminated
+  the guest system process during platform startup.
+
+  An official Android 10 / API 29 image was then tried. Android's own Settings
+  and SystemUI rendering failed before a usable app session. A supported
+  second graphics backend reproduced the native HostConnection crash. Neither
+  Android 10 attempt reached VGuard installation or execution.
+
+  These failures occurred before VGuard ran. They establish an unavailable
+  test environment, not a passing or failing live VGuard enforcement result.
+  No genuine VGuard screenshot, VPN consent interaction or Android network
+  probe result was obtained. The captured black system frames are not app
+  screenshots and are labelled as pre-unlock evidence in the source archive.
+
+Environment qualification
+  Official Android emulator 37.2.12 used software CPU emulation because KVM
+  hardware acceleration was unavailable. Clock pacing and an ordinary Android
+  watchdog-timeout setting were tried to address startup delays. No SELinux,
+  application permission, VPN consent or credential protection was weakened.
+  These configurations provide no performance, battery or real-time timing
+  evidence. Exact guest fingerprints, settings, logs and timestamps are in
+  validation/Android-Runtime.txt and validation/runtime/ in the source archive.
+
+Device acceptance matrix
+  PASS          Exact fixed APK installation on Android 15.
+  PASS          Separate regular test-probe installation on Android 15.
+  BLOCKED       First usable VGuard launch and native screen inspection.
+  NOT EXECUTED  HTTP, TCP and UDP off-state connectivity baselines.
+  NOT EXECUTED  Selected app blocked while unselected app remains connected.
+  NOT EXECUTED  Stop restores the selected app's connection.
+  NOT EXECUTED  Actual VPN approval, cancellation and consent rotation.
+  NOT EXECUTED  Native IPv6 routing and uncached Android DNS enforcement.
+  NOT EXECUTED  Explicit underlying-network connection/bypass attempt.
+  NOT EXECUTED  Handling of a TCP connection opened before activation.
+  NOT EXECUTED  Empty selections, live rule changes and profile switching.
+  NOT EXECUTED  Revocation, force-stop/reopen, sleep and network changes.
+  NOT EXECUTED  Protected-service binding rejection by an ordinary app.
+  NOT EXECUTED  Actual shared-UID installation/removal and package changes.
+  NOT EXECUTED  Native metadata display, clearing and CSV save/lifecycle.
+  NOT EXECUTED  Compact, landscape, large-text, keyboard and accessibility UI.
+  NOT EXECUTED  Notification denial, settings recovery and notification Stop.
+  NOT EXECUTED  Installing this update over 0.1.0 with saved rules retained.
+  NOT EXECUTED  Physical-phone or GrapheneOS behavior.
+  NOT ASSESSED  Battery, throughput, long-duration reliability or performance.
+
+The host suites cover some corresponding logic using controlled stubs, but
+those results must not be transferred into this device matrix. A prepared
+local test server is also not a successful Android network baseline.
+
+Required next acceptance gate
+  On a working Android device, first show that two independent test apps can
+  connect while VGuard is off. Select only one, approve VGuard's normal VPN
+  request, and show that the selected app cannot connect while the unselected
+  app still can. Stop VGuard and show that the selected app connects again.
+  Use fresh network requests so cached content cannot masquerade as a pass.
+
+  This basic comparison is necessary but does not complete the extended
+  matrix above. The user's actual phone still needs verification before the
+  preview can be relied on for privacy-sensitive blocking.
+
+DESIGN LIMITS THAT TESTING DOES NOT REMOVE
+
+- VGuard controls the selected apps' routed network traffic. It cannot revoke
+  their camera, microphone or location permissions or affect external trackers.
+- Stopping the VPN, revoking it, ending the process, or failing to apply rules
+  can end blocking. This preview has no always-on/lockdown mode or automatic
+  restart. It must show OFF or ERROR rather than a false ACTIVE claim.
+- Journey is selected manually. Plugging a phone into a car does not activate
+  the profile automatically in this version.
+- A permitted app may relay data for another app. A blocked app may save data
+  locally and transmit it after network access is restored.
+- Packet counts measure discarded packets, not detected threats. Metadata does
+  not identify the individual originating app; it uses the label Selected app.
+- History retains at most 200 metadata entries in process memory. The interface
+  shows up to 100; an explicit CSV export is a separate persistent file.
+- The supplied preview certificate establishes the update identity and package
+  integrity. It is not independent security certification.
+
+REPRODUCIBLE EVIDENCE IN THE SOURCE ARCHIVE
+
+validation/Core-Checks.txt
+validation/Adversarial-Review.txt
+validation/Adversarial-Before-Fix.txt
+validation/Adversarial-Engine-Checks.txt
+validation/Adversarial-Fixed-APK-Audit.json
+validation/Adversarial-Fixed-APK-Manifest.txt
+validation/Adversarial-Fixed-APK-Signature.txt
+validation/Adversarial-Fixed-APK-Classes.txt
+validation/UI-Review-20261010.md
+validation/UI-Logic-Results.json
+validation/Candidate-Source-Fingerprints.json
+validation/Package-Build.json
+validation/Android-Runtime.txt
+
+The source includes executable core and adversarial tests, the CSV test, and
+the separate Android instrumentation probes and controlled network fixtures.
+The probes and fixtures are not included in the VGuard APK. Android SDK images
+and private signing materials are not included in the shareable source archive.

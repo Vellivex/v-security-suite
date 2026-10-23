@@ -1,0 +1,97 @@
+VGUARD — ANDROID PHONE FIREWALL
+Version 0.1.1 preview
+
+Your V brand: black and charcoal, grey lettering, muted olive indicators, V + shield.
+
+GET STARTED
+
+1. Download VGuard-0.1.1-preview.apk on your Android phone and open it.
+   If Android asks, allow the browser/file manager to install this APK.
+   You can remove that install permission afterwards.
+2. Open VGuard, choose Apps, and turn on Block for an app you want offline.
+3. Go to Overview, tap Start blocking, and approve Android's VPN request.
+4. Check that the status shows ACTIVE. Test that the chosen app cannot load
+   new online content while an unselected app can still connect.
+5. Tap Stop blocking to restore the selected app's connection.
+
+UPDATING FROM 0.1.0
+
+Open the new APK and choose Update. It uses the same VGuard signing identity
+for an in-place update. Do not uninstall the old app first if you want to
+retain saved selections. This specific upgrade flow has not yet been tested
+on a running Android device.
+
+CHANGES IN 0.1.1
+
+- Retains export and VPN-consent context through screen rotation.
+- Gives a clear message if Android ends the app during an export.
+- Keeps app rows reachable on compact screens and with large text/keyboard.
+- Opens the actual Android notification settings after notification denial.
+- Lets you remove unavailable saved app rules and refreshes installed apps.
+- Rechecks blocking scope when an installed app shares a selected Android UID.
+
+FEATURES
+
+- Separate Normal and Journey app selections.
+- Real discarded-packet and byte counts.
+- Recent destination/protocol activity, plus clear and CSV export.
+- Native Android app-permission, VPN and notification settings shortcuts.
+- No account, remote server, analytics or INTERNET permission in VGuard.
+
+Journey is selected manually in this version; connecting a USB cable does
+not switch it on automatically.
+
+HOW IT WORKS
+
+Android routes the apps you select into VGuard's local VPN interface,
+where their packets are discarded. Other apps keep their normal connection.
+
+Android allows one VPN in this user/profile. Starting VGuard may replace
+another VPN. It is local filtering, without a remote VPN server.
+
+Blocking ends when you stop the app's VPN, Android revokes it, the app
+process ends, or applying rules fails. This preview does not offer always-on,
+boot activation, automatic restart or Android's block-without-VPN setting.
+An empty app selection never activates a whole-phone block.
+
+This controls app network access. Camera, microphone, location and other
+permissions stay under Android's own controls. It is not a spyware scanner
+or a device for interfering with external GPS or trackers. Apps may retain
+data locally and send it when you later allow their connection.
+
+On GrapheneOS, use an app's built-in Network permission when you want it
+to stay offline without taking up the VPN slot. VGuard cannot change
+that permission for you.
+
+YOUR DATA
+
+App selections are saved privately on the phone. Recent activity keeps
+only the last 200 packet-metadata entries in memory and disappears when
+the app process ends. It does not record message contents or identify the
+individual originating app. Packet counts are not threat detections.
+
+A CSV you explicitly export is a separate file, saved where you choose.
+
+CHECKING THE BUILD
+
+This is a development preview, with full source supplied separately.
+The source archive contains the build instructions, the core tests,
+the separate Android test probes and the validation record.
+
+The APK is compiled and signed with its own VGuard signing identity.
+Automated parser/rule, simulated engine and CSV checks passed, and the APK
+installed successfully on Android 15. Android system startup failures
+prevented the available emulator from opening VGuard, so live firewall
+behavior and the native interface remain unverified. See the supplied
+VGuard-Test-Report.txt for the exact checks, six fixes and outstanding tests.
+Real-phone testing is still needed before you rely on its rules.
+
+FUTURE UPDATES
+
+Keep VGuard-Private-Update-Key.zip private. It holds the app's signing key
+and password, which are needed to install future versions over this one.
+It is deliberately separate from the shareable source archive.
+
+Platform references:
+https://developer.android.com/develop/connectivity/vpn
+https://grapheneos.org/features#network-permission-toggle

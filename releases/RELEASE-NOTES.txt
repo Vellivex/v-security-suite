@@ -1,0 +1,26 @@
+V SECURITY — SMALL EXPERIMENTAL BETA
+Release date: 23 October 2026
+Umbrella branding and custom domain: provisional / pending owner choice.
+
+VGuard 0.1.1-preview (existing Android APK)
+- Native local-VPN selected-app firewall, manual Normal/Journey profiles.
+- Existing core, adversarial and CSV checks rerun successfully.
+- Live Android enforcement remains unverified; no always-on/lockdown/restart.
+- Original APK SHA-256: 6a94a9fd9cdc13afcb37f48fabefa076ea4b4bf742896c7b26d7f832d9cbbafe
+
+VVault 0.1.0 browser beta
+- Local text encryption and unlocking using Web Crypto AES-256-GCM.
+- PBKDF2-SHA256, 600,000 iterations, random 16-byte salt and 12-byte IV.
+- No sender authentication, recovery or forward secrecy.
+
+VRelay 0.1.0 browser beta
+- Format checks, file import, copying, saving and supported device sharing.
+- No passphrase handling, hosted relay, QR transfer or delivery confirmation.
+
+Website
+- Product pages, status/limitations, source downloads, roadmap, privacy and private feedback.
+- No subscriptions or payment collection during beta.
+- Search indexing disabled for the quiet first release.
+
+Original source released under GPL-3.0-or-later. No independent audit completed.
+Use non-sensitive data on test devices. See docs/ACCEPTANCE.md for remaining gates.
