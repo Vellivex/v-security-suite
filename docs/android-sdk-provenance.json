@@ -1,0 +1,30 @@
+[
+  {
+    "package": "platforms;android-36",
+    "official_url": "https://dl.google.com/android/repository/platform-36-ext19_r01.zip",
+    "official_checksum_type": "sha1",
+    "official_checksum": "52e240c229cf2ad561ee262ebdfff266e180c585",
+    "sha256": "55bd3620999428ff13097c982c9f0d40de566d846f0bed153bf8d4e1491b90ff"
+  },
+  {
+    "package": "platforms;android-36",
+    "official_url": "https://dl.google.com/android/repository/platform-36-ext18_r01.zip",
+    "official_checksum_type": "sha1",
+    "official_checksum": "33a7af9f531f6ce67b3ec357f619e69aa0a95c8a",
+    "sha256": "d89a01a838cc3eba8fea2c63f7771ff259b35214cc153332463257380f1ff8b1"
+  },
+  {
+    "package": "platforms;android-36",
+    "official_url": "https://dl.google.com/android/repository/platform-36_r02.zip",
+    "official_checksum_type": "sha1",
+    "official_checksum": "2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
+    "sha256": "37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e"
+  },
+  {
+    "package": "build-tools;36.0.0",
+    "official_url": "https://dl.google.com/android/repository/build-tools_r36_linux.zip",
+    "official_checksum_type": "sha1",
+    "official_checksum": "b0b6376977657e8ad9b969bacf4093601da2c6fb",
+    "sha256": "5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b"
+  }
+]

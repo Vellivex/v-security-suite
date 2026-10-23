@@ -1,0 +1,21 @@
+VGUARD 0.1.2-CANDIDATE — SECURITY HARDENING
+23 October 2026
+
+1. Fixed a reproduced source-level VPN revocation race: an onRevoke callback inside establishment could previously be overwritten by a newly published ACTIVE session. A lifecycle epoch and atomic session publication now reject/close that replacement.
+2. Fixed a reproduced Android UID/shared-group race that could route an unselected sibling. Package events are tracked during initial startup; complete identities are checked before and after establishment.
+3. Added FLAG_SECURE for ordinary screenshot/recents/casting privacy and explicit cloud/device-transfer exclusions.
+4. Build requires the existing signing identity for the official candidate and checks its public certificate fingerprint. Signing key material stays outside source and releases.
+
+BUILD CHECKS
+Official Google Android platform/build-tools downloaded with repository checksum verification. Full native source/resource compilation, DEX packaging, alignment and APK signature checks passed. Original update certificate matches:
+7bdb5a95a45f735a175580a937eb5c7ec55a2c886ce038ed106c1dfa1f3ff049
+
+APK: VGuard-0.1.2-candidate.apk
+Bytes: 90718
+SHA-256: 817a990e143be19d3d377427fd5f09750fbed1ae05663ab9acc0f4898e4bb636
+
+TEST SCOPE
+18 existing engine scenarios / 2192 assertions plus targeted revocation and identity-race regressions pass on controlled Android framework stubs. Core parser/rule and CSV checks are recorded separately. These are not actual phone networking tests.
+
+REMAINING LIMITS
+The rebuilt candidate has not run on a real Android device. Actual blocking, IPv6/DNS/bypass, upgrades, lifecycle and battery behaviour are unverified. Independent security audit not completed. No always-on, lockdown or automatic restart. Blocking can end with VPN/process termination. Use only for non-sensitive testing on a spare device.

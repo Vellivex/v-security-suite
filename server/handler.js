@@ -5,6 +5,10 @@ const BASE_HEADERS={
   'Referrer-Policy':'no-referrer',
   'Permissions-Policy':'camera=(), microphone=(), geolocation=(), payment=()',
   'X-Frame-Options':'DENY',
+  'Strict-Transport-Security':'max-age=31536000',
+  'Cross-Origin-Opener-Policy':'same-origin',
+  'Cross-Origin-Resource-Policy':'same-origin',
+  'Origin-Agent-Cluster':'?1',
   'X-Robots-Tag':'noindex, nofollow',
   'Cache-Control':'no-store'
 };
@@ -29,10 +33,11 @@ export async function feedback(request,env){
   if(data.safe!=='on'||!Number.isFinite(data.elapsed)||data.elapsed<1500||data.elapsed>86400000)return json({error:'Please complete the safety checkbox and try again.'},400);
   const allowedProduct=['VGuard','VVault','VRelay','Website'],allowedKind=['bug','idea','test','security','deletion'],allowedOS=['Android','iPhone/iPad','Desktop','Other'];
   if(!allowedProduct.includes(data.product)||!allowedKind.includes(data.kind)||!allowedOS.includes(data.os)||typeof data.message!=='string'||data.message.trim().length<20||data.message.length>3000||typeof data.id!=='string'||!/^\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b$/i.test(data.id))return json({error:'Check the product, device and report text (20–3,000 characters).'},400);
-  if(!env.DB)return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
+  if(!env.DB||typeof env.FEEDBACK_RATE_SECRET!=='string'||env.FEEDBACK_RATE_SECRET.length<32)return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
   const now=new Date(),created=now.toISOString();
   const network=request.headers.get('cf-connecting-ip')||'unknown-network';
-  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(created.slice(0,10)+'|'+network));
+  const hmacKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.FEEDBACK_RATE_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const digest=await crypto.subtle.sign('HMAC',hmacKey,new TextEncoder().encode(created.slice(0,10)+'|'+network));
   const rateKey=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
   try{
     const since=new Date(now.getTime()-3600000).toISOString();
@@ -51,5 +56,7 @@ export function makeWorker(page,notFound,assets){return {async fetch(request,env
   if(path==='/robots.txt')return reply('User-agent: *\nDisallow: /\n',200,'text/plain; charset=utf-8');
   const asset=assets[path];
   if(asset){const body=asset.base64?Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0)):asset.body;return reply(request.method==='HEAD'?null:body,200,asset.type,asset.download?{'Content-Disposition':'attachment; filename="'+asset.download+'"'}:path==='/sw.js'?{'Service-Worker-Allowed':'/apps/'}:{});}
-  const content=page(path);return reply(request.method==='HEAD'?null:content||notFound(),content?200:404);
+  const content=page(path);
+  const headers=(path==='/apps/vault'||path==='/apps/relay')?{'Content-Security-Policy':BASE_HEADERS['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'none'").replace("form-action 'self'","form-action 'none'")} : {};
+  return reply(request.method==='HEAD'?null:content||notFound(),content?200:404,'text/html; charset=utf-8',headers);
 }};}

@@ -1,3 +1,7 @@
+# 0.1.2 candidate security update
+
+The current source fixes revocation and package-identity startup races, adds screenshot/privacy flags and Android backup/transfer exclusions. It was rebuilt and signature-verified with the original update identity. Real-device enforcement and independent audit are still outstanding. See the root security hardening report and current candidate release notes.
+
 # VGuard — 0.1.1 preview
 
 A native Android app firewall in the V black/charcoal brand, with an original V-and-shield mark and muted olive status accents.

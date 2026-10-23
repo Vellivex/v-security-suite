@@ -6,9 +6,9 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
-| VGuard | Android 0.1.1 preview APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.1.0 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
-| VRelay | Browser 0.1.0 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VGuard | Android 0.1.2 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
+| VVault | Browser 0.2.0 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| VRelay | Browser 0.2.0 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 `V Security` is a working umbrella brand. Custom domain and final brand are not yet registered by this project.
 
@@ -32,21 +32,25 @@ The browser encryption core is `apps/vault/crypto.js`. The browser interfaces ar
 
 ## Build the website
 
-The site runs as a self-contained Worker ESM. No application dependencies or third-party scripts are installed. A D1 binding named `DB` holds private feedback. `drizzle/` contains the schema migration.
+The site runs as a self-contained Worker ESM. No application dependencies or third-party scripts are installed. A D1 binding named `DB` holds private feedback. A secret runtime `FEEDBACK_RATE_SECRET` (at least 32 random characters) is required; never put it in source. `drizzle/` contains the schema migration.
 
 ```sh
 bash scripts/build.sh
 node scripts/validate-artifact.mjs
 ```
 
-Build packaging expects the original `releases/VGuard-0.1.1-preview.apk`. To run host tests or inspect browser code, the APK is unnecessary. No private key is needed to inspect or test source; building a separately signed Android APK requires your own key.
+Build packaging expects the original `releases/VGuard-0.1.2-candidate.apk`. To run host tests or inspect browser code, the APK is unnecessary. No private key is needed to inspect or test source; building a separately signed Android APK requires your own key.
 
 The deployment identity lives in a checkout-local `.openai/hosting.json` and is excluded from the public source archive. To self-host, configure a Worker with its generated `dist/server/index.js`, D1 binding `DB`, and apply the migration. Future deployment tooling can replace the beta-specific packaging.
 
 ## Privacy and feedback
 
-VVault/VRelay process message data in browser memory. Optional service-worker installation caches only public application assets, not message data. The feedback API is write-only for public visitors, validates input, binds SQL parameters and rate-limits by a daily hashed network identifier. Reports should contain no secrets or personal data. There is no user-account system, subscription billing, public report listing or guaranteed deletion schedule.
+VVault/VRelay process message data in browser memory. Optional service-worker installation caches only public application assets, not message data. The feedback API is write-only for public visitors, validates input, binds SQL parameters and rate-limits by a daily HMAC-based network pseudonym using a secret runtime key. Reports should contain no secrets or personal data. There is no user-account system, subscription billing, public report listing or guaranteed deletion schedule.
 
 ## Release gates
 
 See `docs/ACCEPTANCE.md`, `docs/TEST-RESULTS.md` and SECURITY.md. Automated successes do not imply actual phone enforcement or an independent audit. No reproducible-build claim is made.
+
+## Security hardening 0.2.0 / VGuard 0.1.2
+
+See `docs/SECURITY-HARDENING-2026-10-23.md`. The native candidate was rebuilt and signature-verified with the existing update identity; device runtime remains unverified. Browser sessions now clear on hide/exit/history restoration and idle expiry. Pending operations cannot repopulate a cleared/edited session. Crypto pages block app-initiated network connections; installed offline assets use release hashes and no network fallback. Signing files, native build output, feedback and runtime secrets are excluded from public source bundles.

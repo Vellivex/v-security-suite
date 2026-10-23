@@ -13,3 +13,7 @@ Do not post exploitable vulnerabilities or real secrets in public GitHub Issues.
 - The optional website feedback endpoint stores product, category, OS, text, timestamp and a hashed network abuse-control key. It exposes no public read API. Infrastructure access and logs remain within hosting's responsibility.
 
 Only test systems and devices you control or have explicit permission to assess. Keep tests bounded and use synthetic data. Do not access other people's records or disrupt services.
+
+## Hardening release
+
+VGuard 0.1.2-candidate fixes two reproduced startup races and adds screen/backup privacy controls. The rebuilt APK's signature was verified with the original certificate. Actual Android routing remains unverified. VVault/VRelay 0.2.0 clear sessions automatically, invalidate stale asynchronous work and pin installed offline assets. Their pages block app-initiated network connections. A compromised origin can still serve changed code, and JavaScript cannot guarantee memory or clipboard erasure. See `docs/SECURITY-HARDENING-2026-10-23.md` for evidence and remaining gates.

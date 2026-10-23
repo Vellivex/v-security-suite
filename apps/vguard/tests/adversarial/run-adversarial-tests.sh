@@ -21,5 +21,11 @@ fi
   "$vguard_adversarial_root/app/src/main/java/app/vguard/firewall/GuardService.java" \
   "$vguard_adversarial_root/app/src/main/java/app/vguard/firewall/RuleStore.java" \
   "$vguard_adversarial_root/app/src/main/java/app/vguard/firewall/PacketInfo.java" \
-  "$vguard_adversarial_root/tests/adversarial/ServiceAdversarialTests.java"
+  "$vguard_adversarial_root/tests/adversarial/ServiceAdversarialTests.java" \
+  "$vguard_adversarial_root/tests/adversarial/RevocationRaceTests.java" \
+  "$vguard_adversarial_root/tests/adversarial/PackageIdentityRaceTests.java" \
+  "$vguard_adversarial_root/tests/CoreTests.java"
 "$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.ServiceAdversarialTests "$@"
+"$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.RevocationRaceTests
+"$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.PackageIdentityRaceTests
+"$vguard_adversarial_java" -cp "$vguard_adversarial_classes" app.vguard.firewall.CoreTests

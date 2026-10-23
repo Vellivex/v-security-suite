@@ -1,0 +1,12 @@
+dist/
+site.tar.gz
+apps/vguard/build/
+**/tests/.classes/
+**/.local-signing/
+**/__pycache__/
+*.p12
+*.jks
+*.keystore
+*.pass
+.env
+.env.*

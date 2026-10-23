@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -18,7 +19,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
-VERSION = "0.1.1-preview"
+VERSION = "0.1.2-candidate"
 
 
 def main():
@@ -31,7 +32,15 @@ def main():
     parser.add_argument("--password-file", type=Path,
                         default=ROOT / ".local-signing" / "vguard.pass")
     parser.add_argument("--alias", default="vguard")
+    parser.add_argument("--require-existing-key", action="store_true",
+                        help="Refuse to generate a new update identity for an official candidate")
+    parser.add_argument("--expected-cert-sha256", help="Required expected public signing certificate digest")
     args = parser.parse_args()
+    os.umask(0o077)
+    if args.require_existing_key and (not args.keystore.is_file() or not args.password_file.is_file()):
+        parser.error("Official candidates require the existing signing key and password file.")
+    if args.expected_cert_sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", args.expected_cert_sha256):
+        parser.error("Expected certificate digest must be 64 hexadecimal characters.")
     if not args.sdk:
         parser.error("Set --sdk to your Android SDK directory (build-tools 36.0.0, platform android-36).")
     sdk = Path(args.sdk).expanduser().resolve()
@@ -128,6 +137,9 @@ def main():
          "--v3-signing-enabled", "true", "--v4-signing-enabled", "false",
          "--out", apk, BUILD / "aligned.apk"], "Signing VGuard")
     signature = run([apksigner, "verify", "--verbose", "--print-certs", apk], "Verifying APK signature")
+    certificate = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", signature)
+    if args.expected_cert_sha256 and (not certificate or certificate.group(1).lower()!=args.expected_cert_sha256.lower()):
+        raise SystemExit("Signing identity mismatch: candidate must not be published.")
     alignment = run([zipalign, "-c", "4", apk], "Verifying alignment")
     manifest_info = run([aapt2, "dump", "badging", apk], "Verifying manifest")
     permissions = run([aapt2, "dump", "permissions", apk], "Verifying permissions")
@@ -145,6 +157,10 @@ def main():
         "signature_verified": True,
         "alignment_verified": True,
         "device_runtime_verified": False,
+        "source_fingerprint_sha256": hashlib.sha256(b"".join(
+            path.relative_to(ROOT).as_posix().encode("utf-8") + b"\0" + path.read_bytes()
+            for path in sorted((ROOT / "app").rglob("*")) if path.is_file())).hexdigest(),
+        "signing_certificate_sha256": certificate.group(1).lower() if certificate else None,
         "verification_scope": "Build-time compilation, packaging, manifest, alignment and signature only. Android runtime outcomes are recorded separately.",
     }
     (BUILD / "build-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

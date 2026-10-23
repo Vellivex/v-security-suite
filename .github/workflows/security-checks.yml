@@ -1,0 +1,22 @@
+name: Security regression checks
+on: [push, pull_request]
+permissions: {}
+jobs:
+  host-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch public source without a persistent credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Web crypto, private feedback and sensitive-session regressions
+        run: node --test tests/*.test.mjs
+      - name: Native parser, rule, engine and lifecycle regressions on host stubs
+        run: bash apps/vguard/tests/adversarial/run-adversarial-tests.sh
+      - name: Independent CSV parser checks
+        run: python3 apps/vguard/validation/UI-Logic-Checks.py

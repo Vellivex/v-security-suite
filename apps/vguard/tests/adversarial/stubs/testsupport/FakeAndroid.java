@@ -38,14 +38,14 @@ public final class FakeAndroid {
  public static final List<Registration> receivers=new CopyOnWriteArrayList<Registration>();
  public static final Map<String,Prefs> stores=new HashMap<String,Prefs>();
  public static final Map<FileDescriptor,Tun> descriptors=Collections.synchronizedMap(new IdentityHashMap<FileDescriptor,Tun>());
- public static volatile boolean consent=true,failForeground;
+ public static volatile boolean consent=true,failForeground,revokeDuringEstablish,sharedUidRaceOnAdd,sharedUidRaceOnEstablish;
  public static volatile int establishCalls,emptyEstablishCalls;
  public static volatile VpnService.Builder lastBuilder;
  private static int nextTun;
  public static void reset(){
   mainQueue.clear();establishOutcomes.clear();timeline.clear();tuns.clear();preferenceModes.clear();receivers.clear();stores.clear();descriptors.clear();
   packages.installed.clear();packages.disappearOnBuilderAdd=null;packages.install("app.vguard.firewall",11000);
-  consent=true;failForeground=false;establishCalls=0;emptyEstablishCalls=0;lastBuilder=null;
+  consent=true;failForeground=false;revokeDuringEstablish=false;sharedUidRaceOnAdd=false;sharedUidRaceOnEstablish=false;establishCalls=0;emptyEstablishCalls=0;lastBuilder=null;
  }
  public static synchronized Prefs preferences(String name){Prefs p=stores.get(name);if(p==null){p=new Prefs();stores.put(name,p);}return p;}
  public static void drainMain(){Runnable next;int count=0;while((next=mainQueue.poll())!=null){next.run();if(++count>1000)throw new AssertionError("Main callback storm");}}

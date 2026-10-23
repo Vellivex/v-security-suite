@@ -13,6 +13,7 @@ function unbase64(text, min, max) {
   if (typeof text !== 'string' || text.length > Math.ceil(max / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) throw new Error('Invalid encrypted package.');
   const raw = atob(text);
   if (raw.length < min || raw.length > max) throw new Error('Invalid encrypted package.');
+  if (btoa(raw)!==text) throw new Error('Encrypted package must use canonical base64.');
   return Uint8Array.from(raw, c => c.charCodeAt(0));
 }
 export function inspectEnvelope(text) {
@@ -34,6 +35,7 @@ async function derive(passphrase,salt,usage) {
 }
 export async function encryptMessage(message,passphrase) {
   if (typeof message !== 'string' || !message.length) throw new Error('Write a message first.');
+  if (typeof passphrase!=='string'||passphrase.length>1024) throw new Error('Invalid passphrase.');
   if (passphrase.length < 14) throw new Error('Use at least 14 characters, preferably four or more random words.');
   const bytes=encoder.encode(message);
   if (bytes.length>MAX_PLAINTEXT) throw new Error('Keep messages below 128 KiB.');

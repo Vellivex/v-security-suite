@@ -1,0 +1,19 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import vm from 'node:vm';import {SessionScope} from '../web/session.js';
+const source=(await readFile(new URL('../web/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
+function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
+function element(value=''){const handlers=new Map();return {value,disabled:false,hidden:false,required:false,textContent:'',dataset:{},files:[],addEventListener(type,fn){if(!handlers.has(type))handlers.set(type,[]);handlers.get(type).push(fn);},emit(type,event={}){return Promise.all((handlers.get(type)||[]).map(fn=>fn({preventDefault(){},target:this,...event})));}};}
+function setup(kind='vault',overrides={}){
+ const ids=['app-status','clear-session','result','copy-result'];
+ if(kind==='vault')ids.push('vault-form','vault-mode','message','passphrase','passphrase-confirm','vault-submit','result-label','download-result','confirm-wrap','message-label');
+ else ids.push('relay-form','relay-package','relay-file','share-package','download-package');
+ const els=Object.fromEntries(ids.map(id=>[id,element()]));if(kind==='vault'){els['vault-mode'].value='encrypt';els.message.value='Original synthetic draft';els.passphrase.value=els['passphrase-confirm'].value='a synthetic passphrase 123';}
+ const document=element();document.hidden=false;document.getElementById=id=>els[id]||null;
+ document.querySelectorAll=selector=>selector==='[data-sensitive]'?['message','passphrase','passphrase-confirm','relay-package','result'].filter(id=>els[id]).map(id=>els[id]):[];
+ const window=element(),cryptoWork=deferred(),copyWork=deferred();
+ const context={document,window,crypto,URL,Blob,setTimeout:()=>1,SessionScope:class extends SessionScope{constructor(onLock){super(onLock,{schedule:()=>1,cancel:()=>{}});}},encryptMessage:()=>cryptoWork.promise,decryptMessage:()=>cryptoWork.promise,inspectEnvelope:()=>({}),navigator:{clipboard:{writeText:()=>copyWork.promise}},...overrides};
+ vm.runInNewContext(source,context);return {els,document,window,cryptoWork,copyWork};
+}
+test('editing a draft while crypto is pending preserves new input and suppresses old result',async()=>{const t=setup();const pending=t.els['vault-form'].emit('submit');t.els.message.value='A new synthetic draft';await t.els.message.emit('input');t.cryptoWork.resolve('old encrypted result');await pending;assert.equal(t.els.message.value,'A new synthetic draft');assert.equal(t.els.result.value,'');assert.equal(t.els['vault-submit'].disabled,false);});
+test('a crypto result cannot repopulate the page after hiding it',async()=>{const t=setup();const pending=t.els['vault-form'].emit('submit');t.document.hidden=true;await t.document.emit('visibilitychange');t.cryptoWork.resolve('sensitive old result');await pending;assert.equal(t.els.result.value,'');assert.equal(t.els.message.value,'');assert.equal(t.els.passphrase.value,'');assert.match(t.els['app-status'].textContent,/locked/);});
+test('a file read completing after clear cannot restore its package',async()=>{const fileRead=deferred(),t=setup('relay');t.els['relay-file'].files=[{size:100,text:()=>fileRead.promise}];const pending=t.els['relay-file'].emit('change');await t.els['clear-session'].emit('click');fileRead.resolve('old synthetic ciphertext');await pending;assert.equal(t.els['relay-package'].value,'');assert.equal(t.els.result.value,'');assert.equal(t.els['share-package'].disabled,true);});
+test('clipboard completion cannot replace the locked status',async()=>{const t=setup();t.els.result.value='synthetic copied value';const pending=t.els['copy-result'].emit('click');await t.els['clear-session'].emit('click');const locked=t.els['app-status'].textContent;t.copyWork.resolve();await pending;assert.equal(t.els['app-status'].textContent,locked);});

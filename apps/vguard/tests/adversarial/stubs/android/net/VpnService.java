@@ -29,6 +29,7 @@ public class VpnService extends Context {
   public Builder addRoute(String ip,int prefix){routes.add(ip+"/"+prefix);return this;}public Builder addDnsServer(String ip){dns.add(ip);return this;}
   public Builder setBlocking(boolean value){blocking=value;return this;}
   public Builder addAllowedApplication(String name)throws PackageManager.NameNotFoundException{
+   if(FakeAndroid.sharedUidRaceOnAdd){FakeAndroid.sharedUidRaceOnAdd=false;FakeAndroid.packages.install(name,12555);FakeAndroid.packages.install("sample.sibling",12555);FakeAndroid.broadcast(Intent.ACTION_PACKAGE_ADDED,"sample.sibling",12555,false);}
    if(name.equals(FakeAndroid.packages.disappearOnBuilderAdd)){FakeAndroid.packages.remove(name);}
    FakeAndroid.packages.getApplicationInfo(name,0);allowed.add(name);return this;
   }
@@ -40,7 +41,9 @@ public class VpnService extends Context {
    if("security".equals(outcome))throw new SecurityException("injected establish denial");
    if("runtime".equals(outcome))throw new IllegalStateException("injected establish failure");
    FakeAndroid.Tun tun=new FakeAndroid.Tun(allowed,routes,dns,mtu,blocking);
-   FakeAndroid.tuns.add(tun);FakeAndroid.timeline.add("establish:"+tun.id);return new ParcelFileDescriptor(tun);
+   FakeAndroid.tuns.add(tun);FakeAndroid.timeline.add("establish:"+tun.id);
+   if(FakeAndroid.sharedUidRaceOnEstablish){FakeAndroid.sharedUidRaceOnEstablish=false;FakeAndroid.packages.install("sample.selected",12555);FakeAndroid.packages.install("sample.sibling",12555);FakeAndroid.broadcast(Intent.ACTION_PACKAGE_ADDED,"sample.sibling",12555,false);}
+   if(FakeAndroid.revokeDuringEstablish){FakeAndroid.revokeDuringEstablish=false;VpnService.this.onRevoke();}return new ParcelFileDescriptor(tun);
   }
  }
 }

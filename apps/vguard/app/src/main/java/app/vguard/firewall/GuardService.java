@@ -27,7 +27,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -61,14 +63,21 @@ public final class GuardService extends VpnService {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private long ownerId;
+    // Guarded by LOCK. Invalidates in-flight establishment on revoke/stop/destroy.
+    private long lifecycleEpoch;
+    private long packageEpoch;
     private volatile Session activeSession;
     private boolean foreground;
     private boolean packageReceiverRegistered;
     private final BroadcastReceiver packageChanges = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null || intent.getData() == null) return;
+            // Changes during first configuration matter even before a Session
+            // exists. Do not discard the event simply because startup is in flight.
+            synchronized (LOCK) { packageEpoch++; }
             Session running = activeSession;
             if (running == null || running.cancelled || running.closed.get()
-                    || intent == null || intent.getData() == null) return;
+                    ) return;
             String currentPhase = snapshot().phase;
             if (!"ACTIVE".equals(currentPhase) && !"STARTING".equals(currentPhase)) return;
             if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
@@ -187,9 +196,13 @@ public final class GuardService extends VpnService {
     }
 
     private void configure(String requestedMode) {
-        RuleStore.setMode(this, requestedMode);
+        final long configurationEpoch;
+        final long configurationPackages;
         synchronized (LOCK) {
             if (currentOwner != ownerId) return;
+            configurationEpoch = ++lifecycleEpoch;
+            configurationPackages = packageEpoch;
+            RuleStore.setMode(this, requestedMode);
             phase = "STARTING";
             error = "";
             mode = requestedMode;
@@ -223,26 +236,24 @@ public final class GuardService extends VpnService {
 
             TreeSet<String> installed = new TreeSet<String>();
             TreeSet<Integer> verifiedUids = new TreeSet<Integer>();
+            TreeMap<String, PackageIdentity> identities = new TreeMap<String, PackageIdentity>();
             PackageManager manager = getPackageManager();
             for (String packageName : requested) {
                 if (getPackageName().equals(packageName)) continue;
                 try {
                     ApplicationInfo application = manager.getApplicationInfo(packageName, 0);
-                    String[] sameIdentity = manager.getPackagesForUid(application.uid);
-                    if (sameIdentity != null) {
-                        for (String sibling : sameIdentity) {
-                            if (getPackageName().equals(sibling) || !requested.contains(sibling)) {
-                                shutdown("ERROR", "Cannot block " + packageName + " separately: it shares "
-                                        + "Android's network identity with another app. Remove it from this rule set. VGuard is off.");
-                                return;
-                            }
-                        }
+                    PackageIdentity identity = readIdentity(manager, packageName, application.uid, requested);
+                    if (identity == null) {
+                        shutdown("ERROR", "Cannot safely resolve " + packageName + " and its shared Android identity. "
+                                + "Select the complete app identity or remove it. VGuard is off.");
+                        return;
                     }
                     // Android calls this an 'allowed' list: these are the only
                     // apps allowed INTO our VPN, where their packets are dropped.
                     builder.addAllowedApplication(packageName);
                     installed.add(packageName);
                     verifiedUids.add(Integer.valueOf(application.uid));
+                    identities.put(packageName, identity);
                 } catch (PackageManager.NameNotFoundException removedApp) {
                     // Uninstalled packages cannot be routed. Count only real entries.
                 }
@@ -253,6 +264,11 @@ public final class GuardService extends VpnService {
                 shutdown("ERROR", "None of the selected apps are available. Choose an installed app. VGuard is off.");
                 return;
             }
+            if (!identitiesMatch(manager, identities, requested)
+                    || !packagesUnchanged(configurationPackages)) {
+                shutdown("ERROR", "Installed app identities changed while applying rules. VGuard is off; review and retry.");
+                return;
+            }
 
             // Establish the replacement first. Do not create a routing gap by
             // closing a working interface before Android has accepted the new one.
@@ -261,8 +277,26 @@ public final class GuardService extends VpnService {
                 shutdown("ERROR", "Android did not grant the VPN connection. VGuard is off; tap Start to retry.");
                 return;
             }
+            if (!identitiesMatch(manager, identities, requested)) {
+                try { descriptor.close(); } catch (IOException ignored) { }
+                shutdown("ERROR", "Installed app identities changed during VPN startup. VGuard is off; review and retry.");
+                return;
+            }
             final Session replacement;
+            final Session previous;
             synchronized (LOCK) {
+                // prepare() and establish() are separate Android calls. A revoke
+                // can arrive between them, including before establish returns.
+                // Never publish a new ACTIVE worker after that revocation.
+                if (currentOwner != ownerId || lifecycleEpoch != configurationEpoch) {
+                    try { descriptor.close(); } catch (IOException ignored) { }
+                    return;
+                }
+                if (packageEpoch != configurationPackages) {
+                    try { descriptor.close(); } catch (IOException ignored) { }
+                    shutdown("ERROR", "Installed apps changed during VPN startup. VGuard is off; review and retry.");
+                    return;
+                }
                 long token = ++tokenSequence;
                 replacement = new Session(descriptor, token, requestedMode, installed.size(), verifiedUids);
                 currentToken = token;
@@ -273,9 +307,9 @@ public final class GuardService extends VpnService {
                 droppedPackets = 0;
                 droppedBytes = 0;
                 startedAt = 0;
+                previous = activeSession;
+                activeSession = replacement;
             }
-            Session previous = activeSession;
-            activeSession = replacement;
             if (previous != null) previous.cancel();
             replacement.reader = new Thread(new Runnable() {
                 @Override public void run() { readAndDiscard(replacement); }
@@ -287,6 +321,45 @@ public final class GuardService extends VpnService {
         } catch (RuntimeException failed) {
             shutdown("ERROR", "The local VPN could not start. Check your VPN settings and try again. VGuard is off.");
         }
+    }
+
+    private static final class PackageIdentity {
+        final int uid;
+        final Set<String> packages;
+        PackageIdentity(int uid, Set<String> packages) {
+            this.uid = uid;
+            this.packages = Collections.unmodifiableSet(new TreeSet<String>(packages));
+        }
+    }
+
+    private PackageIdentity readIdentity(PackageManager manager, String name,
+            int uid, Set<String> requested) {
+        String[] siblings = manager.getPackagesForUid(uid);
+        if (siblings == null || siblings.length == 0) return null;
+        TreeSet<String> complete = new TreeSet<String>();
+        for (String sibling : siblings) {
+            if (sibling == null || getPackageName().equals(sibling) || !requested.contains(sibling)) return null;
+            complete.add(sibling);
+        }
+        return complete.contains(name) ? new PackageIdentity(uid, complete) : null;
+    }
+
+    private boolean identitiesMatch(PackageManager manager,
+            Map<String, PackageIdentity> expected, Set<String> requested) {
+        try {
+            for (Map.Entry<String, PackageIdentity> entry : expected.entrySet()) {
+                ApplicationInfo application = manager.getApplicationInfo(entry.getKey(), 0);
+                PackageIdentity current = readIdentity(manager, entry.getKey(), application.uid, requested);
+                if (current == null || current.uid != entry.getValue().uid
+                        || !current.packages.equals(entry.getValue().packages)) return false;
+            }
+            return true;
+        } catch (PackageManager.NameNotFoundException changed) { return false;
+        } catch (RuntimeException unavailable) { return false; }
+    }
+
+    private boolean packagesUnchanged(long epoch) {
+        synchronized (LOCK) { return packageEpoch == epoch; }
     }
 
     private void readAndDiscard(final Session session) {
@@ -389,7 +462,11 @@ public final class GuardService extends VpnService {
     }
 
     private void shutdown(String nextPhase, String explanation) {
+        final Session previous;
         synchronized (LOCK) {
+            lifecycleEpoch++;
+            previous = activeSession;
+            activeSession = null;
             if (currentOwner == ownerId) {
                 currentToken = 0;
                 phase = nextPhase;
@@ -398,8 +475,6 @@ public final class GuardService extends VpnService {
                 startedAt = 0;
             }
         }
-        Session previous = activeSession;
-        activeSession = null;
         if (previous != null) previous.cancel();
         removeForeground();
         stopSelf();
@@ -407,9 +482,11 @@ public final class GuardService extends VpnService {
 
     @Override public void onRevoke() {
         // Android may invoke onRevoke outside the main thread.
-        final Session revoked = activeSession;
+        final Session revoked;
         final String explanation = "VPN access ended. VGuard is off. Tap Start to request access again.";
         synchronized (LOCK) {
+            lifecycleEpoch++;
+            revoked = activeSession;
             if (currentOwner == ownerId && (revoked == null || currentToken == revoked.token)) {
                 currentToken = 0;
                 phase = "ERROR";
@@ -432,6 +509,7 @@ public final class GuardService extends VpnService {
             unregisterReceiver(packageChanges);
         }
         synchronized (LOCK) {
+            lifecycleEpoch++;
             if (currentOwner == ownerId) {
                 currentToken = 0;
                 if ("ACTIVE".equals(phase) || "STARTING".equals(phase)) {

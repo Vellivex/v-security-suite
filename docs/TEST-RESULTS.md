@@ -28,3 +28,7 @@ Live website UI, downloads, encryption and feedback storage results are recorded
 Remaining: real Android/iPhone devices, native Android enforcement, offline reload, PWA install behaviour, downloaded file integrity through the live browser, sharing/delivery, independent review and genuine external tester feedback.
 
 Responsive UI: homepage tested with a 390-pixel viewport, with no horizontal overflow; mobile navigation opened successfully. A viewport override is a layout test, not a physical-phone result.
+
+## Subsequent hardening release
+
+See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 21 browser/server/session/offline regressions, independent cryptographic interoperability checks and native race fixes. Earlier live browser observations above apply to the prior beta; current-release live observations must be recorded separately.

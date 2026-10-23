@@ -150,6 +150,9 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Installed-app inventory and destination metadata are private. Keep
+        // them out of screenshots, recents previews and non-secure displays.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         mode = RuleStore.getMode(this);
         blocked = new LinkedHashSet<>(RuleStore.getBlocked(this, mode));
         if (savedInstanceState != null) {

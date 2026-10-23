@@ -1,26 +1,26 @@
-V SECURITY — SMALL EXPERIMENTAL BETA
-Release date: 23 October 2026
-Umbrella branding and custom domain: provisional / pending owner choice.
+V SECURITY — HARDENING RELEASE, 23 OCTOBER 2026
+Main brand and custom domain remain provisional.
 
-VGuard 0.1.1-preview (existing Android APK)
-- Native local-VPN selected-app firewall, manual Normal/Journey profiles.
-- Existing core, adversarial and CSV checks rerun successfully.
-- Live Android enforcement remains unverified; no always-on/lockdown/restart.
-- Original APK SHA-256: 6a94a9fd9cdc13afcb37f48fabefa076ea4b4bf742896c7b26d7f832d9cbbafe
+VGuard 0.1.2-candidate
+- Fixes reproduced revocation/startup and app-identity races.
+- Adds screenshot/recents protection and explicit Android backup/transfer exclusions.
+- Native package rebuilt and verified using original update-signing identity.
+- Actual Android runtime enforcement remains unverified.
+- Earlier APK replaced by this candidate; historical matching source is preserved separately.
 
-VVault 0.1.0 browser beta
-- Local text encryption and unlocking using Web Crypto AES-256-GCM.
-- PBKDF2-SHA256, 600,000 iterations, random 16-byte salt and 12-byte IV.
-- No sender authentication, recovery or forward secrecy.
+VVault and VRelay 0.2.0 browser beta
+- Clear sessions on tab hide/page exit/history restore and two-minute inactivity.
+- Suppress stale crypto, clipboard/share status and file-import completions after lock or input changes.
+- Clear plaintext draft after successful encryption.
+- Strict envelope/base64 validation and authenticated encryption unchanged.
+- Independent Python/Web Crypto interoperability checked with synthetic data.
+- Encryption/transfer pages block app-initiated network connections.
+- Offline files use release-specific hash checks; an active offline worker fails closed on missing files instead of silently fetching new code.
 
-VRelay 0.1.0 browser beta
-- Format checks, file import, copying, saving and supported device sharing.
-- No passphrase handling, hosted relay, QR transfer or delivery confirmation.
+Website and release process
+- HMAC-based private abuse-control pseudonyms, stronger isolation/transport headers.
+- No payment collection, subscriptions or advertising trackers.
+- Source package excludes build output and signing material. Checksums published.
+- Automated source regression workflow prepared for the public repository; its actual GitHub run result must be checked separately.
 
-Website
-- Product pages, status/limitations, source downloads, roadmap, privacy and private feedback.
-- No subscriptions or payment collection during beta.
-- Search indexing disabled for the quiet first release.
-
-Original source released under GPL-3.0-or-later. No independent audit completed.
-Use non-sensitive data on test devices. See docs/ACCEPTANCE.md for remaining gates.
+This is experimental software, not independently audited or certified. Real-phone tests, beta feedback and expert review remain gates before a wider paid launch.

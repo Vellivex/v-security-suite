@@ -1,11 +1,11 @@
 VGUARD — ANDROID PHONE FIREWALL
-Version 0.1.1 preview
+Version 0.1.2 candidate
 
 Your V brand: black and charcoal, grey lettering, muted olive indicators, V + shield.
 
 GET STARTED
 
-1. Download VGuard-0.1.1-preview.apk on your Android phone and open it.
+1. Download VGuard-0.1.2-candidate.apk on your Android phone and open it.
    If Android asks, allow the browser/file manager to install this APK.
    You can remove that install permission afterwards.
 2. Open VGuard, choose Apps, and turn on Block for an app you want offline.
@@ -14,14 +14,22 @@ GET STARTED
    new online content while an unselected app can still connect.
 5. Tap Stop blocking to restore the selected app's connection.
 
-UPDATING FROM 0.1.0
+UPDATING FROM AN EARLIER PREVIEW
 
 Open the new APK and choose Update. It uses the same VGuard signing identity
 for an in-place update. Do not uninstall the old app first if you want to
 retain saved selections. This specific upgrade flow has not yet been tested
 on a running Android device.
 
-CHANGES IN 0.1.1
+CHANGES IN 0.1.2
+
+- Rejects VPN revocation while startup is in flight.
+- Revalidates complete Android app identities before and after establishment.
+- Sets FLAG_SECURE and excludes app data from Android cloud/device transfer.
+- Rebuilt with the original signing identity; see VGuard-0.1.2-Build-Report.json.
+- Real Android execution remains unverified.
+
+EARLIER 0.1.1 CHANGES
 
 - Retains export and VPN-consent context through screen rotation.
 - Gives a clear message if Android ends the app during an export.

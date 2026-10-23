@@ -15,7 +15,11 @@ if [ ! -x "$vguard_java" ]; then
   vguard_java="$(command -v java)"
 fi
 mkdir -p "$vguard_test_output"
-"$vguard_jdk_bin/javac" -source 8 -target 8 -Xlint:-options \
+vguard_javac=("$vguard_jdk_bin/javac")
+if [ ! -x "$vguard_jdk_bin/javac" ]; then
+  vguard_javac=("$vguard_java" -m jdk.compiler/com.sun.tools.javac.Main)
+fi
+"${vguard_javac[@]}" -source 8 -target 8 -Xlint:-options \
   -cp "$vguard_android_jar" -d "$vguard_test_output" \
   "$vguard_test_root/app/src/main/java/app/vguard/firewall/PacketInfo.java" \
   "$vguard_test_root/app/src/main/java/app/vguard/firewall/RuleStore.java" \
