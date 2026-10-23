@@ -3,7 +3,7 @@ const source=(await readFile(new URL('../web/app.js',import.meta.url),'utf8')).r
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 function element(value=''){const handlers=new Map();return {value,disabled:false,hidden:false,required:false,textContent:'',dataset:{},files:[],addEventListener(type,fn){if(!handlers.has(type))handlers.set(type,[]);handlers.get(type).push(fn);},emit(type,event={}){return Promise.all((handlers.get(type)||[]).map(fn=>fn({preventDefault(){},target:this,...event})));}};}
 function setup(kind='vault',overrides={}){
- const ids=['app-status','clear-session','result','copy-result'];
+ const ids=['app-status','clear-session','result','copy-result','offline-enable'];
  if(kind==='vault')ids.push('vault-form','vault-mode','message','passphrase','passphrase-confirm','vault-submit','result-label','download-result','confirm-wrap','message-label');
  else ids.push('relay-form','relay-package','relay-file','share-package','download-package');
  const els=Object.fromEntries(ids.map(id=>[id,element()]));if(kind==='vault'){els['vault-mode'].value='encrypt';els.message.value='Original synthetic draft';els.passphrase.value=els['passphrase-confirm'].value='a synthetic passphrase 123';}
@@ -54,4 +54,17 @@ test('out-of-order file reads cannot replace the newest selected package',async(
 });
 test('late share rejection cannot replace a cleared session status',async()=>{
  let reject;const share=new Promise((_,r)=>{reject=r;});const t=setup('relay',{navigator:{share:()=>share}});t.els.result.value='synthetic package';const pending=t.els['share-package'].emit('click');await t.els['clear-session'].emit('click');const status=t.els['app-status'].textContent;reject(Error('Synthetic sharing failure'));await pending;assert.equal(t.els['app-status'].textContent,status);assert.equal(t.els.result.value,'');
+});
+
+for(const kind of ['vault','relay'])for(const outcome of ['success','failure'])test(`${kind}: offline ${outcome} cannot replace locked status`,async()=>{
+ let resolve,reject;const pendingWork=new Promise((a,b)=>{resolve=a;reject=b;});
+ const t=setup(kind,{installOfflineTools:()=>pendingWork});const pending=t.els['offline-enable'].emit('click');
+ await t.els['clear-session'].emit('click');const status=t.els['app-status'].textContent;
+ if(outcome==='success')resolve({waiting:true});else reject(Error('Late offline failure'));
+ await pending;assert.equal(t.els['app-status'].textContent,status);assert.equal(t.els['offline-enable'].textContent,'');
+});
+
+for(const kind of ['vault','relay'])test(`${kind}: current offline completion still reports installation`,async()=>{
+ const t=setup(kind,{installOfflineTools:async()=>({waiting:true})});await t.els['offline-enable'].emit('click');
+ assert.match(t.els['app-status'].textContent,/installed with integrity checks/);assert.equal(t.els['offline-enable'].textContent,'Check offline files for updates');
 });
