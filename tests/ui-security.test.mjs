@@ -34,3 +34,24 @@ test('seeded lock/edit/mode/restore schedules never publish a retired crypto res
   assert.equal(t.els.message.value,action===3?'New retained draft '+i:'');
  }
 });
+
+test('crypto rejection leaves the draft available and restores controls without stale output',async()=>{
+ const t=setup('vault',{encryptMessage:()=>Promise.reject(Error('Synthetic key derivation refused'))});
+ await t.els['vault-form'].emit('submit');assert.equal(t.els.message.value,'Original synthetic draft');assert.equal(t.els.result.value,'');assert.equal(t.els.passphrase.value,'');assert.equal(t.els['vault-submit'].disabled,false);assert.match(t.els['app-status'].textContent,/refused/);
+});
+test('late crypto rejection after locking cannot clear a newer passphrase or replace locked status',async()=>{
+ let reject;const failure=new Promise((_,r)=>{reject=r;});const t=setup('vault',{encryptMessage:()=>failure});const pending=t.els['vault-form'].emit('submit');
+ await t.els['clear-session'].emit('click');const status=t.els['app-status'].textContent;t.els.message.value='New draft';t.els.passphrase.value='New synthetic phrase';await t.els.passphrase.emit('input');reject(Error('Late failure'));await pending;
+ assert.equal(t.els.passphrase.value,'New synthetic phrase');assert.equal(t.els.message.value,'New draft');assert.equal(t.els.result.value,'');assert.equal(t.els['app-status'].textContent,status);assert.equal(t.els['vault-submit'].disabled,false);
+});
+test('a rejected file read removes earlier transfer state and cannot enable sharing',async()=>{
+ const t=setup('relay');t.els.result.value='previous package';t.els['relay-package'].value='previous package';t.els['relay-file'].files=[{size:100,text:()=>Promise.reject(Error('Synthetic file read failed'))}];await t.els['relay-file'].emit('change');
+ assert.equal(t.els.result.value,'');assert.equal(t.els['relay-package'].value,'');assert.equal(t.els['download-package'].disabled,true);assert.equal(t.els['share-package'].disabled,true);assert.match(t.els['app-status'].textContent,/failed/);
+});
+test('out-of-order file reads cannot replace the newest selected package',async()=>{
+ const a=deferred(),b=deferred(),t=setup('relay');t.els['relay-file'].files=[{size:100,text:()=>a.promise}];const old=t.els['relay-file'].emit('change');t.els['relay-file'].files=[{size:100,text:()=>b.promise}];const latest=t.els['relay-file'].emit('change');
+ b.resolve('Newest synthetic envelope');await latest;a.resolve('Old synthetic envelope');await old;assert.equal(t.els['relay-package'].value,'Newest synthetic envelope');assert.equal(t.els.result.value,'');assert.equal(t.els['share-package'].disabled,true);
+});
+test('late share rejection cannot replace a cleared session status',async()=>{
+ let reject;const share=new Promise((_,r)=>{reject=r;});const t=setup('relay',{navigator:{share:()=>share}});t.els.result.value='synthetic package';const pending=t.els['share-package'].emit('click');await t.els['clear-session'].emit('click');const status=t.els['app-status'].textContent;reject(Error('Synthetic sharing failure'));await pending;assert.equal(t.els['app-status'].textContent,status);assert.equal(t.els.result.value,'');
+});

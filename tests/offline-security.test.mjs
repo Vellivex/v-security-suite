@@ -33,3 +33,26 @@ test('corrupted offline HTML is refused and a valid script retains its verified 
  for(const document of [false,true]){const r=runtime({cached:true,damaged:true,document});let pending;r.events.fetch({request:new Request('https://v.test'+(document?'/apps/vault':'/app.js')),respondWith(p){pending=p;}});assert.equal((await pending).status,503);assert.equal(r.calls.length,0);}
  const r=runtime({cached:true});let pending;r.events.fetch({request:new Request('https://v.test/app.js?ignored-query=1'),respondWith(p){pending=p;}});const response=await pending;assert.equal(response.status,200);assert.equal(await response.text(),'source');assert.equal(r.calls.length,0);
 });
+
+test('cache open, lookup, clone, body and digest failures all fail closed without network fallback',async()=>{
+ for(const fault of ['open','match','clone','body','digest','status']){
+  const events={};let network=0;
+  const response={ok:fault!=='status',clone(){if(fault==='clone')throw Error('synthetic clone failure');return {async arrayBuffer(){if(fault==='body')throw Error('synthetic body failure');return new TextEncoder().encode('source').buffer;}};}};
+  const cache={async match(){if(fault==='match')throw Error('synthetic match failure');return response;}};
+  const self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};
+  const testCrypto={subtle:{async digest(...args){if(fault==='digest')throw Error('synthetic digest failure');return crypto.subtle.digest(...args);}}};
+  vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-fault').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',integrity}])),{self,caches:{async open(){if(fault==='open')throw Error('synthetic storage failure');return cache;}},crypto:testCrypto,URL,Response,btoa,fetch(){network++;throw Error('unexpected network');}});
+  let pending;events.fetch({request:new Request('https://v.test/app.js'),respondWith(p){pending=p;}});
+  const result=await pending;assert.equal(result.status,503,fault);assert.equal(result.headers.get('Cache-Control'),'no-store');assert.ok(!(await result.text()).includes('synthetic'));assert.equal(network,0);
+ }
+});
+test('offline worker does not intercept cross-origin, write-method or unknown-path requests',()=>{
+ const r=runtime();for(const [url,method] of [['https://other.test/app.js','GET'],['https://v.test/app.js','POST'],['https://v.test/private-report','GET']]){
+  let intercepted=false;r.events.fetch({request:new Request(url,{method}),respondWith(){intercepted=true;}});assert.equal(intercepted,false);
+ }assert.equal(r.calls.length,0);
+});
+test('offline activation removes retired tool caches while retaining current and unrelated caches',async()=>{
+ const events={},deleted=[];const self={addEventListener(type,fn){events[type]=fn;}};
+ vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-current').replace('__ASSET_MANIFEST__','[]'),{self,Response,caches:{async keys(){return ['v-tools-current','v-tools-retired','unrelated-cache'];},async delete(name){deleted.push(name);}}});
+ let work;events.activate({waitUntil(p){work=p;}});await work;assert.deepEqual(deleted,['v-tools-retired']);
+});

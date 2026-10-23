@@ -67,3 +67,14 @@ The previous hardening release was verified live on www.vellivex.com: synthetic 
 The Node suite now has **55 passing tests**, zero failures/skips. The 2,100 malformed-envelope cases, 120 async schedules, four-seed / 3,000,400-call native parser campaign, native lifecycle/export/race checks and independent interoperability evidence from the preceding pass remain applicable. Native production code/APK is unchanged; additional source review of exported entry points, signature-protected VPN service, rule storage, packet disposal and export handling found no new reproducible native defect in this pass. Host evidence does not validate Android OS enforcement.
 
 Artifact validation now invokes the exact assembled Worker across all 13 public pages, checks isolation headers, verifies every embedded checksummed download and matches the displayed APK digest to its build report. Remaining physical-device, external-review and platform boundaries above still apply.
+
+## Storage and interruption follow-up — unchanged browser 0.2.3
+
+No new reproducible defect was found in this pass. Eight regression tests were added and the full Node suite passes **63 tests**, zero failed/skipped. These exercise production worker/app handlers under controlled faults:
+
+- Cache open, cache lookup, response clone, body read, digest and non-success response failures all return a no-store plain-text 503 without a network fallback or internal exception text.
+- Cross-origin requests, non-GET methods and unknown paths are not intercepted by the tool worker. Activation retains its own cache and unrelated caches while deleting only retired tool caches.
+- Failed crypto restores controls and retains the draft. A late failure after locking cannot clear a newer passphrase/draft or replace locked status.
+- Failed file reads clear old transfer state; out-of-order reads cannot overwrite the newest selection. A late sharing rejection cannot replace cleared-session status.
+
+These are host fault-injection tests, not actual browser-disk failures or mobile OS sharing tests. App production code and the signed VGuard APK are unchanged. The latest preceding live browser checks loaded the 0.2.3 offline release, encrypted synthetic text and validated a compatible VRelay package. GitHub run 39999557950 passed for commit 5331b0badfd723658ae5b81c18c7e5029836545c. Physical-device and independent-review gaps remain unresolved.

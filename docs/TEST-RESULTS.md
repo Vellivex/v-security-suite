@@ -40,3 +40,7 @@ Current release: VGuard 0.1.3-candidate and browser tools 0.2.2. See [ADVERSARIA
 ## Browser 0.2.3 broad follow-up
 
 55 Node tests pass. Cached responses are hash-checked on each read after a reproduced post-install corruption failure. Added 35 authenticated-tampering cases, base64/type boundaries, a 500-request local SQLite concurrency burst, and Origin confusion checks. Exact assembled Worker/download validation is included in `npm run validate`. No new physical-device evidence is claimed.
+
+## Storage and interruption pass — 0.2.3 unchanged
+
+63 Node tests pass, zero failed/skipped. Added six storage/verification fault branches, worker routing/cache-retirement boundaries, crypto rejection with draft preservation, late rejection after lock, failed and out-of-order file reads, and late share failure. No new defect reproduced; no production app change. See the detailed adversarial report for scope.
