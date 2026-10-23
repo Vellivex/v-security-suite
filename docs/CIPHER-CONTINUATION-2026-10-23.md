@@ -19,3 +19,5 @@ Research build 0.1.1 fixes six reproduced structural/boundary/lifecycle defects.
 Second follow-up: research 0.1.2 / source 0.3.2 closes four reproduced camera concurrency/cancellation defects. Six new UI regressions include seven plaintext cancellation boundaries and three backup-unlock boundaries. Full suite: 97 tests. See the second-follow-up section of the attack report.
 
 Third follow-up: research 0.1.3 / source 0.3.3 closes contact-confirmation withdrawal and pasted-frame edit races, and rejects inconsistent RSA private-key representations in encrypted backups. Expanded authenticated-backup, signature mutation and parser-depth attack campaigns bring the suite to 102 tests. See the attack report for exact scope and limits.
+
+Fourth follow-up: research 0.1.4 / source 0.3.4 enforces the AES-256 outer key policy at the receiver. Replay saturation/concurrency, 256 corrupt complete QR campaigns and maximum four-byte Unicode boundaries bring the suite to 106 tests. See the attack report for reproduction and limits.

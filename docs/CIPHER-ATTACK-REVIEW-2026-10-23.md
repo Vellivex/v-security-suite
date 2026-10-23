@@ -55,3 +55,16 @@ Three additional failures reproduced before fixes:
 Expanded attack campaigns pass: seventeen malformed but correctly encrypted/authenticated backup interiors (including duplicate private-key members, invalid UTF-8, wrong keys, invalid private key material and unsupported curves); 160 seeded binary mutations across IV, wrapped key, ciphertext and signature plus each signed address/ID field, all rejected without consuming replay state; excessive JSON nesting up to 1,998 levels and escaped duplicate public-card members; primitive/prototype-shaped transfer inputs rejected. These use synthetic identities and messages only.
 
 Complete suite: 102 Node tests. Both new UI regressions and the malformed RSA backup regression failed before the fixes and pass afterward. Build and assembled artifact validation cover offline asset integrity and headers. Real two-phone camera testing, mobile lifecycle testing and independent cryptographic review remain outstanding.
+
+
+## Fourth follow-up: receiver key policy and saturation (0.1.4 / source 0.3.4)
+
+Reproduced before fix: a correctly signed outer envelope wrapping a 128-bit AES key decrypted successfully, although V Cipher's outer format specifies AES-256. The sender could construct this envelope with its own valid signing identity; no sender authentication bypass or break of AES was demonstrated. The independent inner encryption still used AES-256. The receiver now requires exactly 32 unwrapped key bytes before AES import; regressions refuse both 128-bit and 192-bit outer keys.
+
+Additional campaigns passed without another defect:
+
+- Replay tracker at 1,024 entries refuses a new authenticated message without deleting history. Two concurrent distinct messages competing for the last slot yield exactly one success and never exceed the bound.
+- 256 complete corrupted multi-frame QR campaigns are refused without becoming a transfer; collection stays within its 96-frame bound.
+- A 2,048-byte message made entirely of four-byte Unicode characters round-trips exactly; the next character is refused.
+
+Complete suite: 106 Node tests, including prior malformed backup, parser, hostile QR and lifecycle regressions. Build, offline manifest and assembled artifact checks run separately. Physical phone/camera testing and independent review are still unverified. This pass does not establish resistance to every attacker or constitute an independent audit.
