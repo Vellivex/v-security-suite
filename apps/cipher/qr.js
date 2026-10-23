@@ -7,18 +7,26 @@ const hash=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA
 export async function framesFor(text){await inspectTransfer(text);const bytes=E.encode(text);if(bytes.length>MAX_TRANSFER)throw Error('Transfer is too large.');const encoded=b64(bytes),digest=await hash(text),count=Math.ceil(encoded.length/360);if(count>96)throw Error('Too many QR frames.');return Array.from({length:count},(_,i)=>`VCQR1|${digest}|${count}|${i}|${encoded.slice(i*360,(i+1)*360)}`);}
 export class Collector {
  constructor(){this.reset();}
- reset(){this.epoch=(this.epoch||0)+1;this.id=null;this.count=0;this.parts=new Map();this.started=0;}
+ reset(){this.epoch=(this.epoch||0)+1;this.id=null;this.count=0;this.parts=new Map();this.started=0;this.lastSeen=0;this.completion=null;}
  async add(frame,now=Date.now()){
+  if(!Number.isFinite(now))throw Error('Invalid QR collection time.');
   if(typeof frame!=='string'||frame.length>470)throw Error('Not a bounded V Cipher QR frame.');
   const m=/^VCQR1\|([0-9a-f]{64})\|([1-9][0-9]?)\|(0|[1-9][0-9]?)\|([A-Za-z0-9+/=]{1,360})$/.exec(frame);if(!m)throw Error('Not a V Cipher QR frame.');
   const [,id,c,i,part]=m,count=Number(c),index=Number(i);if(count>96||index>=count||index<count-1&&part.length!==360)throw Error('Invalid QR sequence.');
-  if(this.id&&now-this.started>300000){this.reset();throw Error('QR collection expired. Start again.');}
+  if(this.id&&(now<this.lastSeen||now-this.started>300000)){this.reset();throw Error('QR collection expired or the clock moved backwards. Start again.');}
   if(this.id&&(this.id!==id||this.count!==count))throw Error('A different QR transfer is in progress. Clear it first.');
   if(!this.id){this.id=id;this.count=count;this.started=now;}
-  if(this.parts.has(index)&&this.parts.get(index)!==part)throw Error('Conflicting QR frame.');this.parts.set(index,part);
+  if(this.parts.has(index)&&this.parts.get(index)!==part)throw Error('Conflicting QR frame.');this.lastSeen=now;this.parts.set(index,part);
   if(this.parts.size<count)return {received:this.parts.size,total:count};
-  const epoch=this.epoch;
-  const text=D.decode(un64(Array.from({length:count},(_,n)=>this.parts.get(n)).join(''),1,MAX_TRANSFER));const digest=await hash(text);if(this.epoch!==epoch)throw Error('QR collection was cleared while verification was pending.');if(digest!==id)throw Error('QR transfer checksum failed. Clear and scan again.');await inspectTransfer(text);if(this.epoch!==epoch)throw Error('QR collection was cleared while verification was pending.');return {received:count,total:count,text};
+  // Repeated final frames share one verification, including its failure.
+  // reset() retires this promise; an old completion never changes newer state.
+  if(!this.completion){
+   const epoch=this.epoch;
+   this.completion=(async()=>{
+    const text=D.decode(un64(Array.from({length:count},(_,n)=>this.parts.get(n)).join(''),1,MAX_TRANSFER));const digest=await hash(text);if(this.epoch!==epoch)throw Error('QR collection was cleared while verification was pending.');if(digest!==id)throw Error('QR transfer checksum failed. Clear and scan again.');await inspectTransfer(text);if(this.epoch!==epoch)throw Error('QR collection was cleared while verification was pending.');return Object.freeze({received:count,total:count,text});
+   })();
+  }
+  return this.completion;
  }
 }
 export function matrixFor(frame){if(typeof frame!=='string'||frame.length>470)throw Error('Invalid QR frame size.');return qrcodegen.QrCode.encodeText(frame,qrcodegen.QrCode.Ecc.MEDIUM);}

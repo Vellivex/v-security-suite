@@ -12,7 +12,11 @@ function offlineRequired(){if(navigator.onLine!==false||!navigator.serviceWorker
 function showIdentity(){ $('identity-card').value=JSON.stringify(mine.card);$('identity-fingerprint').textContent='Your identity fingerprint: '+mine.fingerprint;}
 async function task(fn,{offline=false}={}){if(busy){status('Another operation is still finishing.');return;}busy=true;stopCamera();const token=session.invalidate();session.touch();try{if(offline){if($('cipher-result'))$('cipher-result').value='';offlineRequired();}status('Working locally…');await fn(token);}catch(error){if(session.current(token))status(error.message||'Local operation failed.',true);}finally{if(offline&&current(token))for(const id of ['identity-password','identity-confirm','conversation-secret'])if($(id))$(id).value='';busy=false;}}
 const current=token=>session.current(token);
-function download(text,name){const url=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+function download(text,name){
+  const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));let scheduled=false;
+  try{const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);scheduled=true;}
+  finally{if(!scheduled)try{URL.revokeObjectURL(url);}catch{/* Keep the original download failure visible. */}}
+}
 async function showFrames(text,token){const prepared=await framesFor(text);if(!current(token))return;frames=prepared;frame=0;renderFrame();status('Encrypted/public QR transfer ready. Show every numbered frame; the receiver reports progress.');}
 function renderFrame(){if(!frames.length)return;drawQR($('cipher-qr'),frames[frame]);$('qr-frame-text').value=frames[frame];$('qr-count').textContent=`Frame ${frame+1} of ${frames.length}. Use Previous / Next.`;}
 function contactVerified(){if(!$('contact-confirm')?.checked||checkedCard!==$('contact-card').value)throw Error('Compare the full contact fingerprint through a trusted separate channel, then confirm it.');}

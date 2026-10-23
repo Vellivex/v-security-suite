@@ -45,9 +45,15 @@ export async function feedback(request,env,now=new Date()){
   if(!env.DB||typeof env.FEEDBACK_RATE_SECRET!=='string'||env.FEEDBACK_RATE_SECRET.length<32)return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
   const created=now.toISOString(),id=data.id.toLowerCase(),message=data.message.trim();
   const network=request.headers.get('cf-connecting-ip')||'unknown-network';
-  const hmacKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.FEEDBACK_RATE_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-  const rateForDay=async day=>Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',hmacKey,new TextEncoder().encode(day+'|'+network))),byte=>byte.toString(16).padStart(2,'0')).join('');
-  const [rateKey,previousRateKey]=await Promise.all([rateForDay(created.slice(0,10)),rateForDay(new Date(now.getTime()-86400000).toISOString().slice(0,10))]);
+  let rateKey,previousRateKey;
+  try{
+    const hmacKey=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.FEEDBACK_RATE_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+    const rateForDay=async day=>Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',hmacKey,new TextEncoder().encode(day+'|'+network))),byte=>byte.toString(16).padStart(2,'0')).join('');
+    [rateKey,previousRateKey]=await Promise.all([rateForDay(created.slice(0,10)),rateForDay(new Date(now.getTime()-86400000).toISOString().slice(0,10))]);
+  }catch{
+    // Never fall back to an unhashed network identifier or skip abuse checks.
+    return json({error:'Feedback storage is unavailable. Please keep your report and try again later.'},503);
+  }
   const findExisting=()=>env.DB.prepare('SELECT id, rate_key, product, kind, os, message FROM feedback WHERE id = ?').bind(id).first();
   const priorResult=existing=>{
     if(![rateKey,previousRateKey].includes(existing.rate_key)||existing.product!==data.product||existing.kind!==data.kind||existing.os!==data.os||existing.message!==message)return json({error:'This reference was already used. Keep your edits and submit again as a new report.'},409);

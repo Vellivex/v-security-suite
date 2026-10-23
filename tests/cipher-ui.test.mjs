@@ -39,3 +39,11 @@ test('a lock during the backup download request cannot resurrect the generated i
  const t=setup();t.document.createElement=()=>({click(){void t.els['cipher-lock'].emit('click');}});
  await t.els['cipher-generate'].emit('click');assert.equal(t.els['identity-card'].value,'');assert.match(t.els['identity-fingerprint'].textContent,/No identity unlocked/);assert.match(t.els['cipher-status'].textContent,/Session locked/);
 });
+for(const failure of ['create','href','name','click','timer'])test(`Cipher download ${failure} failure releases its object URL`,async()=>{
+ const revoked=[];const t=setup('relay',{URL:{createObjectURL:()=> 'blob:synthetic-cipher',revokeObjectURL:url=>revoked.push(url)},...(failure==='timer'?{setTimeout(){throw Error('Synthetic timer failure');}}:{})});
+ t.document.createElement=()=>{if(failure==='create')throw Error('Synthetic create failure');return {set href(value){if(failure==='href')throw Error('Synthetic href failure');},set download(value){if(failure==='name')throw Error('Synthetic name failure');},click(){if(failure==='click')throw Error('Synthetic click failure');}};};
+ t.els['transfer-input'].value='Synthetic public transfer';await t.els['relay-save'].emit('click');assert.deepEqual(revoked,['blob:synthetic-cipher']);assert.match(t.els['cipher-status'].textContent,/failure/);
+});
+test('successful Cipher download keeps its URL until the scheduled cleanup',async()=>{
+ let cleanup;const revoked=[];const t=setup('relay',{URL:{createObjectURL:()=> 'blob:synthetic-cipher',revokeObjectURL:url=>revoked.push(url)},setTimeout:fn=>{cleanup=fn;return 1;}});t.els['transfer-input'].value='Synthetic public transfer';await t.els['relay-save'].emit('click');assert.deepEqual(revoked,[]);cleanup();assert.deepEqual(revoked,['blob:synthetic-cipher']);
+});

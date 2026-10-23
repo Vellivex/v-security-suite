@@ -39,3 +39,30 @@ test('a full replay tracker refuses before any WebCrypto operation',async t=>{
  await assert.rejects(open(bob,a,message,phrase,full),/tracker is full/);
  assert.deepEqual(calls,[]);assert.equal(full.size,1024);
 });
+test('QR completion coalesces concurrent and repeated frames without bypassing conflicts',async t=>{
+ const frames=await framesFor(a),collector=new Collector();for(const frame of frames.slice(0,-1))await collector.add(frame);
+ const calls={digest:0,importKey:0};for(const name of Object.keys(calls)){const original=crypto.subtle[name].bind(crypto.subtle);t.mock.method(crypto.subtle,name,(...args)=>{calls[name]++;return original(...args);});}
+ const completed=await Promise.all(Array.from({length:64},()=>collector.add(frames.at(-1))));for(const result of completed)assert.equal(result.text,a);
+ for(let i=0;i<64;i++)assert.equal((await collector.add(frames.at(-1))).text,a);
+ assert.deepEqual(calls,{digest:2,importKey:2});
+ const changed=frames.at(-1).slice(0,-1)+(frames.at(-1).endsWith('A')?'B':'A');await assert.rejects(collector.add(changed),/Conflicting/);
+ await assert.rejects(collector.add((await framesFor(message))[0]),/different/);
+ await assert.rejects(collector.add(frames.at(-1),collector.started+300001),/expired/);assert.equal(collector.parts.size,0);
+});
+test('failed QR verification is reused until an explicit reset',async t=>{
+ const frames=(await framesFor(a)).map(frame=>frame.replace(/\|[0-9a-f]{64}\|/,'|'+'0'.repeat(64)+'|')),collector=new Collector();for(const frame of frames.slice(0,-1))await collector.add(frame);
+ let digests=0;const original=crypto.subtle.digest.bind(crypto.subtle);t.mock.method(crypto.subtle,'digest',(...args)=>{digests++;return original(...args);});
+ await assert.rejects(collector.add(frames.at(-1)),/checksum failed/);
+ const repeats=await Promise.allSettled(Array.from({length:64},()=>collector.add(frames.at(-1))));assert.ok(repeats.every(result=>result.status==='rejected'&&/checksum failed/.test(result.reason.message)));assert.equal(digests,1);
+ collector.reset();let result;for(const frame of await framesFor(a))result=await collector.add(frame);assert.equal(result.text,a);
+});
+test('reset retires pending QR verification without disturbing the next transfer cache',async t=>{
+ const oldFrames=await framesFor(a),nextFrames=await framesFor(message),collector=new Collector();for(const frame of oldFrames.slice(0,-1))await collector.add(frame);
+ let release,first=true;const gate=new Promise(resolve=>{release=resolve;}),original=crypto.subtle.digest.bind(crypto.subtle);t.mock.method(crypto.subtle,'digest',async(...args)=>{if(first){first=false;await gate;}return original(...args);});
+ const pending=collector.add(oldFrames.at(-1));collector.reset();let result;for(const frame of nextFrames)result=await collector.add(frame);assert.equal(result.text,message);release();await assert.rejects(pending,/cleared/);assert.equal((await collector.add(nextFrames.at(-1))).text,message);
+});
+test('QR collection refuses a backwards or non-finite clock',async()=>{
+ const frames=await framesFor(a),rollback=new Collector();await rollback.add(frames[0],500000);await assert.rejects(rollback.add(frames[1],1),/expired|clock/);assert.equal(rollback.parts.size,0);
+ const partialRollback=new Collector();await partialRollback.add(frames[0],500000);await partialRollback.add(frames[0],600000);await assert.rejects(partialRollback.add(frames[1],550000),/expired|clock/);assert.equal(partialRollback.parts.size,0);
+ for(const time of [NaN,Infinity,-Infinity,'500000'])await assert.rejects(new Collector().add(frames[0],time),/time|clock/);
+});

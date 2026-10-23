@@ -6,27 +6,33 @@ import {installOfflineTools} from '/offline.js';
 const $=id=>document.getElementById(id);
 const say=(message,error=false)=>{const el=$('app-status');if(el){el.textContent=message;el.dataset.error=String(error);}};
 const vault=$('vault-form'),relay=$('relay-form');
+const cryptoAvailable=typeof globalThis.crypto?.getRandomValues==='function'&&['importKey','deriveKey','encrypt','decrypt'].every(name=>typeof globalThis.crypto?.subtle?.[name]==='function');
+const cryptoUnavailable='This browser does not provide the required secure Web Crypto API. VVault encryption is disabled. You can still clear this session.';
 let cryptoBusy=false,offlineBusy=false;
 function resetTransfer(){if(relay){$('result').value='';$('share-package').disabled=true;$('download-package').disabled=true;}}
 const session=new SessionScope(reason=>{
   document.querySelectorAll('[data-sensitive]').forEach(el=>{el.value='';});
-  if(vault){$('vault-submit').disabled=cryptoBusy;$('download-result').hidden=true;}
+  if(vault){$('vault-submit').disabled=cryptoBusy||!cryptoAvailable;$('download-result').hidden=true;}
   if(relay){$('relay-file').value='';resetTransfer();}
   say(reason+' Browser memory and clipboard contents cannot be guaranteed to be securely erased.');
 });
-function download(text,name){const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function download(text,name){
+  const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));let scheduled=false;
+  try{const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);scheduled=true;}
+  finally{if(!scheduled)try{URL.revokeObjectURL(url);}catch{/* Keep the original download failure visible. */}}
+}
 $('clear-session')?.addEventListener('click',()=>session.lock());
 for(const event of ['input','keydown','pointerdown'])document.addEventListener(event,()=>session.touch(),{capture:true,passive:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)session.lock('Session locked because this tab was hidden.');});
 window.addEventListener('pagehide',()=>session.lock('Session closed.'));
 window.addEventListener('pageshow',event=>{if(event.persisted)session.lock('Restored page locked.');});
-if(!crypto?.subtle||!crypto?.getRandomValues){document.querySelectorAll('form button').forEach(el=>{el.disabled=true;});say('This browser does not provide the required secure Web Crypto API. The tool is disabled.',true);}
+if(vault&&!cryptoAvailable){$('vault-submit').disabled=true;say(cryptoUnavailable,true);}
 if(vault){
   for(const id of ['message','passphrase','passphrase-confirm'])$(id).addEventListener('input',()=>{
-    session.invalidate();$('vault-submit').disabled=cryptoBusy;$('result').value='';$('download-result').hidden=true;
+    session.invalidate();$('vault-submit').disabled=cryptoBusy||!cryptoAvailable;$('result').value='';$('download-result').hidden=true;
   });
   vault.addEventListener('submit',async event=>{
-    event.preventDefault();if(cryptoBusy)return;const action=$('vault-mode').value;
+    event.preventDefault();if(!cryptoAvailable){say(cryptoUnavailable,true);return;}if(cryptoBusy)return;const action=$('vault-mode').value;
     if(action==='encrypt'&&$('passphrase').value!==$('passphrase-confirm').value){say('Your passphrases do not match.',true);return;}
     const token=session.invalidate(),button=$('vault-submit');session.touch();
     cryptoBusy=true;button.disabled=true;$('result').value='';$('download-result').hidden=true;
@@ -38,7 +44,7 @@ if(vault){
       if(action==='encrypt')$('message').value='';
       say(action==='encrypt'?'Encrypted locally. Save the package and keep its passphrase separately.':'Unlocked locally. Leaving this tab will clear the session.');
     }catch(error){if(session.current(token))say(error.message,true);}
-    finally{cryptoBusy=false;button.disabled=false;if(session.current(token)){$('passphrase').value='';$('passphrase-confirm').value='';}}
+    finally{cryptoBusy=false;button.disabled=!cryptoAvailable;if(session.current(token)){$('passphrase').value='';$('passphrase-confirm').value='';}}
   });
   $('vault-mode').addEventListener('change',()=>{
     session.lock('Mode changed.');const encrypt=$('vault-mode').value==='encrypt';

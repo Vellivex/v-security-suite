@@ -39,3 +39,7 @@ VVault/VRelay 0.2.5 and V Cipher 0.1.5 request disabled spelling, correction, wr
 Offline installation has one 30-second page-task deadline covering registration, update and worker checks. Repeated requests from the same pending page task are refused. The browser may still complete native work after a timeout; this is not cross-tab cancellation. V Cipher refuses an already-full replay tracker before performing expensive cryptography, retaining its final concurrent-capacity guard.
 
 Public source archives require an exact reviewed path manifest, reject links and private/runtime file types, and validate inputs before writing archives. Downloaded VGuard bytes must match both their checksum and build report. Native release checks bind current source fingerprints and policy to metadata; fresh official SDK checks verify the unchanged APK signature and compiled manifest. No real-device or reproducible-build completion is implied. See `docs/RESOURCE-AND-RELEASE-HARDENING-2026-10-23.md`.
+
+## Additional attack pass — site 0.4.1
+
+VVault/VRelay 0.2.7 keep unsupported-browser cryptography disabled across session/UI transitions and clean failed download object URLs. V Cipher 0.1.7 coalesces repeated QR completion verification, retains failure until reset, rejects backward collection clocks and cleans failed download URLs. Feedback HMAC-provider errors fail closed with a generic isolated 503. See `docs/ATTACK-PASS-2026-10-23.md` for reproductions, native/campaign/browser evidence and remaining limits.

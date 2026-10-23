@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import vm from 'node:vm';import {SessionScope} from '../web/session.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import vm from 'node:vm';import {SessionScope} from '../web/session.js';import {inspectEnvelope as realInspectEnvelope} from '../apps/vault/crypto.js';
 const source=(await readFile(new URL('../web/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 function element(value=''){const handlers=new Map();return {value,disabled:false,hidden:false,required:false,textContent:'',dataset:{},files:[],addEventListener(type,fn){if(!handlers.has(type))handlers.set(type,[]);handlers.get(type).push(fn);},emit(type,event={}){return Promise.all((handlers.get(type)||[]).map(fn=>fn({preventDefault(){},target:this,...event})));}};}
@@ -8,7 +8,7 @@ function setup(kind='vault',overrides={}){
  else ids.push('relay-form','relay-package','relay-file','share-package','download-package');
  const els=Object.fromEntries(ids.map(id=>[id,element()]));if(kind==='vault'){els['vault-mode'].value='encrypt';els.message.value='Original synthetic draft';els.passphrase.value=els['passphrase-confirm'].value='a synthetic passphrase 123';}
  const document=element();document.hidden=false;document.getElementById=id=>els[id]||null;
- document.querySelectorAll=selector=>selector==='[data-sensitive]'?['message','passphrase','passphrase-confirm','relay-package','result'].filter(id=>els[id]).map(id=>els[id]):[];
+ document.querySelectorAll=selector=>selector==='[data-sensitive]'?['message','passphrase','passphrase-confirm','relay-package','result'].filter(id=>els[id]).map(id=>els[id]):selector==='form button'?['vault-submit','clear-session'].filter(id=>els[id]).map(id=>els[id]):[];
  const window=element(),cryptoWork=deferred(),copyWork=deferred();
  const context={document,window,crypto,URL,Blob,setTimeout:()=>1,SessionScope:class extends SessionScope{constructor(onLock){super(onLock,{schedule:()=>1,cancel:()=>{}});}},encryptMessage:()=>cryptoWork.promise,decryptMessage:()=>cryptoWork.promise,inspectEnvelope:()=>({}),navigator:{clipboard:{writeText:()=>copyWork.promise}},...overrides};
  vm.runInNewContext(source,context);return {els,document,window,cryptoWork,copyWork};
@@ -81,4 +81,36 @@ for(const kind of ['vault','relay'])test(`${kind}: offline failure releases its 
  let calls=0;const t=setup(kind,{installOfflineTools:()=>{calls++;return Promise.reject(Error('Synthetic install failure'));}});
  await t.els['offline-enable'].emit('click');assert.equal(t.els['offline-enable'].disabled,false);assert.match(t.els['app-status'].textContent,/install failure/);
  await t.els['offline-enable'].emit('click');assert.equal(calls,2);assert.equal(t.els['offline-enable'].disabled,false);
+});
+
+for(const [label,unavailable] of [['missing',undefined],['no subtle',{}],['no randomness',{subtle:crypto.subtle}],['incomplete subtle',{getRandomValues:crypto.getRandomValues,subtle:{}}]])test(`unavailable Web Crypto (${label}) stays disabled across editing, locking and submit`,async()=>{
+ let calls=0;const t=setup('vault',{crypto:unavailable,encryptMessage:async()=>{calls++;return 'must not publish';},decryptMessage:async()=>{calls++;return 'must not publish';}});
+ assert.equal(t.els['vault-submit'].disabled,true);assert.equal(t.els['clear-session'].disabled,false);
+ for(const action of ['input','clear','mode','submit']){
+  if(action==='input')await t.els.message.emit('input');
+  if(action==='clear')await t.els['clear-session'].emit('click');
+  if(action==='mode'){t.els['vault-mode'].value='decrypt';await t.els['vault-mode'].emit('change');}
+  if(action==='submit')await t.els['vault-form'].emit('submit');
+  assert.equal(t.els['vault-submit'].disabled,true,action);assert.equal(t.els['clear-session'].disabled,false,action);
+ }
+ assert.equal(calls,0);assert.equal(t.els.result.value,'');assert.match(t.els['app-status'].textContent,/Web Crypto/);
+});
+for(const kind of ['vault','relay'])for(const fault of ['createElement','href','download','click','schedule'])test(`${kind}: failed download ${fault} revokes its object URL and preserves the package`,async()=>{
+ let created=0,revoked=0;const t=setup(kind,{URL:{createObjectURL(){created++;return 'blob:synthetic';},revokeObjectURL(){revoked++;}},setTimeout(){if(fault==='schedule')throw Error('Synthetic schedule failure');return 1;}});
+ t.els.result.value='synthetic encrypted package';t.document.createElement=()=>{if(fault==='createElement')throw Error('Synthetic createElement failure');return {set href(value){if(fault==='href')throw Error('Synthetic href failure');},set download(value){if(fault==='download')throw Error('Synthetic download failure');},click(){if(fault==='click')throw Error('Synthetic click failure');}};};
+ await t.els[kind==='vault'?'download-result':'download-package'].emit('click');assert.equal(created,1);assert.equal(revoked,1);assert.equal(t.els.result.value,'synthetic encrypted package');assert.match(t.els['app-status'].textContent,new RegExp('Synthetic '+fault+' failure'));
+});
+for(const kind of ['vault','relay'])test(`${kind}: a successful download schedules exactly one revocation`,async()=>{
+ let revoke,revoked=0,clicked=0;const t=setup(kind,{URL:{createObjectURL:()=> 'blob:synthetic',revokeObjectURL(url){assert.equal(url,'blob:synthetic');revoked++;}},setTimeout(fn,ms){assert.equal(ms,1000);revoke=fn;return 1;}});
+ t.els.result.value='synthetic encrypted package';t.document.createElement=()=>({click(){clicked++;}});await t.els[kind==='vault'?'download-result':'download-package'].emit('click');assert.equal(clicked,1);assert.equal(revoked,0);revoke();assert.equal(revoked,1);
+});
+test('download cleanup failure does not conceal the original setup error',async()=>{
+ const t=setup('vault',{URL:{createObjectURL:()=> 'blob:synthetic',revokeObjectURL(){throw Error('Synthetic cleanup failure');}}});t.els.result.value='synthetic encrypted package';t.document.createElement=()=>{throw Error('Original download setup failure');};
+ await t.els['download-result'].emit('click');assert.equal(t.els['app-status'].textContent,'Original download setup failure');assert.equal(t.els.result.value,'synthetic encrypted package');
+});
+
+for(const kind of ['vault','relay'])test(`${kind}: download cannot turn plaintext or a malformed envelope into a transfer file`,async()=>{
+ let urls=0;const t=setup(kind,{inspectEnvelope:realInspectEnvelope,URL:{createObjectURL(){urls++;return 'blob:must-not-exist';},revokeObjectURL(){}}});
+ t.document.createElement=()=>{throw Error('Must not prepare a download');};
+ for(const invalid of ['Synthetic plaintext','{}','{"format":"VVAULT"}']){t.els.result.value=invalid;await t.els[kind==='vault'?'download-result':'download-package'].emit('click');assert.equal(urls,0);assert.equal(t.els.result.value,invalid);assert.equal(t.els['app-status'].dataset.error,'true');}
 });
