@@ -21,9 +21,9 @@ for directory in ['apps','web','server','tests','scripts','docs','.github','driz
             files.append((p,'v-security-suite/'+p.relative_to(root).as_posix()))
 for name in ['LICENSE','NOTICE','README.md','SECURITY.md','CONTRIBUTING.md','package.json']:
     files.append((root/name,'v-security-suite/'+name))
-for name in ['VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.2-Build-Report.json','VGuard-0.1.2-Package-Verification.txt','VGuard-0.1.2-Security-Notes.txt']:
+for name in ['VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt']:
     files.append((root/'releases'/name,'v-security-suite/releases/'+name))
 write(root/'releases/V-Security-Source.zip',files)
-names=['VGuard-0.1.2-candidate.apk','VGuard-Source-GPL.zip','VGuard-0.1.1-Source-GPL.zip','V-Security-Source.zip','VGuard-0.1.2-Build-Report.json','VGuard-0.1.2-Package-Verification.txt','VGuard-0.1.2-Security-Notes.txt','RELEASE-NOTES.txt']
+names=['VGuard-0.1.3-candidate.apk','VGuard-Source-GPL.zip','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip','V-Security-Source.zip','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt','RELEASE-NOTES.txt']
 (root/'releases/SHA256SUMS.txt').write_text(''.join(hashlib.sha256((root/'releases'/name).read_bytes()).hexdigest()+'  '+name+'\n' for name in names))
 print('Created clean GPL source archives; no signing materials or feedback records.')

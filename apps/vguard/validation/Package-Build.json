@@ -1,15 +1,17 @@
 {
-  "artifact": "VGuard-0.1.1-preview.apk",
-  "version": "0.1.1-preview",
+  "artifact": "VGuard-0.1.3-candidate.apk",
+  "version": "0.1.3-candidate",
   "package": "app.vguard.firewall",
   "min_sdk": 29,
   "target_sdk": 35,
   "compile_sdk": 36,
   "build_tools": "36.0.0",
-  "bytes": 86543,
-  "sha256": "6a94a9fd9cdc13afcb37f48fabefa076ea4b4bf742896c7b26d7f832d9cbbafe",
+  "bytes": 90718,
+  "sha256": "6977d17d356f76a181a4979bf4fefa4f486167b90e2df612e5c93aed4977df58",
   "signature_verified": true,
   "alignment_verified": true,
   "device_runtime_verified": false,
+  "source_fingerprint_sha256": "9108459581d9a5fefe88ee3b151dece9dcd61374cd6eeb79d225295a0ec8e1e3",
+  "signing_certificate_sha256": "7bdb5a95a45f735a175580a937eb5c7ec55a2c886ce038ed106c1dfa1f3ff049",
   "verification_scope": "Build-time compilation, packaging, manifest, alignment and signature only. Android runtime outcomes are recorded separately."
 }

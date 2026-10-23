@@ -19,7 +19,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
-VERSION = "0.1.2-candidate"
+VERSION = "0.1.3-candidate"
 
 
 def main():

@@ -1,0 +1,18 @@
+{
+  "candidate": "VGuard-0.1.1-preview.apk",
+  "apk_sha256": "6a94a9fd9cdc13afcb37f48fabefa076ea4b4bf742896c7b26d7f832d9cbbafe",
+  "source_sha256": {
+    "app/src/main/AndroidManifest.xml": "831d280813e9ccecf8b38e7e156839891826011c929e7afaab9f328c7422f923",
+    "app/src/main/java/app/vguard/firewall/GuardService.java": "a6a1d0c1423e7c9c3facae33016b01b474b01905e4a17d41c3681ee9c0275f4d",
+    "app/src/main/java/app/vguard/firewall/MainActivity.java": "911bbf22e33c5d3230ae07b856511d6c94766ffd34b70bf3c28c51471e57d949",
+    "app/src/main/java/app/vguard/firewall/PacketInfo.java": "21f9acdbf099a95a751069fe85602af7ab9021388c4c8a1e21cc70d62e1dc9c5",
+    "app/src/main/java/app/vguard/firewall/RuleStore.java": "0cdaa2bb76ad534ad90aa4598a383a5482487d0da3c58a7d5c3945c40e72a7a6",
+    "app/src/main/res/drawable/ic_launcher_foreground.xml": "76c328fbea3f52c640a38cfc6c959d566c9e361974998b6ad125cdf302bae875",
+    "app/src/main/res/drawable/ic_shield.xml": "6c6f67c9ce3fe42af19ff0ec1a9d9a9a8ce4b67740e7229ebcffde0b3338800d",
+    "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml": "67e7dda219f3b52e58d081d09f49275a50411b8706a9b9bb6c2001203e09603e",
+    "app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml": "0942967ea83c3aee9b979bbd32e999f7c1398a6c9568c8b0cf5699bbc99e9303",
+    "app/src/main/res/values/colors.xml": "5bd56aec67cfaa3a0f412b8070c2fc819d008292747c0b9ffab1a50f25233001",
+    "app/src/main/res/values/strings.xml": "10a29c66aafbe1959a3c29333fb1e85e773420aa3563cdb345cbf28ca6d6da22",
+    "app/src/main/res/values/styles.xml": "f35baee730d486182ae2ba19f3fa107890bc351a4139a732de56b0e644c5b26d"
+  }
+}

@@ -1,0 +1,45 @@
+# Vellivex adversarial review — 23 October 2026
+
+Release under review: VGuard 0.1.3-candidate; VVault/VRelay 0.2.1 browser beta.
+This is an internal source review and attack-regression exercise, not an independent audit, penetration-test certification or proof that a phone is protected.
+
+## Findings and fixes
+
+| Surface | Reproduced failure | Fix and evidence |
+| --- | --- | --- |
+| VGuard CSV export | A copied export-method model accepted file:// output destinations; Android ContentResolver supports that scheme. This was not a demonstrated attack on a phone. | Production ExportTarget permits only a document content URI with returned write permission and an explicit current grant. Validate before queuing and immediately before opening; provider failures are caught. 14 helper checks pass. |
+| VVault | Unpaired UTF-16 surrogates silently encoded as replacement characters, changing plaintext and aliasing passphrases. | Reject ill-formed UTF-16 before encoding; valid emoji and existing well-formed envelopes remain compatible. Early message length bound. |
+| VVault | Editing/clearing during PBKDF2 could re-enable submit and start repeated concurrent jobs. | Separate in-flight crypto guard survives input and session changes; stale completions remain suppressed. |
+| VVault/VRelay offline files | Worker-only changes reused the active release cache; a failed installation could delete that cache. | Cache identity hashes both the manifest and worker template. Existing same-release files are integrity-checked without mutation/deletion; a failed new installation removes only its own cache. |
+| Offline recovery | An unchanged active worker was reported as a newly verified installation. Incomplete or evicted cache was not automatically repaired. | UI explicitly says existing files were not rechecked. Missing-file and installation instructions explain closing tabs and clearing this site's stored data before reinstalling online. Fail-closed behavior retained. Automatic cache repair is not implemented. |
+| Website redirects | Crafted //host/ path produced a scheme-relative external redirect. | Absolute same-origin canonical URLs; HTTP upgrades to HTTPS. Slash/backslash adversarial cases pass. |
+| Feedback retries | An altered payload could receive saved success for an earlier report ID; a completed submission could clear a newer draft. | Compare normalized payload and network pseudonym; return 409 on conflict. Client preserves edits and retries uncertain identical reports using their original ID. |
+| Feedback concurrency | Identical concurrent retry could report failure despite an already committed row, including when the first fills quota slot ten. | Reconcile existing row after write error and zero-change quota result, with no second insert. Real SQLite concurrency tests. |
+| Feedback abuse controls | Daily pseudonym rollover reset the hourly counter at midnight. | Atomic insert counts current and preceding daily pseudonyms over the rolling hour; midnight test passes. |
+| Feedback input boundaries | Overly permissive MIME/UUID checks and untested streamed input boundaries. | Exact JSON media type and UUID length, strict UTF-8, bounded streamed body with cancellation, parameterized SQL. |
+
+## Verification coverage
+
+| Product | Completed here | Still unverified |
+| --- | --- | --- |
+| VGuard | Production parser/rules: 20,132 assertions. Existing adversarial engine: 18 scenarios / 2,192 assertions plus revocation and package-identity races. Export helper: 14 checks. Seeded hostile parser stress: 750,100 calls. Concurrent lifecycle stress: 300 cycles, 400 descriptors closed once. Independent CSV parser: 321 cases including 66 formula-leading values. SDK compilation, manifest/permissions, alignment and APK signature checks. | Physical Android install, consent/grant behavior, real DocumentsProvider compatibility, VPN routing/leak testing, foreground-service/background behavior, OEM/battery behavior, other VPN interactions. Host Android stubs are not OS evidence. |
+| VVault | Round trips, nonce/salt variation, wrong passphrases, tamper rejection, malformed envelopes, Unicode rejection, limits, asynchronous locking/concurrency and clipboard completion handling. Python cryptography interoperability in both directions with synthetic Unicode data. | Actual mobile Safari/Chrome lifecycle, OS clipboard/download behavior, compromised-device protection (outside scope), expert cryptographic review. |
+| VRelay | Strict envelope handling, bounded imports, stale import/share/copy suppression, session clearing, download/share state. Shared integrity-pinned offline installation/update failures. | Actual Android/iOS sharing and recipient delivery. Format checking does not authenticate a sender or prove encrypted content safe. |
+| Website | Actual SQLite schema and production SQL, 40 simultaneous requests limited to 10 saved rows, identical retry races, quota boundary, midnight, cross-network conflicts, no public report read route, malformed UTF-8/MIME/streaming limits, SQL/HTML literals, redirect containment. Form draft preservation and retry acknowledgements. | Hosting-platform isolation is a provider boundary. This is not a live volumetric attack or an audit of hosting infrastructure. |
+
+The final Node test run contains 45 passing tests. Test counts refer to distinct suites/inputs, not 750,100 independent security properties. Seeded fuzzing is bounded, not exhaustive. Source inspection and automated tests cannot establish absence of vulnerabilities.
+
+## Release evidence
+
+APK SHA-256: `6977d17d356f76a181a4979bf4fefa4f486167b90e2df612e5c93aed4977df58` (90,718 bytes).
+Signing certificate SHA-256: `7bdb5a95a45f735a175580a937eb5c7ec55a2c886ce038ed106c1dfa1f3ff049`.
+App source fingerprint: `9108459581d9a5fefe88ee3b151dece9dcd61374cd6eeb79d225295a0ec8e1e3`.
+The original signing identity was required, not silently regenerated. Signing material is excluded from source and release archives. Matching 0.1.1 and 0.1.2 historical source archives are retained.
+
+See releases/VGuard-0.1.3-Build-Report.json and Package-Verification.txt. No working Android emulator or attached phone was available; no device-runtime pass is claimed. Broader paid launch remains blocked on real-device acceptance, external feedback and an independent security review. Billing and tester invitations are not enabled by this release.
+
+## Reproduce
+
+Use Node 24+, Python 3 and Java (host harness). Run `npm test`, `bash apps/vguard/tests/adversarial/run-adversarial-tests.sh`, and `python3 apps/vguard/validation/UI-Logic-Checks.py`. Native build instructions are in apps/vguard/README.md. Run `npm run build` and `npm run validate` after providing the signed release artifacts. Full signed build reproducibility is not demonstrated.
+
+References for reviewed platform boundaries: Android DocumentsContract / ContentResolver documentation and WHATWG Encoding Standard. TextEncoder converts JavaScript text through Unicode scalar-value strings; rejecting unpaired surrogates before encoding avoids replacement-character aliases.

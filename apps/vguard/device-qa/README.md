@@ -21,7 +21,7 @@ The server returns a constant string and exposes no files. Run it in the same ne
 In another terminal in that same environment:
 
 ```sh
-adb install build/VGuard-0.1.1-preview.apk
+adb install build/VGuard-0.1.3-candidate.apk
 adb install build/qa-probes/VGuard-QA-blocked.apk
 adb install build/qa-probes/VGuard-QA-allowed.apk
 

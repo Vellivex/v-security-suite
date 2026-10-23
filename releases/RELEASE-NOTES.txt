@@ -1,26 +1,9 @@
-V SECURITY — HARDENING RELEASE, 23 OCTOBER 2026
-Main brand and custom domain remain provisional.
+VELLIVEX — ADVERSARIAL HARDENING, 23 OCTOBER 2026
 
-VGuard 0.1.2-candidate
-- Fixes reproduced revocation/startup and app-identity races.
-- Adds screenshot/recents protection and explicit Android backup/transfer exclusions.
-- Native package rebuilt and verified using original update-signing identity.
-- Actual Android runtime enforcement remains unverified.
-- Earlier APK replaced by this candidate; historical matching source is preserved separately.
+VGuard 0.1.3-candidate restricts exports to explicitly granted document destinations, rechecks before writing and catches provider failures. Retains earlier VPN startup fixes. Signed with the original certificate; compilation, signature, manifest and alignment checked. Real Android routing remains unverified.
 
-VVault and VRelay 0.2.0 browser beta
-- Clear sessions on tab hide/page exit/history restore and two-minute inactivity.
-- Suppress stale crypto, clipboard/share status and file-import completions after lock or input changes.
-- Clear plaintext draft after successful encryption.
-- Strict envelope/base64 validation and authenticated encryption unchanged.
-- Independent Python/Web Crypto interoperability checked with synthetic data.
-- Encryption/transfer pages block app-initiated network connections.
-- Offline files use release-specific hash checks; an active offline worker fails closed on missing files instead of silently fetching new code.
+VVault/VRelay 0.2.1 reject malformed Unicode before encryption and prevent overlapping key-derivation jobs across edits/locks. Offline releases include worker code in cache identity. Failed updates cannot delete the active release cache. Missing files fail closed; recovery guidance covers clearing site data and reinstalling online. Unchanged update checks do not claim files were reverified.
 
-Website and release process
-- HMAC-based private abuse-control pseudonyms, stronger isolation/transport headers.
-- No payment collection, subscriptions or advertising trackers.
-- Source package excludes build output and signing material. Checksums published.
-- Automated source regression workflow prepared for the public repository; its actual GitHub run result must be checked separately.
+Website redirects stay on-origin. Feedback preserves newer drafts, detects changed retries, reconciles concurrent saves and maintains hourly rate limits across midnight. Streaming bodies, UTF-8, MIME and UUID checks are bounded and tested against real SQLite.
 
-This is experimental software, not independently audited or certified. Real-phone tests, beta feedback and expert review remain gates before a wider paid launch.
+45 Node tests pass; native core/engine/export/CSV suites and bounded parser/lifecycle stress pass. See docs/ADVERSARIAL-REVIEW-2026-10-23.md for scope, evidence and remaining gates. This is internal testing, not an independent audit or a claim that the apps are bulletproof. No billing, external invitations or marketing sends enabled.

@@ -1,0 +1,12 @@
+VELLIVEX / VGUARD 0.1.3-CANDIDATE — 23 OCTOBER 2026
+
+CSV exports now require a content document URI with a returned write grant and an explicit current URI permission. Validation runs before queuing and before opening. Invalid/revoked targets and provider exceptions fail closed. This addresses a source-level unsafe-target reproduction; no real-phone exploitation was demonstrated.
+
+Retains 0.1.2 revocation/app-identity startup fixes, screenshot controls and backup/transfer exclusions.
+
+Host checks: 14 export-boundary checks; 750,100 seeded parser calls; 300 concurrent lifecycle cycles; prior core/adversarial/CSV suites. Android stubs are not a real OS.
+
+APK SHA-256: 6977d17d356f76a181a4979bf4fefa4f486167b90e2df612e5c93aed4977df58
+90,718 bytes. Signature/alignment/manifest/permission verification passed using original signing identity. Device runtime is NOT verified.
+
+This is experimental software. Do not rely on it for sensitive activity. Real Android routing, grants, background behavior and independent review remain required. See docs/ADVERSARIAL-REVIEW-2026-10-23.md in the source archive.

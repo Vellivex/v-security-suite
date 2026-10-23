@@ -4,4 +4,5 @@ public final class Uri {
  public static Uri parse(String value){return new Uri(value);}
  public String getSchemeSpecificPart(){int colon=value.indexOf(':');return colon<0?value:value.substring(colon+1);}
  public String getScheme(){int colon=value.indexOf(':');return colon<0?null:value.substring(0,colon);}
+ public String getAuthority(){try{return java.net.URI.create(value).getRawAuthority();}catch(IllegalArgumentException invalid){return null;}}
 }

@@ -3,6 +3,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 public class PackageManager {
+ public static final int PERMISSION_GRANTED=0;
  public final Map<String,Integer> installed=new ConcurrentHashMap<String,Integer>();
  public String disappearOnBuilderAdd;
  public void install(String name,int uid){installed.put(name,Integer.valueOf(uid));}

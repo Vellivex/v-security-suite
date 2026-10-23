@@ -1064,7 +1064,14 @@ public final class MainActivity extends Activity {
                         "Android restarted VGuard before the export finished. No activity was written to the selected file. Please export again.");
                 } else if (data == null || data.getData() == null) {
                     showMessage("Export unavailable", "Android did not return a document to write. Please export again.");
-                } else exportEvents(data.getData(), new ArrayList<>(snapshot));
+                } else {
+                    try {
+                        ExportTarget.validate(this, data.getData(), data.getFlags());
+                        exportEvents(data.getData(), data.getFlags(), new ArrayList<>(snapshot));
+                    } catch (RuntimeException failure) {
+                        showMessage("Export refused", "Choose a writable document using Android's file picker. No activity was exported.");
+                    }
+                }
             }
         }
     }
@@ -1077,6 +1084,7 @@ public final class MainActivity extends Activity {
         Intent export = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         export.addCategory(Intent.CATEGORY_OPENABLE);
         export.setType("text/csv");
+        export.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         export.putExtra(Intent.EXTRA_TITLE, "VGuard-activity-"
             + new SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(new Date()) + ".csv");
         try { startActivityForResult(export, EXPORT_REQUEST); }
@@ -1087,9 +1095,14 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void exportEvents(final Uri uri, final List<PacketInfo> events) {
+    private void exportEvents(final Uri uri, final int resultFlags, final List<PacketInfo> events) {
         worker.execute(() -> {
             String failure = null;
+            try { ExportTarget.validate(this, uri, resultFlags); }
+            catch (RuntimeException invalid) {
+                handler.post(() -> showMessage("Export refused", "Document permission changed. Please export again. No activity was exported."));
+                return;
+            }
             try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) {
                 if (output == null) throw new IllegalStateException("The chosen file could not be opened.");
                 StringBuilder csv = new StringBuilder("timestamp_utc,app,destination,port,protocol\r\n");

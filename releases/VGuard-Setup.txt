@@ -1,11 +1,11 @@
 VGUARD — ANDROID PHONE FIREWALL
-Version 0.1.2 candidate
+Version 0.1.3 candidate
 
 Your V brand: black and charcoal, grey lettering, muted olive indicators, V + shield.
 
 GET STARTED
 
-1. Download VGuard-0.1.2-candidate.apk on your Android phone and open it.
+1. Download VGuard-0.1.3-candidate.apk on your Android phone and open it.
    If Android asks, allow the browser/file manager to install this APK.
    You can remove that install permission afterwards.
 2. Open VGuard, choose Apps, and turn on Block for an app you want offline.
@@ -21,7 +21,12 @@ for an in-place update. Do not uninstall the old app first if you want to
 retain saved selections. This specific upgrade flow has not yet been tested
 on a running Android device.
 
-CHANGES IN 0.1.2
+CHANGES IN 0.1.3
+- Refuses non-document export destinations, missing write grants and revoked permissions.
+- Rechecks export permission immediately before writing.
+- Adds hostile-parser, concurrent-lifecycle and export-target regressions.
+
+EARLIER 0.1.2 CHANGES
 
 - Rejects VPN revocation while startup is in flight.
 - Revalidates complete Android app identities before and after establishment.

@@ -14,9 +14,10 @@ export async function installOfflineTools(serviceWorker){
   const registration=await serviceWorker.register('/sw.js',{scope:'/apps/',updateViaCache:'none'});
   // register() can resolve while first installation is in progress. Updating at
   // that point can race a failed installation and obscure the useful error.
+  const previous=registration.active;
   if(!registration.installing&&!registration.waiting&&registration.active)await registration.update();
   const worker=registration.installing||registration.waiting||registration.active;
   if(!worker)throw new Error('Offline files were not installed. Stay online and try again.');
   await settledWorker(worker);
-  return {waiting:worker.state==='installed'||Boolean(registration.waiting)};
+  return {waiting:worker.state==='installed'||Boolean(registration.waiting),unchanged:worker===previous};
 }

@@ -4,6 +4,13 @@ export const ITERATIONS = 600000;
 export const MAX_PLAINTEXT = 128 * 1024;
 const aad = new TextEncoder().encode('VVAULT:1:PBKDF2-SHA256:600000:AES-256-GCM');
 const encoder = new TextEncoder();
+function requireWellFormed(text) {
+  for (let i=0;i<text.length;i++) {
+    const unit=text.charCodeAt(i);
+    if(unit>=0xd800&&unit<=0xdbff){const next=text.charCodeAt(++i);if(!(next>=0xdc00&&next<=0xdfff))throw new Error('Text contains an incomplete Unicode character. Please re-enter it.');}
+    else if(unit>=0xdc00&&unit<=0xdfff)throw new Error('Text contains an incomplete Unicode character. Please re-enter it.');
+  }
+}
 function base64(bytes) {
   let text = '';
   for (const byte of bytes) text += String.fromCharCode(byte);
@@ -27,6 +34,7 @@ export function inspectEnvelope(text) {
 }
 async function derive(passphrase,salt,usage) {
   if (typeof passphrase !== 'string' || passphrase.length > 1024) throw new Error('Invalid passphrase.');
+  requireWellFormed(passphrase);
   const material = encoder.encode(passphrase);
   try {
     const key = await crypto.subtle.importKey('raw',material,'PBKDF2',false,['deriveKey']);
@@ -35,8 +43,10 @@ async function derive(passphrase,salt,usage) {
 }
 export async function encryptMessage(message,passphrase) {
   if (typeof message !== 'string' || !message.length) throw new Error('Write a message first.');
+  if(message.length>MAX_PLAINTEXT)throw new Error('Keep messages below 128 KiB.');
   if (typeof passphrase!=='string'||passphrase.length>1024) throw new Error('Invalid passphrase.');
   if (passphrase.length < 14) throw new Error('Use at least 14 characters, preferably four or more random words.');
+  requireWellFormed(message);requireWellFormed(passphrase);
   const bytes=encoder.encode(message);
   if (bytes.length>MAX_PLAINTEXT) throw new Error('Keep messages below 128 KiB.');
   const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));

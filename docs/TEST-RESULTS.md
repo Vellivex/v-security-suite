@@ -32,3 +32,7 @@ Responsive UI: homepage tested with a 390-pixel viewport, with no horizontal ove
 ## Subsequent hardening release
 
 See SECURITY-HARDENING-2026-10-23.md for the rebuilt VGuard 0.1.2 candidate, 22 browser/server/session/offline regressions, independent cryptographic interoperability checks and native race fixes. Earlier live browser observations above apply to the prior beta; current-release live observations must be recorded separately.
+
+## Adversarial follow-up — current candidate
+
+Current release: VGuard 0.1.3-candidate and browser tools 0.2.1. See [ADVERSARIAL-REVIEW-2026-10-23.md](ADVERSARIAL-REVIEW-2026-10-23.md) for the current 45-test Node suite, real SQLite concurrency checks, 750,100 parser calls, 300 lifecycle cycles and export restrictions. Historical observations above do not certify this candidate on a phone.

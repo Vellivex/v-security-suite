@@ -6,6 +6,7 @@ public class Intent {
  public static final String ACTION_PACKAGE_REMOVED="android.intent.action.PACKAGE_REMOVED",ACTION_PACKAGE_ADDED="android.intent.action.PACKAGE_ADDED",ACTION_PACKAGE_REPLACED="android.intent.action.PACKAGE_REPLACED";
  public static final String EXTRA_REPLACING="android.intent.extra.REPLACING",EXTRA_UID="android.intent.extra.UID";
  public static final int FLAG_ACTIVITY_SINGLE_TOP=1,FLAG_ACTIVITY_CLEAR_TOP=2;
+ public static final int FLAG_GRANT_WRITE_URI_PERMISSION=2;
  private String action; private Uri data; private final Map<String,Object> extras=new HashMap<String,Object>();
  public Intent(){} public Intent(Context context,Class<?> type){}
  public Intent setAction(String value){action=value;return this;} public String getAction(){return action;}

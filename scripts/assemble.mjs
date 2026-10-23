@@ -3,6 +3,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {page} from '../server/pages.js';
+import {offlineRelease} from './offline-release.mjs';
 const root=resolve(import.meta.dirname,'..');
 const assets={};
 for(const [path,file,type] of [
@@ -16,9 +17,8 @@ assets['/manifest.webmanifest']={body:JSON.stringify({name:'Vellivex experimenta
 for(const name of ['vault','relay'])assets['/offline/'+name]={body:page('/apps/'+name),type:'text/plain; charset=utf-8',offlineDocument:true};
 const offlinePaths=['/apps/vault','/apps/relay','/apps/crypto.js','/app.js','/session.js','/offline.js','/site.js','/style.css','/icon.svg','/manifest.webmanifest'];
 const offlineManifest=offlinePaths.map(url=>({url,...(url==='/apps/vault'||url==='/apps/relay'?{source:url.replace('/apps/','/offline/'),type:'text/html; charset=utf-8'}:{}),integrity:'sha256-'+createHash('sha256').update(assets[url]?.body??page(url)).digest('base64')}));
-const cacheId='v-tools-0.2.0-'+createHash('sha256').update(JSON.stringify(offlineManifest)).digest('hex').slice(0,12);
-assets['/sw.js']={body:(await readFile(resolve(root,'web/sw.js'),'utf8')).replace('__CACHE_ID__',cacheId).replace('__ASSET_MANIFEST__',JSON.stringify(offlineManifest)),type:'text/javascript; charset=utf-8'};
-for(const name of ['VGuard-0.1.2-candidate.apk','VGuard-Source-GPL.zip','VGuard-0.1.1-Source-GPL.zip','V-Security-Source.zip','VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.2-Build-Report.json','VGuard-0.1.2-Package-Verification.txt','VGuard-0.1.2-Security-Notes.txt','SHA256SUMS.txt']){
+assets['/sw.js']={body:offlineRelease(offlineManifest,await readFile(resolve(root,'web/sw.js'),'utf8')).source,type:'text/javascript; charset=utf-8'};
+for(const name of ['VGuard-0.1.3-candidate.apk','VGuard-Source-GPL.zip','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip','V-Security-Source.zip','VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt','SHA256SUMS.txt']){
  const binary=name.endsWith('.apk')||name.endsWith('.zip');
  assets['/downloads/'+name]={body:await readFile(resolve(root,'releases',name),binary?'base64':'utf8'),base64:binary,type:name.endsWith('.apk')?'application/vnd.android.package-archive':name.endsWith('.zip')?'application/zip':name.endsWith('.json')?'application/json':'text/plain; charset=utf-8',download:binary?name:undefined};
 }

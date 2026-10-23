@@ -11,4 +11,5 @@ public class Context {
  public Intent registerReceiver(BroadcastReceiver receiver,IntentFilter filter){return registerReceiver(receiver,filter,0);}
  public Intent registerReceiver(BroadcastReceiver receiver,IntentFilter filter,int flags){FakeAndroid.register(this,receiver,filter,flags);return null;}
  public void unregisterReceiver(BroadcastReceiver receiver){FakeAndroid.unregister(receiver);}
+ public int checkUriPermission(android.net.Uri uri,int pid,int uid,int flags){return -1;}
 }
