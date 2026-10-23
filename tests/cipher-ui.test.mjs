@@ -20,3 +20,22 @@ test('pending plaintext stays unpublished across seven session and camera cancel
 test('pending backup unlock cannot restore identity after lock, file change or reconnection',async()=>{for(const boundary of ['lock','backup','online']){const work=deferred(),t=setup('vault',{importIdentity:()=>work.promise});t.els['cipher-backup'].files=[{size:100,text:async()=> 'synthetic backup'}];const pending=t.els['cipher-unlock'].emit('click');if(boundary==='lock')await t.els['cipher-lock'].emit('click');if(boundary==='backup')await t.els['cipher-backup'].emit('change');if(boundary==='online')await t.window.emit('online');work.resolve({card:{type:'test'},fingerprint:'retired identity'});await pending;assert.equal(t.els['identity-card'].value,'',boundary);}});
 test('revoking contact confirmation cancels pending plaintext and clears prior output',async()=>{const work=deferred(),t=setup('vault',{open:async()=>{await work.promise;return 'revoked-contact plaintext';}});await t.els['cipher-generate'].emit('click');t.els['contact-card'].value='synthetic card';await t.els['cipher-contact'].emit('click');t.els['contact-confirm'].checked=true;const pending=t.els['cipher-decrypt'].emit('click');t.els['contact-confirm'].checked=false;await t.els['contact-confirm'].emit('change');work.resolve();await pending;assert.equal(t.els['cipher-result'].value,'');});
 test('editing a pasted frame retires pending verification of the previous frame',async()=>{const work=deferred(),t=setup('relay',{Collector:class{reset(){}add(){return work.promise;}}});t.els['scan-frame-input'].value='old frame';const pending=t.els['scan-frame'].emit('click');t.els['scan-frame-input'].value='new frame';await t.els['scan-frame-input'].emit('input');work.resolve({received:1,total:1,text:'retired transfer'});await pending;assert.equal(t.els['transfer-input'].value,'');});
+test('failed encrypted-backup download cannot leave a newly generated identity usable',async()=>{
+ for(const failure of ['url','click']){
+  const t=setup('vault',failure==='url'?{URL:{createObjectURL(){throw Error('Synthetic backup URL failure');}}}:{});
+  if(failure==='click')t.document.createElement=()=>({click(){throw Error('Synthetic backup click failure');}});
+  await t.els['cipher-generate'].emit('click');
+  assert.equal(t.calls.generate,1);assert.equal(t.els['identity-card'].value,'',failure);assert.match(t.els['cipher-status'].textContent,/No new identity was activated/,failure);
+  assert.doesNotMatch(t.els['identity-fingerprint'].textContent,/Your identity fingerprint/,failure);
+  t.els['contact-card'].value='synthetic contact';await t.els['cipher-contact'].emit('click');t.els['contact-confirm'].checked=true;
+  await t.els['cipher-encrypt'].emit('click');assert.match(t.els['cipher-status'].textContent,/Create or unlock your identity first/,failure);
+ }
+});
+test('successful encrypted-backup request still activates the generated identity',async()=>{
+ const t=setup();await t.els['cipher-generate'].emit('click');assert.equal(t.calls.generate,1);
+ assert.equal(t.els['identity-card'].value,'{"type":"test"}');assert.match(t.els['identity-fingerprint'].textContent,/Your identity fingerprint/);assert.match(t.els['cipher-status'].textContent,/backup download requested/);
+});
+test('a lock during the backup download request cannot resurrect the generated identity',async()=>{
+ const t=setup();t.document.createElement=()=>({click(){void t.els['cipher-lock'].emit('click');}});
+ await t.els['cipher-generate'].emit('click');assert.equal(t.els['identity-card'].value,'');assert.match(t.els['identity-fingerprint'].textContent,/No identity unlocked/);assert.match(t.els['cipher-status'].textContent,/Session locked/);
+});

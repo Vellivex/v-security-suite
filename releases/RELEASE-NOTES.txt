@@ -1,3 +1,8 @@
+VELLIVEX — LAUNCH-CONFIDENCE HARDENING, 23 OCTOBER 2026
+
+Site 0.3.9 / VVault and VRelay 0.2.5 / V Cipher 0.1.5 research.
+Tool pages request disabled spellchecking, correction, writing suggestions, autofill and translation for sensitive text. Browser/keyboard overrides remain outside site control. V Cipher activates a generated identity only after its encrypted-backup download request succeeds, and cannot restore success after a lock during that request. The website report form now times out stalled requests and response bodies, retains the draft/reference and supports safe retries. New regressions reproduce the corrected boundaries. Public launch blockers are explicit on /trust. VGuard 0.1.3 APK unchanged. No new cryptographic bypass was reproduced. No physical-phone or independent-audit completion is claimed.
+
 VELLIVEX — V CIPHER ADVERSARIAL FOLLOW-UP, 23 OCTOBER 2026
 
 V Cipher 0.1.1 / site 0.3.1 fixes structural fingerprint validation, receiver plaintext limits, camera lifetime on operation changes, asynchronous QR-reset retirement, stale outgoing QR display and replay updates from retired decryptions. 91 Node tests pass, including 10,000 hostile QR strings and synthetic rotated/inverted/noise decoding tests. Physical phones and independent review remain outstanding.
