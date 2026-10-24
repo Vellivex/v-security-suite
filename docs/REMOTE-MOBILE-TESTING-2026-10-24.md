@@ -4,7 +4,7 @@ Site 0.5.1; VVault/VRelay 0.2.9; V Cipher 0.1.9 research. The VGuard 0.1.3-candi
 
 ## Environment and cost boundary
 
-The owner requested use of free remote testing services. Appetize registration was completed with the owner entering the password and accepting the account terms. The account showed Free/Trial, a 30-minute monthly allowance, and no invoices. No payment details, paid upgrade or API credential were entered or created. The last observed pre-retest usage was 10 sessions / 27 minutes. Three-minute session limits and a transient browser-control interruption constrained coverage. A timed-out or unobserved result is not a pass or an application failure.
+The owner requested use of free remote testing services. Appetize registration was completed with the owner entering the password and accepting the account terms. The account showed Free/Trial, a 30-minute monthly allowance, and no invoices. No payment details, paid upgrade or API credential were entered or created. Before retesting the account showed 10 sessions / 27 minutes. After the final session it showed 11 sessions / 30 minutes, still on Free with no invoices. No further streaming sessions were started. Three-minute session limits and a transient browser-control interruption constrained coverage. A timed-out or unobserved result is not a pass or an application failure.
 
 Only synthetic messages, test passphrases and a public-format encrypted fixture were used. iPhone 14 Pro / iOS 17.2 was a simulator; Pixel 4 / Android 12 was an emulator. Exact browser versions were not captured, so these are not a supported-version matrix.
 
@@ -18,7 +18,7 @@ Only synthetic messages, test passphrases and a public-format encrypted fixture 
 | Android Chrome VVault encryption | A dummy message encrypted; success status and VVAULT JSON output displayed; passphrases cleared. | PASS |
 | Android Chrome Clear session | Explicit clear emptied the encrypted result and displayed the documented memory/clipboard limitation. | PASS |
 | Android Chrome VRelay malformed data | `{}` was refused with `Unsupported or invalid encrypted package.` and no transfer output. | PASS |
-| Android Chrome VRelay valid fixture | The same well-formed fixture failed with `Object.hasOwn is not a function`. No plaintext was disclosed. | FAIL — repaired below; remote retest recorded separately |
+| Android Chrome VRelay valid fixture | The same well-formed fixture failed with `Object.hasOwn is not a function`. No plaintext was disclosed. | FAIL on 0.2.8; PASS on 0.2.9 retest below |
 | Other decryption/Relay attempts | Several runs expired at the provider limit or ended before the outcome could be inspected. | NOT COMPLETED |
 
 Chrome offered to save a dummy passphrase despite the page's input hints. That prompt was dismissed without saving. Safari input-focus zoom also produced clipped form content in one run; this needs a separate reproducible usability check. These observations do not establish a cryptographic vulnerability or a guarantee that browsers obey input hints.
@@ -31,7 +31,13 @@ Three isolated-process regression tests remove all three newer built-ins, then e
 
 Website feedback creates UUIDv4 references using native `crypto.randomUUID` when available or securely generated random bytes with the correct version/variant bits. Missing or failed secure randomness cannot allow native form submission. Uncertain retries retain their reference; edits and conflicts obtain a new one. No `Math.random` fallback is used.
 
-All 240 automated tests passed. Packaging verified the QR vendor transformations, the unchanged VGuard APK hash and 14 native-source fingerprints, strict source archives from 154 reviewed regular files, assembled routes/security headers/download hashes, and offline body/header manifests. Fresh SDK signature verification was not repeated in this environment. Deployment and post-repair remote results remain separate observations.
+All 240 automated tests passed. Packaging verified the QR vendor transformations, the unchanged VGuard APK hash and 14 native-source fingerprints, strict source archives from 154 reviewed regular files, assembled routes/security headers/download hashes, and offline body/header manifests. Fresh SDK signature verification was not repeated in this environment. The release was deployed successfully. The public-source security workflow for fix commit `692604630152598a7530b410fa0a406313501c33` completed successfully: [historical workflow run retired] .
+
+## Post-repair remote result
+
+In a fresh Pixel 4 / Android 12 Chrome session after deployment, the exact previously failing synthetic fixture was accepted. The status read: `Package format checked. This does not authenticate its sender or verify the encrypted contents.` This is a PASS for the reproduced Relay compatibility issue, not proof of sender authenticity or of every older browser.
+
+The same session opened Cipher Vault and attempted identity generation while online; the displayed identity remained `No identity unlocked.` The full gate error and backup/recovery flows were not observed before the time limit, so the complete Cipher gate and workflow remain NOT COMPLETED. No physical-isolation claim is made.
 
 ## Open gates
 
