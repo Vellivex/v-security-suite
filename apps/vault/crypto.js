@@ -65,9 +65,9 @@ export async function encryptMessage(message,passphrase) {
   if (passphrase.length < 14) throw new Error('Use at least 14 characters, preferably four or more random words.');
   requireWellFormed(message);requireWellFormed(passphrase);
   const bytes=encoder.encode(message);
-  if (bytes.length>MAX_PLAINTEXT) throw new Error('Keep messages below 128 KiB.');
-  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
   try {
+    if (bytes.length>MAX_PLAINTEXT) throw new Error('Keep messages below 128 KiB.');
+    const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
     const key=await derive(passphrase,salt,'encrypt');
     const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad,tagLength:128},key,bytes);
     return JSON.stringify({format:'VVAULT',version:1,kdf:'PBKDF2-SHA256',iterations:ITERATIONS,cipher:'AES-256-GCM',salt:base64(salt),iv:base64(iv),ciphertext:base64(new Uint8Array(encrypted))});

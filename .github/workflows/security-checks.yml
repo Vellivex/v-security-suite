@@ -16,6 +16,8 @@ jobs:
           git checkout --detach FETCH_HEAD
       - name: Web crypto, private feedback and sensitive-session regressions
         run: node --test tests/*.test.mjs
+      - name: Frozen fictional mobile fixtures and authentication expectations
+        run: node tests/fixtures/mobile/verify.mjs
       - name: Native parser, rule, engine and lifecycle regressions on host stubs
         run: bash apps/vguard/tests/adversarial/run-adversarial-tests.sh
       - name: Independent CSV parser checks

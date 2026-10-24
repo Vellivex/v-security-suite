@@ -1,0 +1,25 @@
+{
+  "notice": "PUBLIC FICTIONAL TEST DATA ONLY. Every value, including the passphrase, is intentionally published. Never use these values to protect real information.",
+  "fixture_version": 1,
+  "created": "2026-10-24",
+  "producer": "Python cryptography AESGCM and PBKDF2HMAC; not the VVault implementation",
+  "passphrase": "synthetic orchard river 42",
+  "wrong_passphrase": "incorrect synthetic phrase 42",
+  "plaintext": "Café 🔐\n<b>plain text</b>",
+  "plaintext_utf8_base64": "Q2Fmw6kg8J+UkAo8Yj5wbGFpbiB0ZXh0PC9iPg==",
+  "expected": {
+    "valid.vvault.json": {
+      "relay": "format accepted; no sender/content authentication",
+      "vault_correct_passphrase": "exact plaintext recovered",
+      "vault_wrong_passphrase": "authentication failure; no plaintext"
+    },
+    "tampered-ciphertext.vvault.json": {
+      "relay": "format accepted; this is deliberately still structurally valid",
+      "vault_correct_passphrase": "authentication failure; no plaintext"
+    },
+    "malformed.json": {
+      "relay": "format rejected; no transfer output",
+      "vault": "format rejected; no plaintext"
+    }
+  }
+}

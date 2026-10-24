@@ -7,9 +7,9 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
 | VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.2.9 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| VVault | Browser 0.2.10 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
 | V Cipher | Browser 0.1.9 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
-| VRelay | Browser 0.2.9 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VRelay | Browser 0.2.10 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault, VRelay and V Cipher retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
@@ -78,3 +78,7 @@ Run `node scripts/verify-vendor.mjs` to check retained QR source/runtime hashes 
 ## Remote mobile compatibility
 
 Free Android Chrome testing found a valid-package failure caused by Object.hasOwn being unavailable. The browser tools now use portable strict parsing/UTF-16 checks, and feedback can generate secure UUIDs without crypto.randomUUID. Actual cryptographic regression tests run with the newer built-ins removed. See `docs/REMOTE-MOBILE-TESTING-2026-10-24.md` for the partial simulator/emulator results and remaining physical-device gates.
+
+## Before the next mobile session
+
+Reusable fictional packages and exact expected outcomes are in `tests/fixtures/mobile/`. Use `docs/MOBILE-SESSION-PLAN.md` for short sessions within the free provider cap. These are public test data, never a source of real passphrases. Local fixture verification and responsive layout checks do not complete physical-device acceptance.

@@ -56,3 +56,9 @@ The unchanged VGuard 0.1.3 APK's eight payload entries were reproduced by a clea
 Free remote Android Chrome testing reproduced a valid-package failure caused by an unavailable Object.hasOwn. VVault/VRelay 0.2.9 and V Cipher 0.1.9 use portable strict own-property, parser-stack and UTF-16 validation. Feedback UUID generation supports secure getRandomValues when randomUUID is absent and fails closed if secure randomness fails. Formats and algorithm parameters are unchanged. Automated regression tests remove the newer built-ins before running actual cryptographic round trips and malformed-data rejection cases.
 
 The observed mobile checks used an iPhone simulator and an Android emulator. They are partial internal evidence, not physical-device acceptance or an independent audit. Browser password-save suggestions can still appear despite input hints; no real secrets were used. See docs/REMOTE-MOBILE-TESTING-2026-10-24.md.
+
+## Failure-path cleanup and mobile preparation — site 0.5.2
+
+VVault 0.2.10 clears the temporary UTF-8 plaintext buffer when the encoded message exceeds the byte limit or salt/nonce generation throws. Three synthetic-buffer regressions failed before the fix and passed after it; the complete Node suite passes 243 tests. This is best-effort array clearing, not a guarantee of secure erasure from browser/OS memory. Envelope format, algorithms, parameters and limits are unchanged.
+
+Shared form controls use 16-pixel text and shrinkable grid columns to address the small focused text seen during Safari testing. The iOS focus-zoom issue is not yet retested. Public fictional fixtures and a timed mobile run sheet prepare the next free testing window without adding production prefill hooks. Physical-device and independent-review gates remain open.

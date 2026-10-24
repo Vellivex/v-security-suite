@@ -44,3 +44,13 @@ The same session opened Cipher Vault and attempted identity generation while onl
 VGuard was not installed or exercised in this remote run. The initial browser download attempt was blocked because its download-permission/origin context could not be established; no security control was bypassed. Appetize VPN support was not established. BrowserStack explicitly excludes VPN apps installed directly on its devices.
 
 Physical Android routing, IPv4/IPv6/DNS and existing-socket bypass, sleep/reboot/mobile switching, real phone import/share/keyboard behaviour, two-device physical QR/camera operation, genuine offline isolation and independent review remain open. The physical acceptance checklist remains NOT RUN. The simulator/emulator work does not make the apps impregnable or establish launch readiness.
+
+## Preparation while the free allowance is exhausted — site 0.5.2
+
+The account billing page was checked again on 24 October: 11 sessions / 30 minutes, Free/Trial, no invoices, period ending 1 November 2026 00:00 UTC. No further streaming session was started.
+
+A local follow-up found that encoded plaintext was allocated before the cleanup scope, so UTF-8 byte-limit rejection or failed randomness skipped best-effort clearing. The check and randomness generation now run inside that scope. All three new cleanup tests failed before repair and passed afterwards. The complete Node suite passes 243 tests. This does not guarantee memory erasure.
+
+Form controls now use 16-pixel text, including encrypted-package textareas; app grid children may shrink to their container. This addresses small focused text and layout pressure without disabling user zoom. The original iOS Safari zoom/clipping observation remains awaiting a same-device retest.
+
+The public fictional fixture pack in `tests/fixtures/mobile/` and `docs/MOBILE-SESSION-PLAN.md` avoid recreating long encrypted test packages during a three-minute session. Local fixture verification does not constitute a new mobile pass. VGuard and Cipher physical-device gates remain NOT RUN.
