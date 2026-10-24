@@ -7,9 +7,9 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
 | VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
-| VVault | Browser 0.2.8 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
-| V Cipher | Browser 0.1.8 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
-| VRelay | Browser 0.2.8 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
+| VVault | Browser 0.2.9 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
+| V Cipher | Browser 0.1.9 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
+| VRelay | Browser 0.2.9 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault, VRelay and V Cipher retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
@@ -73,3 +73,8 @@ V Cipher makes restored and activated private session keys non-extractable. Fres
 Offline releases pin both response bodies and canonical response headers, including MIME, network policy and isolation. Header-only cache modifications cannot relax those policies. The trusted origin and worker remain part of the trust boundary.
 
 Run `node scripts/verify-vendor.mjs` to check retained QR source/runtime hashes and exact local transforms. Run `python3 scripts/verify-vguard-payload.py --sdk /absolute/path/to/android-sdk` to reproduce and compare all eight VGuard payload entries without signing. See `docs/VGUARD-PAYLOAD-REBUILD-2026-10-23.md` for the toolchain and scope.
+
+
+## Remote mobile compatibility
+
+Free Android Chrome testing found a valid-package failure caused by Object.hasOwn being unavailable. The browser tools now use portable strict parsing/UTF-16 checks, and feedback can generate secure UUIDs without crypto.randomUUID. Actual cryptographic regression tests run with the newer built-ins removed. See `docs/REMOTE-MOBILE-TESTING-2026-10-24.md` for the partial simulator/emulator results and remaining physical-device gates.

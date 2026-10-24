@@ -1,3 +1,8 @@
+VELLIVEX MOBILE BROWSER COMPATIBILITY — 24 OCTOBER 2026
+
+Site 0.5.1 / VVault and VRelay 0.2.9 / V Cipher 0.1.9 research. VGuard 0.1.3 APK unchanged.
+Free Appetize mobile testing reproduced a valid VRelay package failing in Android Chrome because Object.hasOwn was unavailable. Portable own-property checks, strict UTF-16 checks and parser stack indexing remove related newer-built-in dependencies without changing cryptographic formats. Feedback IDs use a secure getRandomValues fallback when randomUUID is absent and prevent native submission if secure randomness is unavailable. See docs/REMOTE-MOBILE-TESTING-2026-10-24.md for actual partial mobile results and open gates.
+
 VELLIVEX — KEY AND DELIVERY HARDENING, 23 OCTOBER 2026
 
 Site 0.5.0 / VVault and VRelay 0.2.8 / V Cipher 0.1.8 research. VGuard 0.1.3 APK unchanged.

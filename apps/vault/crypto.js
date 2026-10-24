@@ -44,7 +44,7 @@ export function inspectEnvelope(text) {
   let obj;
   try { obj = JSON.parse(text); } catch { throw new Error('Choose a valid VVault encrypted package.'); }
   const keys = ['format','version','kdf','iterations','cipher','salt','iv','ciphertext'];
-  if (!obj || Array.isArray(obj) || Object.keys(obj).length !== keys.length || keys.some(k => !Object.hasOwn(obj,k)) || obj.format !== 'VVAULT' || obj.version !== 1 || obj.kdf !== 'PBKDF2-SHA256' || obj.iterations !== ITERATIONS || obj.cipher !== 'AES-256-GCM') throw new Error('Unsupported or invalid encrypted package.');
+  if (!obj || Array.isArray(obj) || Object.keys(obj).length !== keys.length || keys.some(k => !Object.prototype.hasOwnProperty.call(obj,k)) || obj.format !== 'VVAULT' || obj.version !== 1 || obj.kdf !== 'PBKDF2-SHA256' || obj.iterations !== ITERATIONS || obj.cipher !== 'AES-256-GCM') throw new Error('Unsupported or invalid encrypted package.');
   rejectDuplicateMembers(text);
   const salt = unbase64(obj.salt,16,16), iv = unbase64(obj.iv,12,12), ciphertext = unbase64(obj.ciphertext,16,MAX_PLAINTEXT+16);
   return {salt, iv, ciphertext};

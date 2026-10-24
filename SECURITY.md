@@ -49,3 +49,10 @@ VVault/VRelay 0.2.7 keep unsupported-browser cryptography disabled across sessio
 V Cipher 0.1.8 restores/activates non-extractable private session keys after compatible encrypted-backup creation. Raw session-key re-export is refused; retain the original backup. This reduces accidental export, not compromised-code oracle use or memory exposure. VVault/VRelay 0.2.8 and Cipher offline delivery verify body bytes and reconstruct release-pinned headers, preventing altered cache metadata from relaxing their policy. New QR dependency checks bind generated runtime bytes to retained upstream source and local transforms.
 
 The unchanged VGuard 0.1.3 APK's eight payload entries were reproduced by a clean unsigned compilation from public source, with fresh signature verification of the official APK. This is payload/toolchain evidence, not signed-container byte identity or real-phone enforcement. See `docs/KEY-AND-DELIVERY-HARDENING-2026-10-23.md` and `docs/VGUARD-PAYLOAD-REBUILD-2026-10-23.md`.
+
+
+## Remote mobile compatibility — site 0.5.1
+
+Free remote Android Chrome testing reproduced a valid-package failure caused by an unavailable Object.hasOwn. VVault/VRelay 0.2.9 and V Cipher 0.1.9 use portable strict own-property, parser-stack and UTF-16 validation. Feedback UUID generation supports secure getRandomValues when randomUUID is absent and fails closed if secure randomness fails. Formats and algorithm parameters are unchanged. Automated regression tests remove the newer built-ins before running actual cryptographic round trips and malformed-data rejection cases.
+
+The observed mobile checks used an iPhone simulator and an Android emulator. They are partial internal evidence, not physical-device acceptance or an independent audit. Browser password-save suggestions can still appear despite input hints; no real secrets were used. See docs/REMOTE-MOBILE-TESTING-2026-10-24.md.
