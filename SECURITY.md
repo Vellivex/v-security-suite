@@ -62,3 +62,9 @@ The observed mobile checks used an iPhone simulator and an Android emulator. The
 VVault 0.2.10 clears the temporary UTF-8 plaintext buffer when the encoded message exceeds the byte limit or salt/nonce generation throws. Three synthetic-buffer regressions failed before the fix and passed after it; the complete Node suite passes 243 tests. This is best-effort array clearing, not a guarantee of secure erasure from browser/OS memory. Envelope format, algorithms, parameters and limits are unchanged.
 
 Shared form controls use 16-pixel text and shrinkable grid columns to address the small focused text seen during Safari testing. The iOS focus-zoom issue is not yet retested. Public fictional fixtures and a timed mobile run sheet prepare the next free testing window without adding production prefill hooks. Physical-device and independent-review gates remain open.
+
+## Interrupted file reads — site 0.5.3 / V Cipher 0.1.10
+
+A retired Cipher backup read previously could start password/key import work even though later identity activation was correctly suppressed. Likewise a retired Relay file read could start public-transfer inspection. Session tokens are now checked immediately after reading and before these additional operations. Three UI regressions cover cancellation boundaries and the uninterrupted control. This is cancellation/resource hardening; no key disclosure or isolation bypass was reproduced. Already-running browser operations cannot be aborted.
+
+The suite now passes 247 Node tests, including a new integration check that restores two identities, carries a maximum UTF-8 message through every actual QR matrix and independent decoder, then authenticates/decrypts it and checks wrong-secret/replay rejection. Pixels are synthetic; physical camera, OS import/share and isolation gates remain open. See `docs/INTERRUPTION-REVIEW-2026-10-24.md`.

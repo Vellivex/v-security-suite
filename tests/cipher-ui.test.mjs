@@ -60,3 +60,49 @@ test('a newly generated identity is hardened before its backup download and acti
  let hardened=false,downloaded=false;const t=setup('vault',{hardenIdentity:async identity=>{hardened=true;return {...identity,fingerprint:'protected identity'};}});t.document.createElement=()=>({click(){assert.equal(hardened,true);assert.equal(t.els['identity-card'].value,'');downloaded=true;}});
  await t.els['cipher-generate'].emit('click');assert.equal(downloaded,true);assert.match(t.els['identity-fingerprint'].textContent,/protected identity/);
 });
+test('retired backup file reads cannot start password or identity work after cancellation',async()=>{
+ for(const boundary of ['lock','online','backup','hidden','pagehide','restored','unconfirm','edit']){
+  const read=deferred();let imports=0;
+  const t=setup('vault',{importIdentity:async()=>{imports++;return {card:{type:'test'},fingerprint:'retired identity'};}});
+  t.els['cipher-backup'].files=[{size:100,text:()=>read.promise}];
+  const pending=t.els['cipher-unlock'].emit('click');
+  if(boundary==='lock')await t.els['cipher-lock'].emit('click');
+  if(boundary==='online'){t.nav.onLine=true;await t.window.emit('online');}
+  if(boundary==='backup'){t.els['cipher-backup'].files=[{size:100,text:async()=> 'new backup'}];await t.els['cipher-backup'].emit('change');}
+  if(boundary==='hidden'){t.document.hidden=true;await t.document.emit('visibilitychange');}
+  if(boundary==='pagehide')await t.window.emit('pagehide');
+  if(boundary==='restored')await t.window.emit('pageshow',{persisted:true});
+  if(boundary==='unconfirm'){t.els['offline-confirm'].checked=false;await t.els['offline-confirm'].emit('change');}
+  if(boundary==='edit'){t.els['identity-password'].value='new synthetic backup phrase';await t.els['identity-password'].emit('input');}
+  const status=t.els['cipher-status'].textContent;
+  read.resolve('retired encrypted backup');await pending;
+  assert.equal(imports,0,boundary);assert.equal(t.els['identity-card'].value,'',boundary);
+  assert.equal(t.els['cipher-status'].textContent,status,boundary);
+  if(boundary==='edit')assert.equal(t.els['identity-password'].value,'new synthetic backup phrase');
+ }
+});
+test('an uninterrupted backup file read still unlocks exactly once and clears its passphrase',async()=>{
+ const read=deferred();let imports=0;
+ const t=setup('vault',{importIdentity:async(text,password)=>{imports++;assert.equal(text,'synthetic encrypted backup');assert.equal(password,'synthetic backup password 123');return {card:{type:'test'},fingerprint:'loaded identity'};}});
+ t.els['cipher-backup'].files=[{size:100,text:()=>read.promise}];const pending=t.els['cipher-unlock'].emit('click');
+ read.resolve('synthetic encrypted backup');await pending;
+ assert.equal(imports,1);assert.match(t.els['identity-fingerprint'].textContent,/loaded identity/);
+ assert.equal(t.els['identity-password'].value,'');assert.equal(t.els['identity-confirm'].value,'');
+ assert.match(t.els['cipher-status'].textContent,/Identity unlocked locally/);
+});
+test('retired Relay file reads cannot start transfer inspection or replace newer state',async()=>{
+ for(const boundary of ['new-file','edit','lock','camera']){
+  const read=deferred(),inspected=[];
+  const t=setup('relay',{inspectTransfer:async text=>{inspected.push(text);return 'message';}});
+  t.els['transfer-file'].files=[{size:100,text:()=>read.promise}];const pending=t.els['transfer-file'].emit('change');
+  if(boundary==='new-file'){t.els['transfer-file'].files=[{size:100,text:async()=> 'new synthetic package'}];await t.els['transfer-file'].emit('change');}
+  if(boundary==='edit'){t.els['transfer-input'].value='new pasted package';await t.els['transfer-input'].emit('input');}
+  if(boundary==='lock')await t.els['cipher-lock'].emit('click');
+  if(boundary==='camera'){t.nav.mediaDevices.getUserMedia=async()=>({getTracks:()=>[{stop(){}}]});await t.els['scan-start'].emit('click');}
+  const status=t.els['cipher-status'].textContent,value=t.els['transfer-input'].value;
+  read.resolve('retired synthetic package');await pending;
+  assert.deepEqual(inspected,boundary==='new-file'?['new synthetic package']:[],boundary);
+  assert.equal(t.els['transfer-input'].value,value,boundary);assert.equal(t.els['cipher-status'].textContent,status,boundary);
+  await t.els['cipher-lock'].emit('click');
+ }
+});

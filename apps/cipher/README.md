@@ -1,4 +1,4 @@
-# V Cipher — recovered two-phone project, 0.1.9 research
+# V Cipher — recovered two-phone project, 0.1.10 research
 
 This continues the original `private-line-prototype.zip` (11 October 2026), whose source is preserved as non-executable historical text in recovery/. The original had RSA-OAEP identity encryption, ECDSA signatures and password-encrypted backups, but no QR implementation. The continuation fixes backup binding, bounds parsing, adds a cryptographically required conversation-secret layer, numbered QR transfers and local camera scanning. It is not independently audited.
 
