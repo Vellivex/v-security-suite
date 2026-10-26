@@ -13,6 +13,16 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 
 Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, VVault, VRelay and V Cipher retain their product names. The website is live at https://www.vellivex.com. Domain and HTTPS status are tracked separately from app security evidence.
 
+## Start with one small test
+
+Use the [tester start page](https://www.vellivex.com/testing) with fictional text and a fresh test passphrase. No account is needed for the VVault/VRelay browser workflow.
+
+1. **VVault:** [encrypt and unlock a fictional message](https://www.vellivex.com/blog/test-local-message-encryption). Compare the recovered text, then check that a wrong passphrase fails without revealing plaintext.
+2. **VRelay:** [check and transfer the encrypted package](https://www.vellivex.com/blog/transfer-ciphertext-without-sharing-the-passphrase). Copy or save it and unlock the copy in VVault. Never enter a passphrase in VRelay; a format check does not authenticate the sender.
+3. **Report what happened:** use the [feedback form](https://www.vellivex.com/feedback?kind=test), record pass, fail or blocked, and include browser/OS versions, steps, expected result and actual result. Keep secrets, passphrases and personal traffic logs out of reports.
+
+For source contributions, read [CONTRIBUTING.md](CONTRIBUTING.md). For private vulnerability details, use [SECURITY.md](SECURITY.md). Android enforcement, physical two-phone validation and independent security review remain incomplete.
+
 ## Source and licence
 
 Original code is GPL-3.0-or-later. See LICENSE and NOTICE. Android SDK/JDK tools are not bundled. Signing keys, operational data and customer records are excluded.
