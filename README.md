@@ -22,6 +22,10 @@ Use the [tester start page](https://www.vellivex.com/testing) with fictional tex
 3. **Report what happened:** use the [feedback form](https://www.vellivex.com/feedback?kind=test), record pass, fail or blocked, and include browser/OS versions, steps, expected result and actual result. Keep secrets, passphrases and personal traffic logs out of reports.
 
 For source contributions, read [CONTRIBUTING.md](CONTRIBUTING.md). For private vulnerability details, use [SECURITY.md](SECURITY.md). Android enforcement, physical two-phone validation and independent security review remain incomplete.
+## AI assistance
+
+Vellivex has been developed with generative AI assistance, including code and documentation. AI-generated output forms part of this experimental project. This is not an independently reviewed security implementation: no independent security audit has been completed, and the outstanding validation limits above still apply. Use fictional, non-sensitive test data only.
+
 
 ## Source and licence
 
