@@ -1,0 +1,24 @@
+name: Public identity check
+on: [push, pull_request, workflow_dispatch]
+permissions: {}
+jobs:
+  public-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch full public history without a credential
+        shell: bash
+        env:
+          AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$AUDIT_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git fetch origin "$AUDIT_HEAD_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Check known public identity exposures and reachable history
+        run: python3 scripts/public_identity_check.py --history all --history-content
+      - name: Test identity protection
+        run: python3 -m unittest discover -s tests -p 'test_public_identity_*.py'

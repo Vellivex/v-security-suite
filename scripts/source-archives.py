@@ -11,10 +11,11 @@ import zipfile
 
 root = Path(__file__).resolve().parent.parent
 source_dirs = ['apps', 'web', 'server', 'tests', 'scripts', 'docs', '.github', 'drizzle']
-top_files = ['LICENSE', 'NOTICE', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'package.json']
+top_files = ['AGENTS.md', 'LICENSE', 'NOTICE', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'package.json']
 release_files = ['VGuard-Setup.txt', 'VGuard-Test-Report.txt', 'RELEASE-NOTES.txt', 'VGuard-0.1.3-Build-Report.json', 'VGuard-0.1.3-Package-Verification.txt', 'VGuard-0.1.3-Security-Notes.txt']
 ignored_dirs = {'build', 'out', '.classes', '.local-signing', '__pycache__', '.git'}
 source_suffixes = {'.md', '.txt', '.json', '.js', '.mjs', '.cjs', '.ts', '.java', '.xml', '.py', '.sh', '.css', '.svg', '.sql', '.yml', '.yaml'}
+public_hooks = {'scripts/git-hooks/pre-commit', 'scripts/git-hooks/pre-push'}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}
 private_name = re.compile(r'(^|[._-])(credentials?|secrets?|passwords?|private[._-]?key|signing[._-]?key|access[._-]?token)([._-]|$)', re.I)
 
@@ -52,7 +53,7 @@ def source_candidate(path):
     lower = path.name.lower()
     if lower.startswith('.env') or path.suffix.lower() in private_suffixes or private_name.search(lower):
         raise RuntimeError(f'Private/runtime input is forbidden: {name}')
-    if path.suffix.lower() not in source_suffixes and name not in top_files and path.name != '.gitignore':
+    if path.suffix.lower() not in source_suffixes and name not in top_files and name not in public_hooks and path.name != '.gitignore':
         raise RuntimeError(f'Unapproved source file type: {name}')
     return name
 
@@ -96,7 +97,8 @@ def write(archive, entries):
             for name, data in sorted(entries):
                 info = zipfile.ZipInfo(name, date_time=(2026, 10, 23, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = (0o755 if name.endswith('.sh') else 0o644) << 16
+                executable = name.endswith('.sh') or any(name == hook or name.endswith('/' + hook) for hook in public_hooks)
+                info.external_attr = (0o755 if executable else 0o644) << 16
                 bundle.writestr(info, data)
         os.replace(temporary, archive)
     finally:

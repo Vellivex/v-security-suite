@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
-const top=['LICENSE','NOTICE','README.md','SECURITY.md','CONTRIBUTING.md','package.json'];
+const top=['AGENTS.md','LICENSE','NOTICE','README.md','SECURITY.md','CONTRIBUTING.md','package.json'];
 const release=['VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt'];
 const other=['VGuard-0.1.3-candidate.apk','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip'];
 async function fixture(){

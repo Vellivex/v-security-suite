@@ -31,7 +31,7 @@ Three isolated-process regression tests remove all three newer built-ins, then e
 
 Website feedback creates UUIDv4 references using native `crypto.randomUUID` when available or securely generated random bytes with the correct version/variant bits. Missing or failed secure randomness cannot allow native form submission. Uncertain retries retain their reference; edits and conflicts obtain a new one. No `Math.random` fallback is used.
 
-All 240 automated tests passed. Packaging verified the QR vendor transformations, the unchanged VGuard APK hash and 14 native-source fingerprints, strict source archives from 154 reviewed regular files, assembled routes/security headers/download hashes, and offline body/header manifests. Fresh SDK signature verification was not repeated in this environment. The release was deployed successfully. The public-source security workflow for fix commit `692604630152598a7530b410fa0a406313501c33` completed successfully: [historical workflow run retired] .
+All 240 automated tests passed. Packaging verified the QR vendor transformations, the unchanged VGuard APK hash and 14 native-source fingerprints, strict source archives from 154 reviewed regular files, assembled routes/security headers/download hashes, and offline body/header manifests. Fresh SDK signature verification was not repeated in this environment. The release was deployed successfully. The security workflow completed successfully at the time of this repair. That historical run and its old repository link are retired; this statement does not describe a new workflow run.
 
 ## Post-repair remote result
 
