@@ -1,6 +1,8 @@
-# VGuard 0.1.3 candidate — Vellivex
+# VGuard — Vellivex
 
 Experimental Android 10+ selective local-VPN firewall. It discards packets for explicitly selected app identities and does not open remote sockets. This candidate has no INTERNET permission, account or analytics SDK.
+
+The current candidate download is 0.1.4; this checkout contains 0.1.3 source and build instructions. Version 0.1.4 changes the launcher icon and manifest; firewall Java source, permissions, settings format and update signer are unchanged. The owner reports prior phone testing; no case-by-case device report is published here.
 
 ## Security changes
 
@@ -33,4 +35,4 @@ Output: `build/VGuard-0.1.3-candidate.apk`. A local build defaults to a new priv
 
 ## Remaining release gates
 
-Actual Android routing/permission/lifecycle behavior, IPv4/IPv6 and DNS, file-provider compatibility, upgrades, accessibility, physical devices and independent expert review remain outstanding. This is not an audited product or a claim of complete protection. Original source is GPL-3.0-or-later; see LICENSE and NOTICE.
+A documented case-by-case device record covering Android routing/permission/lifecycle behavior, IPv4/IPv6 and DNS, file-provider compatibility, upgrades and accessibility remains outstanding, alongside independent expert review. This is not an audited product or a claim of complete protection. Original source is GPL-3.0-or-later; see LICENSE and NOTICE.
