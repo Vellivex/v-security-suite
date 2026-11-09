@@ -1,5 +1,7 @@
 name: Vellivex VMail read-only browser readiness
 on:
+  schedule:
+    - cron: '53 8 * * 4'
   workflow_dispatch:
   push:
     paths:
