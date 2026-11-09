@@ -1,5 +1,7 @@
 name: Vellivex VDecoy synthetic browser acceptance
 on:
+  schedule:
+    - cron: '29 8 * * 2'
   workflow_dispatch:
   push:
     paths:
