@@ -115,6 +115,8 @@ try {
     console.log('PASS VDecoy: synthetic fake microphone started, stopped and released; insufficient signal rejected by local quality gate');
   }
 
+  stage='network isolation';
+  if(thirdPartyHosts.size) console.error('External hostnames observed: '+[...thirdPartyHosts].sort().join(', '));
   assert.equal(thirdPartyHosts.size,0,'Unexpected non-VDecoy network requests');
   console.log('PASS VDecoy: no third-party requests observed in this limited test');
   console.log('VDecoy synthetic browser checks: 4/4 PASS. No real voice, voice likeness, phone speaker or model inference tested.');
