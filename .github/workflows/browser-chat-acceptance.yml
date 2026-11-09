@@ -8,7 +8,7 @@ on:
 permissions: {}
 concurrency:
   group: vellivex-real-browser-chat
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   two-browser-chat:
     runs-on: ubuntu-latest
@@ -25,12 +25,21 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
-      - name: Install pinned free Chromium test dependencies
+      - name: Install pinned Playwright library and detect system Chrome
         shell: bash
         run: |
           set -euo pipefail
           npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
-          npx playwright install --with-deps chromium
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+            echo "Using preinstalled Chrome on the hosted runner."
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+            echo "Using preinstalled Chromium on the hosted runner."
+          else
+            echo "No system Chrome found; installing Chromium."
+            npx playwright install --with-deps chromium
+          fi
       - name: Run two real browser chat sessions with fictional messages
         shell: bash
         run: |
