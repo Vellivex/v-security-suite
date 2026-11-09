@@ -58,23 +58,40 @@ for forbidden in android.permission.READ_SMS android.permission.READ_CALL_LOG an
 done
 echo 'PASS VGuard: no SMS, call log, contacts, precise location or microphone read permission requested.'
 
-# Only use an Android system image already present on the free GitHub runner.
-# Never accept SDK licences, create paid resources or download an emulator image.
+# Run Android in an isolated free GitHub runner, never on a personal device.
+# Install only official no-charge SDK components using licences already accepted
+# by the runner. Do not agree to new licences, buy credit or enable paid services.
 emulator="$sdk/emulator/emulator"
 avdmanager=$(find "$sdk/cmdline-tools" -maxdepth 4 -type f -name avdmanager -perm /111 2>/dev/null | sort -V | tail -1 || true)
+sdkmanager=$(find "$sdk/cmdline-tools" -maxdepth 4 -type f -name sdkmanager -perm /111 2>/dev/null | sort -V | tail -1 || true)
 kvm='no'
 [[ -e /dev/kvm ]] && kvm='yes'
 echo "VGuard emulator prerequisites: emulator=$([[ -x "$emulator" ]] && echo available || echo missing); avdmanager=$([[ -n "$avdmanager" && -x "$avdmanager" ]] && echo available || echo missing); KVM=${kvm}"
-if [[ ! -x "$emulator" || ! -x "$avdmanager" || ! -e /dev/kvm ]]; then
-  echo 'NOTICE VGuard: no preinstalled accelerated Android emulator available; installation and launch remain UNTESTED.'
+if [[ ! -x "$avdmanager" || ! -e /dev/kvm ]]; then
+  echo 'NOTICE VGuard: accelerated Android emulator prerequisites unavailable; installation and launch remain UNTESTED.'
   exit 0
 fi
 image=''
 while IFS= read -r item; do
   if [[ -e "$item/system.img" ]]; then image="$item"; break; fi
 done < <(find "$sdk/system-images" -mindepth 3 -maxdepth 3 -type d 2>/dev/null | sort -Vr)
-if [[ -z "$image" ]]; then
-  echo 'NOTICE VGuard: no preinstalled Android system image; installation and launch remain UNTESTED.'
+if [[ ! -x "$emulator" || -z "$image" ]]; then
+  if [[ ! -x "$sdkmanager" ]]; then
+    echo 'NOTICE VGuard: official Android SDK package manager unavailable. Emulator install/launch UNTESTED.'
+    exit 0
+  fi
+  echo 'NOTICE VGuard: installing free official Android emulator and API 35 image, using only previously accepted SDK licences.'
+  sdklog="${RUNNER_TEMP:-/tmp}/vellivex-sdk-install.log"
+  if ! timeout 360 "$sdkmanager" --sdk_root="$sdk" --install 'emulator' 'system-images;android-35;google_apis;x86_64' < /dev/null > "$sdklog" 2>&1; then
+    echo 'NOTICE VGuard: free Android emulator components were unavailable without further setup. Emulator install/launch UNTESTED.'
+    tail -n 8 "$sdklog" | sed -E 's/[[:cntrl:]]//g'
+    exit 0
+  fi
+  echo 'PASS VGuard: official free Android emulator components installed on temporary runner.'
+  image="$sdk/system-images/android-35/google_apis/x86_64"
+fi
+if [[ ! -x "$emulator" || ! -e "$image/system.img" ]]; then
+  echo 'NOTICE VGuard: emulator packages incomplete. Installation and launch remain UNTESTED.'
   exit 0
 fi
 rel="${image#"$sdk/"}"
@@ -85,7 +102,7 @@ echo no | "$avdmanager" create avd --force --name "$avd" --package "${android};$
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
-"$sdk/platform-tools/adb" wait-for-device
+timeout 90 "$sdk/platform-tools/adb" wait-for-device
 booted=''
 for ((i=0;i<50;i++)); do
   booted=$("$sdk/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
