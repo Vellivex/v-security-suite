@@ -102,14 +102,22 @@ echo no | "$avdmanager" create avd --force --name "$avd" --package "system-image
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
-timeout 90 "$sdk/platform-tools/adb" wait-for-device
+if ! timeout 75 "$sdk/platform-tools/adb" wait-for-device; then
+  echo 'FAIL VGuard: Android emulator did not appear over ADB. Emulator boot diagnostics:' >&2
+  tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
+  exit 1
+fi
 booted=''
 for ((i=0;i<50;i++)); do
   booted=$("$sdk/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
   [[ "$booted" == '1' ]] && break
   sleep 3
 done
-if [[ "$booted" != '1' ]]; then echo 'FAIL VGuard: Android emulator failed to boot.' >&2; exit 1; fi
+if [[ "$booted" != '1' ]]; then
+  echo 'FAIL VGuard: Android emulator did not complete startup.' >&2
+  tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
+  exit 1
+fi
 "$sdk/platform-tools/adb" install -r "$APK" >/dev/null
 echo 'PASS VGuard: APK installed on a clean Android emulator.'
 "$sdk/platform-tools/adb" shell monkey -p "$package" -c android.intent.category.LAUNCHER 1 >/dev/null
