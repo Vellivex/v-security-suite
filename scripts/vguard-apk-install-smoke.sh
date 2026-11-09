@@ -58,6 +58,25 @@ for forbidden in android.permission.READ_SMS android.permission.READ_CALL_LOG an
 done
 echo 'PASS VGuard: no SMS, call log, contacts, precise location or microphone read permission requested.'
 
+if printf '%s\n' "$permissions" | grep -Fq "name='android.permission.INTERNET'"; then
+  echo 'FAIL VGuard: APK unexpectedly requests direct Internet access.' >&2
+  exit 1
+fi
+compiledManifest=$("$aapt" dump xmltree "$APK" AndroidManifest.xml)
+if ! grep -Fq 'android.permission.BIND_VPN_SERVICE' <<< "$compiledManifest" ||
+   ! grep -Fq 'android.net.VpnService' <<< "$compiledManifest"; then
+  echo 'FAIL VGuard: compiled APK does not declare the protected Android VPN service.' >&2
+  exit 1
+fi
+echo 'PASS VGuard: compiled APK requests no direct Internet access and declares the protected Android VPN service.'
+
+# Routine checks stop at the APK/package boundary. The previously verified
+# emulator run is an explicit free manual option, not a recurring large download.
+if [[ "${VGUARD_RUN_EMULATOR:-false}" != 'true' ]]; then
+  echo 'NOTICE VGuard: emulator run not requested; Android installation and live firewall operation not checked in this routine run.'
+  exit 0
+fi
+
 # Run Android in an isolated free GitHub runner, never on a personal device.
 # Install only official no-charge SDK components using licences already accepted
 # by the runner. Do not agree to new licences, buy credit or enable paid services.
