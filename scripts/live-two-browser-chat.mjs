@@ -40,6 +40,7 @@ async function syntheticVKey(browser) {
     assert.equal(new URL(invite).origin, new URL(VKEY).origin);
 
     stage = 'joining invitation';
+    await peer.locator('#join-details').evaluate(el => { el.open = true; });
     await peer.locator('#invite-input').fill(invite);
     await peer.locator('#join-btn').click();
     await host.locator('#accept-btn').waitFor({ state: 'visible', timeout: WAIT });
@@ -79,6 +80,7 @@ async function syntheticVKey(browser) {
     console.error('FAIL VKey stage=' + stage);
     console.error('VKey host state=' + (host ? await status(host, '#session-status') : 'not opened'));
     console.error('VKey peer state=' + (peer ? await status(peer, '#session-status') : 'not opened'));
+    console.error('VKey peer notice=' + (peer ? await status(peer, '#notice') : 'not opened'));
     console.error('VKey error type=' + (error?.name || 'unknown'));
     throw new Error('VKey real browser acceptance did not complete at stage: ' + stage);
   } finally {
@@ -162,9 +164,17 @@ const browser = await chromium.launch({
 try {
   const run = process.env.VELLIVEX_E2E_TARGET || 'both';
   if (!['both','vkey','private'].includes(run)) throw Error('Invalid test selection');
-  if (run === 'both' || run === 'vkey') await syntheticVKey(browser);
-  if (run === 'both' || run === 'private') await syntheticPrivate(browser);
-  console.log('The browser acceptance checks completed. Results describe this one Chromium runner, not physical devices.');
+  const outcomes = [];
+  if (run === 'both' || run === 'vkey') {
+    try { await syntheticVKey(browser); outcomes.push(true); }
+    catch { outcomes.push(false); }
+  }
+  if (run === 'both' || run === 'private') {
+    try { await syntheticPrivate(browser); outcomes.push(true); }
+    catch { outcomes.push(false); }
+  }
+  console.log('Browser checks passed: ' + outcomes.filter(Boolean).length + '/' + outcomes.length + '. One Chromium runner, not physical devices.');
+  if (outcomes.some(ok => !ok)) process.exitCode = 1;
 } finally {
   await browser.close();
 }
