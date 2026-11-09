@@ -6,7 +6,7 @@ Open-source phone privacy tools, with an experimental small beta before a wider 
 
 | Tool | Build | What it does | Current limit |
 | --- | --- | --- | --- |
-| VGuard | Android 0.1.3 candidate APK | Local VPN discards selected apps' packets | Live Android enforcement remains unverified; no always-on or lockdown |
+| VGuard | Android 0.1.4 candidate download; source checkout 0.1.3 | Local VPN discards selected apps' packets | Owner-reported phone testing; documented device validation and independent review outstanding; no always-on or lockdown |
 | VVault | Browser 0.2.10 | Local passphrase-based message encryption using Web Crypto | No sender authentication, recovery or forward secrecy; independent crypto review outstanding |
 | V Cipher | Browser 0.1.10 research | Offline identity, signed double-layer messages and numbered QR transfer | Two-phone camera/OS validation and independent review outstanding |
 | VRelay | Browser 0.2.10 | Validate envelope structure, copy/save/share ciphertext | No hosted relay, QR transport or delivery confirmation in this release |
@@ -41,7 +41,7 @@ bash apps/vguard/tests/adversarial/run-adversarial-tests.sh
 python3 apps/vguard/validation/UI-Logic-Checks.py
 ```
 
-VGuard's native build instructions are in `apps/vguard/README.md`. The rebuilt candidate APK is available on the beta website alongside its matching source. Its earlier test report is in `releases/`.
+VGuard's native build instructions are in `apps/vguard/README.md`. The current candidate APK is available on the beta website. This checkout documents the 0.1.3 build; its earlier test report is in `releases/`.
 
 The browser encryption core is `apps/vault/crypto.js`. The browser interfaces are rendered by `server/pages.js` and use `web/app.js`; VRelay deliberately never requests a passphrase.
 
