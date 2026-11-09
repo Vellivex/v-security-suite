@@ -154,6 +154,7 @@ async function syntheticPrivate(browser) {
 }
 
 const browser = await chromium.launch({
+  ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}),
   headless: true,
   args: [
     '--disable-background-timer-throttling',
