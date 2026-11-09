@@ -20,7 +20,16 @@ const BRAND_ICONS = Object.freeze([
   ['VPhone Private icon', 'https://www.vellivex.com/brand/apps/private.svg'],
 ]);
 
-export { PAGES, BRAND_ICONS };
+const APP_FAVICONS = Object.freeze([
+  ['Vellivex Call app favicon', 'https://call.vellivex.com/brand/apps/call.svg'],
+  ['VPhone app favicon', 'https://vphone.vellivex.com/favicon.svg'],
+  ['VDecoy app favicon', 'https://vdecoy.vellivex.com/brand-icon.svg'],
+  ['VKey app favicon', 'https://vkey.vellivex.com/favicon.svg'],
+  ['VPhone Private app favicon', 'https://private.vellivex.com/favicon.svg'],
+]);
+const FIXED_PUBLIC_ICON_URLS = new Set([...BRAND_ICONS, ...APP_FAVICONS].map(([, url]) => url));
+
+export { PAGES, BRAND_ICONS, APP_FAVICONS };
 export async function checkPage(name, target, { fetcher = fetch, timeoutMs = 10000 } = {}) {
   const url = new URL(target);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
@@ -62,7 +71,7 @@ export async function checkAll({ fetcher = fetch, timeoutMs = 10000, pages = PAG
 export async function checkSvg(name, target, { fetcher = fetch, timeoutMs = 10000 } = {}) {
   const url = new URL(target);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
-      url.origin !== 'https://www.vellivex.com' || !/^\/brand\/apps\/[a-z-]+\.svg$/.test(url.pathname))
+      !FIXED_PUBLIC_ICON_URLS.has(url.href))
     throw new TypeError('Only Vellivex public app SVG icons are permitted.');
   try {
     const response = await fetcher(url.href, {
@@ -91,13 +100,20 @@ export async function checkBrandIcons({ fetcher = fetch, timeoutMs = 10000, icon
   return results;
 }
 
+export async function checkAppFavicons({ fetcher = fetch, timeoutMs = 10000, icons = APP_FAVICONS } = {}) {
+  const results = [];
+  for (const [name, url] of icons) results.push(await checkSvg(name, url, { fetcher, timeoutMs }));
+  return results;
+}
+
 async function main() {
   const pages = await checkAll();
   const icons = await checkBrandIcons();
-  for (const result of [...pages, ...icons])
+  const favicons = await checkAppFavicons();
+  for (const result of [...pages, ...icons, ...favicons])
     console.log(`${result.ok ? 'PASS' : 'FAIL'} ${result.name}: ${result.status ?? 'no response'}${result.problem ? ' - ' + result.problem : ''}`);
-  const failures = [...pages, ...icons].filter(result => !result.ok);
-  console.log(`Checked ${pages.length} public pages and ${icons.length} branded icons; ${failures.length} failed. No logins, messages, phone calls or large media downloaded.`);
+  const failures = [...pages, ...icons, ...favicons].filter(result => !result.ok);
+  console.log(`Checked ${pages.length} public pages, ${icons.length} cards and ${favicons.length} app favicons; ${failures.length} failed. No logins, messages, phone calls or large media downloaded.`);
   if (failures.length) process.exitCode = 1;
 }
 
