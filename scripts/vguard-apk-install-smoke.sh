@@ -61,7 +61,10 @@ echo 'PASS VGuard: no SMS, call log, contacts, precise location or microphone re
 # Only use an Android system image already present on the free GitHub runner.
 # Never accept SDK licences, create paid resources or download an emulator image.
 emulator="$sdk/emulator/emulator"
-avdmanager="$sdk/cmdline-tools/latest/bin/avdmanager"
+avdmanager=$(find "$sdk/cmdline-tools" -maxdepth 4 -type f -name avdmanager -perm /111 2>/dev/null | sort -V | tail -1 || true)
+kvm='no'
+[[ -e /dev/kvm ]] && kvm='yes'
+echo "VGuard emulator prerequisites: emulator=$([[ -x "$emulator" ]] && echo available || echo missing); avdmanager=$([[ -n "$avdmanager" && -x "$avdmanager" ]] && echo available || echo missing); KVM=${kvm}"
 if [[ ! -x "$emulator" || ! -x "$avdmanager" || ! -e /dev/kvm ]]; then
   echo 'NOTICE VGuard: no preinstalled accelerated Android emulator available; installation and launch remain UNTESTED.'
   exit 0
