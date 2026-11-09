@@ -56,6 +56,7 @@ let page,stage='opening';
 const thirdPartyHosts=new Set();
 const externalRequestKinds=[];
 const externalResponseStatuses=[];
+const externalFailureReasons=[];
 try {
   page=await context.newPage();
   page.on('request',request=>{
@@ -67,6 +68,9 @@ try {
       }
     }
     catch {}
+  });
+  page.on('requestfailed',request=>{
+    try {const u=new URL(request.url());if(['http:','https:'].includes(u.protocol)&&u.origin!==ORIGIN)externalFailureReasons.push({host:u.host,reason:request.failure()?.errorText||'unknown'});} catch {}
   });
   page.on('response',response=>{
     try {const u=new URL(response.url());if(['http:','https:'].includes(u.protocol)&&u.origin!==ORIGIN)externalResponseStatuses.push({host:u.host,status:response.status()});} catch {}
@@ -135,6 +139,7 @@ try {
     console.error('External hostnames observed: '+[...thirdPartyHosts].sort().join(', '));
     console.error('External request types: '+JSON.stringify(externalRequestKinds));
     console.error('External response statuses: '+JSON.stringify(externalResponseStatuses));
+    console.error('External failure reasons: '+JSON.stringify(externalFailureReasons));
     console.error('Rendered script hosts: '+JSON.stringify(rendered));
   }
   assert.equal(thirdPartyHosts.size,0,'Unexpected non-VDecoy network requests');
