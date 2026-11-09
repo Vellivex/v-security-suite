@@ -97,8 +97,8 @@ fi
 rel="${image#"$sdk/"}"
 IFS=/ read -r _ android api abi <<< "$rel"
 avd='vellivex-vguard-qa'
-echo "Using preinstalled Android system image ${android}/${api}/${abi}."
-echo no | "$avdmanager" create avd --force --name "$avd" --package "${android};${api};${abi}" --device pixel_2 >/dev/null
+echo "Using official Android system image ${android}/${api}/${abi}."
+echo no | "$avdmanager" create avd --force --name "$avd" --package "system-images;${android};${api};${abi}" --device pixel_2 >/dev/null
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
