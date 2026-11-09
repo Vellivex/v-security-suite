@@ -97,12 +97,27 @@ fi
 rel="${image#"$sdk/"}"
 IFS=/ read -r _ android api abi <<< "$rel"
 avd='vellivex-vguard-qa'
+# Align AVD discovery for avdmanager and emulator on ephemeral hosted runners.
+export ANDROID_AVD_HOME="${RUNNER_TEMP:-/tmp}/vellivex-avds"
+export ANDROID_USER_HOME="${RUNNER_TEMP:-/tmp}/vellivex-android-user"
+export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_USER_HOME"
+avd_dir="$ANDROID_AVD_HOME/$avd.avd"
 echo "Using official Android system image ${android}/${api}/${abi}."
-echo no | "$avdmanager" create avd --force --name "$avd" --package "system-images;${android};${api};${abi}" --device pixel_2 >/dev/null
+echo no | "$avdmanager" create avd --force --name "$avd" --package "system-images;${android};${api};${abi}" --path "$avd_dir" --device pixel_2 >/dev/null
+if [[ ! -f "$ANDROID_AVD_HOME/$avd.ini" && -f "$avd_dir/config.ini" ]]; then
+  printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-35\n' "$avd_dir" > "$ANDROID_AVD_HOME/$avd.ini"
+fi
+if ! "$emulator" -list-avds | grep -Fxq "$avd"; then
+  echo 'FAIL VGuard: Android emulator could not discover the newly created AVD.' >&2
+  find "$ANDROID_AVD_HOME" -maxdepth 2 -type f -name '*.ini' -printf '%P\n' | head -n 20 >&2
+  exit 1
+fi
+echo 'PASS VGuard: official Android 15 virtual device is registered and discoverable.'
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
-if ! timeout 75 "$sdk/platform-tools/adb" wait-for-device; then
+if ! timeout 135 "$sdk/platform-tools/adb" wait-for-device; then
   echo 'FAIL VGuard: Android emulator did not appear over ADB. Emulator boot diagnostics:' >&2
   tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
   exit 1
