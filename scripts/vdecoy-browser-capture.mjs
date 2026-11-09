@@ -131,19 +131,29 @@ try {
   }
 
   stage='network isolation';
+  // Cloudflare has been observed injecting an analytics tag after Worker
+  // rendering. VDecoy's restrictive CSP blocks the external script request:
+  // a blocked request event is NOT a successful third-party download.
   if(thirdPartyHosts.size){
-    const rendered=await page.evaluate(()=>({
-      htmlTagPresent:document.documentElement.outerHTML.includes('static.cloudflareinsights.com'),
-      externalScriptHosts:[...document.querySelectorAll('script[src]')].map(e=>{try{return new URL(e.src).host;}catch{return 'invalid';}}).filter(host=>host!==location.host),
-    }));
-    console.error('External hostnames observed: '+[...thirdPartyHosts].sort().join(', '));
-    console.error('External request types: '+JSON.stringify(externalRequestKinds));
-    console.error('External response statuses: '+JSON.stringify(externalResponseStatuses));
-    console.error('External failure reasons: '+JSON.stringify(externalFailureReasons));
-    console.error('Rendered script hosts: '+JSON.stringify(rendered));
+    const onlyExpectedScript=thirdPartyHosts.size===1 &&
+      thirdPartyHosts.has('static.cloudflareinsights.com') &&
+      externalRequestKinds.length>0 &&
+      externalRequestKinds.every(x=>x.host==='static.cloudflareinsights.com'&&x.type==='script') &&
+      externalResponseStatuses.length===0 &&
+      externalFailureReasons.length===externalRequestKinds.length &&
+      externalFailureReasons.every(x=>x.host==='static.cloudflareinsights.com'&&x.reason==='csp');
+    if(!onlyExpectedScript){
+      console.error('Unexpected external hosts: '+[...thirdPartyHosts].sort().join(', '));
+      console.error('External request types: '+JSON.stringify(externalRequestKinds));
+      console.error('External response statuses: '+JSON.stringify(externalResponseStatuses));
+      console.error('External failure reasons: '+JSON.stringify(externalFailureReasons));
+    }
+    assert.equal(onlyExpectedScript,true,'Unexpected external network activity or a change to CSP enforcement');
+    console.log('PASS VDecoy: externally injected Cloudflare Insights script blocked by enforced CSP; zero third-party responses');
+  }else{
+    assert.equal(externalResponseStatuses.length,0,'Unexpected off-origin HTTP response');
+    console.log('PASS VDecoy: no third-party requests or responses in this limited test');
   }
-  assert.equal(thirdPartyHosts.size,0,'Unexpected non-VDecoy network requests');
-  console.log('PASS VDecoy: no third-party requests observed in this limited test');
   console.log('VDecoy synthetic browser checks: 4/4 PASS. No real voice, voice likeness, phone speaker or model inference tested.');
 } catch(error) {
   console.error('FAIL VDecoy at stage='+stage);
