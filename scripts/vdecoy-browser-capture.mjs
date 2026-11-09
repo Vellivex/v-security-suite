@@ -54,11 +54,22 @@ const browser=await chromium.launch({
 const context=await browser.newContext({permissions:['microphone'],serviceWorkers:'allow'});
 let page,stage='opening';
 const thirdPartyHosts=new Set();
+const externalRequestKinds=[];
+const externalResponseStatuses=[];
 try {
   page=await context.newPage();
   page.on('request',request=>{
-    try { const url=new URL(request.url()); if(['http:','https:'].includes(url.protocol)&&url.origin!==ORIGIN)thirdPartyHosts.add(url.host); }
+    try {
+      const url=new URL(request.url());
+      if(['http:','https:'].includes(url.protocol)&&url.origin!==ORIGIN){
+        thirdPartyHosts.add(url.host);
+        externalRequestKinds.push({host:url.host,type:request.resourceType()});
+      }
+    }
     catch {}
+  });
+  page.on('response',response=>{
+    try {const u=new URL(response.url());if(['http:','https:'].includes(u.protocol)&&u.origin!==ORIGIN)externalResponseStatuses.push({host:u.host,status:response.status()});} catch {}
   });
   await page.goto(ORIGIN+'/',{waitUntil:'domcontentloaded',timeout:TIMEOUT});
 
@@ -116,7 +127,16 @@ try {
   }
 
   stage='network isolation';
-  if(thirdPartyHosts.size) console.error('External hostnames observed: '+[...thirdPartyHosts].sort().join(', '));
+  if(thirdPartyHosts.size){
+    const rendered=await page.evaluate(()=>({
+      htmlTagPresent:document.documentElement.outerHTML.includes('static.cloudflareinsights.com'),
+      externalScriptHosts:[...document.querySelectorAll('script[src]')].map(e=>{try{return new URL(e.src).host;}catch{return 'invalid';}}).filter(host=>host!==location.host),
+    }));
+    console.error('External hostnames observed: '+[...thirdPartyHosts].sort().join(', '));
+    console.error('External request types: '+JSON.stringify(externalRequestKinds));
+    console.error('External response statuses: '+JSON.stringify(externalResponseStatuses));
+    console.error('Rendered script hosts: '+JSON.stringify(rendered));
+  }
   assert.equal(thirdPartyHosts.size,0,'Unexpected non-VDecoy network requests');
   console.log('PASS VDecoy: no third-party requests observed in this limited test');
   console.log('VDecoy synthetic browser checks: 4/4 PASS. No real voice, voice likeness, phone speaker or model inference tested.');
