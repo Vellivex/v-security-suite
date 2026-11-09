@@ -1,5 +1,7 @@
 name: Vellivex VNumber public feed browser check
 on:
+  schedule:
+    - cron: '07 9 * * 5'
   workflow_dispatch:
   push:
     paths:
