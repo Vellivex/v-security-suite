@@ -1,5 +1,7 @@
 name: Vellivex Call public audio readiness
 on:
+  schedule:
+    - cron: '19 9 * * 6'
   workflow_dispatch:
   push:
     paths:
