@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PAGES, BRAND_ICONS, checkPage, checkAll, checkSvg, checkBrandIcons } from '../scripts/live-availability.mjs';
+import { PAGES, BRAND_ICONS, APP_FAVICONS, checkPage, checkAll, checkSvg, checkBrandIcons, checkAppFavicons } from '../scripts/live-availability.mjs';
 
 function response({ status = 200, type = 'text/html; charset=utf-8', url = 'https://vkey.vellivex.com/' } = {}) {
   return { status, url, headers: new Headers({ 'content-type': type }), body: { async cancel() {} } };
@@ -106,4 +106,50 @@ test('app icon check keeps error details private and checks known icons sequenti
     fetcher: async () => { throw new Error('Untrusted remote failure with secret URL'); },
   });
   assert.equal(failed.problem, 'Network error');
+});
+
+
+test('five application browser icons have fixed, separate HTTPS URLs', () => {
+  assert.equal(APP_FAVICONS.length,5);
+  assert.equal(new Set(APP_FAVICONS.map(x=>x[1])).size,5);
+  for (const [name,url] of APP_FAVICONS) {
+    assert.match(name,/favicon/);
+    const u=new URL(url);
+    assert.equal(u.protocol,'https:');
+    assert.equal(u.search,'');
+    assert.equal(u.hash,'');
+    assert.match(u.pathname,/\.svg$/);
+  }
+});
+
+test('app browser icon checks accept only the exact five fixed URLs', async () => {
+  for (const [name,url] of APP_FAVICONS) {
+    const result=await checkSvg(name,url,{fetcher: async (actual,init)=>{
+      assert.equal(actual,url);
+      assert.equal(init.credentials,'omit');
+      assert.equal(init.method,'GET');
+      assert.equal(init.redirect,'manual');
+      return response({url,type:'image/svg+xml; charset=utf-8'});
+    }});
+    assert.equal(result.ok,true);
+  }
+  for (const target of [
+    'https://vkey.vellivex.com/favicon.svg?secret=true',
+    'https://vkey.vellivex.com/internal',
+    'http://vkey.vellivex.com/favicon.svg',
+    'https://private.vellivex.com/api/rooms',
+  ]) {
+    await assert.rejects(checkSvg('Invalid icon',target),TypeError);
+  }
+});
+
+test('app browser icon list is bounded, fail-closed and read-only', async () => {
+  const icons=APP_FAVICONS.slice(0,2);
+  const seen=[];
+  const results=await checkAppFavicons({icons,fetcher:async url=>{
+    seen.push(url);
+    return response({url,type:'image/svg+xml',status:url===icons[0][1]?200:404});
+  }});
+  assert.deepEqual(seen,icons.map(x=>x[1]));
+  assert.deepEqual(results.map(x=>x.ok),[true,false]);
 });
