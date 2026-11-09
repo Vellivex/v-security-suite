@@ -12,7 +12,15 @@ const PAGES = Object.freeze([
   ['Vellivex Call', 'https://call.vellivex.com/'],
 ]);
 
-export { PAGES };
+const BRAND_ICONS = Object.freeze([
+  ['Vellivex Call icon', 'https://www.vellivex.com/brand/apps/call.svg'],
+  ['VPhone icon', 'https://www.vellivex.com/brand/apps/phone.svg'],
+  ['VDecoy icon', 'https://www.vellivex.com/brand/apps/decoy.svg'],
+  ['VKey icon', 'https://www.vellivex.com/brand/apps/key.svg'],
+  ['VPhone Private icon', 'https://www.vellivex.com/brand/apps/private.svg'],
+]);
+
+export { PAGES, BRAND_ICONS };
 export async function checkPage(name, target, { fetcher = fetch, timeoutMs = 10000 } = {}) {
   const url = new URL(target);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
@@ -50,12 +58,46 @@ export async function checkAll({ fetcher = fetch, timeoutMs = 10000, pages = PAG
   return results;
 }
 
+// Verify live SVG icon endpoints without reading or logging their contents.
+export async function checkSvg(name, target, { fetcher = fetch, timeoutMs = 10000 } = {}) {
+  const url = new URL(target);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
+      url.origin !== 'https://www.vellivex.com' || !/^\/brand\/apps\/[a-z-]+\.svg$/.test(url.pathname))
+    throw new TypeError('Only Vellivex public app SVG icons are permitted.');
+  try {
+    const response = await fetcher(url.href, {
+      method: 'GET',
+      redirect: 'manual',
+      cache: 'no-store',
+      credentials: 'omit',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { Accept: 'image/svg+xml' },
+    });
+    try { await response.body?.cancel(); } catch {}
+    const type = (response.headers.get('content-type') || '').toLowerCase();
+    const ok = response.status === 200 && (response.url || url.href) === url.href &&
+      type.includes('image/svg+xml');
+    return { name, ok, status: response.status,
+      problem: ok ? null : 'Unexpected SVG HTTP status, origin or content type' };
+  } catch (error) {
+    return { name, ok: false, status: null,
+      problem: error?.name === 'TimeoutError' ? 'Timeout' : 'Network error' };
+  }
+}
+
+export async function checkBrandIcons({ fetcher = fetch, timeoutMs = 10000, icons = BRAND_ICONS } = {}) {
+  const results = [];
+  for (const [name, url] of icons) results.push(await checkSvg(name, url, { fetcher, timeoutMs }));
+  return results;
+}
+
 async function main() {
-  const results = await checkAll();
-  for (const result of results)
+  const pages = await checkAll();
+  const icons = await checkBrandIcons();
+  for (const result of [...pages, ...icons])
     console.log(`${result.ok ? 'PASS' : 'FAIL'} ${result.name}: ${result.status ?? 'no response'}${result.problem ? ' - ' + result.problem : ''}`);
-  const failures = results.filter(result => !result.ok);
-  console.log(`Checked ${results.length} public pages; ${failures.length} failed. No logins, messages, phone calls or large media fetched.`);
+  const failures = [...pages, ...icons].filter(result => !result.ok);
+  console.log(`Checked ${pages.length} public pages and ${icons.length} branded icons; ${failures.length} failed. No logins, messages, phone calls or large media downloaded.`);
   if (failures.length) process.exitCode = 1;
 }
 

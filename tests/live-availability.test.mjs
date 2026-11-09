@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PAGES, checkPage, checkAll } from '../scripts/live-availability.mjs';
+import { PAGES, BRAND_ICONS, checkPage, checkAll, checkSvg, checkBrandIcons } from '../scripts/live-availability.mjs';
 
 function response({ status = 200, type = 'text/html; charset=utf-8', url = 'https://vkey.vellivex.com/' } = {}) {
   return { status, url, headers: new Headers({ 'content-type': type }), body: { async cancel() {} } };
@@ -51,4 +51,59 @@ test('availability aggregate checks are sequential and bounded', async () => {
   const all = await checkAll({ pages: urls.map((u,i)=>[String(i),u]), fetcher: async url => { seen.push(url); return response({url}); } });
   assert.deepEqual(seen,urls);
   assert.deepEqual(all.map(v=>v.ok),[true,true]);
+});
+
+
+test('five distinct Vellivex app icons are HTTPS SVG resources', () => {
+  assert.equal(BRAND_ICONS.length, 5);
+  assert.equal(new Set(BRAND_ICONS.map(x => x[1])).size, 5);
+  for (const [name, url] of BRAND_ICONS) {
+    assert.ok(name.includes('icon'));
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, 'https://www.vellivex.com');
+    assert.match(parsed.pathname, /^\/brand\/apps\/[a-z-]+\.svg$/);
+  }
+});
+
+test('app icon check requests the SVG without credentials and accepts HTTP 200', async () => {
+  const url = BRAND_ICONS[0][1];
+  const result = await checkSvg('Vellivex Call icon', url, {
+    fetcher: async (uri, init) => {
+      assert.equal(uri, url);
+      assert.equal(init.method, 'GET');
+      assert.equal(init.credentials, 'omit');
+      assert.equal(init.redirect, 'manual');
+      assert.equal(init.headers.Accept, 'image/svg+xml');
+      return response({ url, type: 'image/svg+xml; charset=utf-8' });
+    },
+  });
+  assert.equal(result.ok, true);
+});
+
+test('app icon check rejects missing assets, redirects, wrong types and locations', async () => {
+  const url = BRAND_ICONS[0][1];
+  for (const sample of [
+    response({ url, status: 404, type: 'image/svg+xml' }),
+    response({ url, status: 302, type: 'image/svg+xml' }),
+    response({ url, type: 'text/html' }),
+    response({ url: 'https://other.example/brand/apps/call.svg', type: 'image/svg+xml' }),
+  ]) {
+    assert.equal((await checkSvg('Call icon', url, { fetcher: async () => sample })).ok, false);
+  }
+  await assert.rejects(checkSvg('Invalid', 'https://www.vellivex.com/brand/apps/call.svg?token=secret'), TypeError);
+});
+
+test('app icon check keeps error details private and checks known icons sequentially', async () => {
+  const urls = BRAND_ICONS.slice(0, 2);
+  const seen = [];
+  const values = await checkBrandIcons({ icons: urls, fetcher: async url => {
+    seen.push(url);
+    return response({url, type:'image/svg+xml'});
+  } });
+  assert.deepEqual(seen, urls.map(x => x[1]));
+  assert.deepEqual(values.map(x => x.ok), [true, true]);
+  const failed = await checkSvg('VKey icon', BRAND_ICONS[3][1], {
+    fetcher: async () => { throw new Error('Untrusted remote failure with secret URL'); },
+  });
+  assert.equal(failed.problem, 'Network error');
 });
