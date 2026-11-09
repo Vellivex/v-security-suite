@@ -68,6 +68,10 @@ async function syntheticVKey(browser) {
 
     stage = 'fictional message and receipt';
     const message = 'Vellivex QA fictional text ' + randomUUID();
+    // VKey deliberately sets this field read-only while its private on-screen
+    // keyboard is enabled. Use the UI's supported physical-typing toggle.
+    await host.locator('#keyboard-toggle').click();
+    await until(host, () => document.getElementById('message-input')?.readOnly === false, 5_000);
     await host.locator('#message-input').fill(message);
     await host.locator('#send-btn').click();
     await peer.locator('#messages').getByText(message, { exact: false }).waitFor({ state: 'visible', timeout: 15_000 });
