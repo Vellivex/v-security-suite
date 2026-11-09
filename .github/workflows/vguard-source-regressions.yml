@@ -1,0 +1,29 @@
+name: Vellivex VGuard source regressions
+on:
+  schedule:
+    - cron: '31 9 * * 0'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vguard-source-regressions.yml'
+      - 'scripts/vguard-source-regressions.sh'
+permissions: {}
+concurrency:
+  group: vellivex-vguard-source-qa
+  cancel-in-progress: true
+jobs:
+  source-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch public test source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Run production-source parser, engine and UI checks
+        shell: bash
+        run: bash scripts/vguard-source-regressions.sh
