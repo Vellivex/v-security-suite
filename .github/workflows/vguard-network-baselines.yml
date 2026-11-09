@@ -1,0 +1,31 @@
+name: VGuard Android network baseline probes
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vguard-network-baselines.yml'
+      - 'scripts/vguard-apk-install-smoke.sh'
+      - 'scripts/vguard-probe-baselines.sh'
+permissions: {}
+concurrency:
+  group: vellivex-vguard-network-qa
+  cancel-in-progress: true
+jobs:
+  two-app-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VGUARD_RUN_EMULATOR: 'true'
+      VGUARD_PROBE_BASELINES: 'true'
+    steps:
+      - name: Fetch public VGuard test source without GitHub credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install test APK and run two independent Android app network baselines
+        shell: bash
+        run: bash scripts/vguard-apk-install-smoke.sh
