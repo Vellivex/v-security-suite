@@ -1,0 +1,38 @@
+name: Vellivex real browser chat acceptance
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/browser-chat-acceptance.yml'
+      - 'scripts/live-two-browser-chat.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-real-browser-chat
+  cancel-in-progress: false
+jobs:
+  two-browser-chat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CI: 'true'
+      VELLIVEX_E2E_TARGET: both
+    steps:
+      - name: Fetch public test source without GitHub credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned free Chromium test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+          npx playwright install --with-deps chromium
+      - name: Run two real browser chat sessions with fictional messages
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/live-two-browser-chat.mjs
