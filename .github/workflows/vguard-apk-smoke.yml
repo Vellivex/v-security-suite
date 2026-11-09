@@ -1,0 +1,37 @@
+name: Vellivex VGuard APK verification
+on:
+  schedule:
+    - cron: '43 9 * * 0'
+  workflow_dispatch:
+    inputs:
+      emulator:
+        description: 'Run optional Android 15 emulator installation and launch'
+        type: boolean
+        required: false
+        default: false
+  push:
+    paths:
+      - '.github/workflows/vguard-apk-smoke.yml'
+      - 'scripts/vguard-apk-install-smoke.sh'
+permissions: {}
+concurrency:
+  group: vellivex-vguard-public-package
+  cancel-in-progress: true
+jobs:
+  apk-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+    env:
+      VGUARD_RUN_EMULATOR: ${{ github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false' }}
+    steps:
+      - name: Fetch public test source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Verify APK checksum, signature, permissions and optional existing emulator
+        shell: bash
+        run: bash scripts/vguard-apk-install-smoke.sh
