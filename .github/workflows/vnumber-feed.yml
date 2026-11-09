@@ -1,0 +1,38 @@
+name: Vellivex VNumber public feed browser check
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vnumber-feed.yml'
+      - 'scripts/vnumber-browser-feed.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-vnumber-public-browser-qa
+  cancel-in-progress: true
+jobs:
+  country-feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Fetch public test source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Use free preinstalled Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Check free country feeds without selecting number
+        run: node scripts/vnumber-browser-feed.mjs
