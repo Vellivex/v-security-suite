@@ -114,6 +114,19 @@ if ! "$emulator" -list-avds | grep -Fxq "$avd"; then
   exit 1
 fi
 echo 'PASS VGuard: official Android 15 virtual device is registered and discoverable.'
+# KVM on hosted Linux runners can exist but be owned by an inaccessible group.
+# Grant only the isolated runner's primary group access, never world access.
+if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo chgrp "$(id -gn)" /dev/kvm
+    sudo chmod 0660 /dev/kvm
+  fi
+fi
+if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+  echo 'FAIL VGuard emulator: GitHub runner cannot access /dev/kvm.' >&2
+  exit 1
+fi
+echo 'PASS VGuard: temporary runner can access hardware virtualisation without broadening KVM permissions.'
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
