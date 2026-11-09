@@ -10,8 +10,14 @@ trap 'rm -f "$APK"' EXIT
 
 curl --fail --silent --show-error --proto '=https' --max-redirs 0 \
   --connect-timeout 15 --max-time 90 --retry 2 --output "$APK" "$URL"
-printf '%s  %s\n' "$EXPECTED_SHA" "$APK" | sha256sum --check --status
 size=$(stat -c%s "$APK")
+actual=$(sha256sum "$APK" | cut -d' ' -f1)
+mime=$(file --brief --mime-type "$APK")
+echo "VGuard public APK: bytes=${size}; sha256=${actual}; type=${mime}"
+if [[ "$actual" != "$EXPECTED_SHA" ]]; then
+  echo "FAIL VGuard: downloaded APK does not match the published candidate SHA-256." >&2
+  exit 1
+fi
 test "$size" -ge 100000
 test "$size" -le 50000000
 echo "PASS VGuard: public candidate APK downloaded over HTTPS; exact published SHA-256 matched; size ${size} bytes."
