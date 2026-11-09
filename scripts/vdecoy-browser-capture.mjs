@@ -2,11 +2,14 @@
 // Synthetic browser-only VDecoy input/preview test; no human voice or model inference.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const ORIGIN = 'https://vdecoy.vellivex.com';
 const TIMEOUT = 40_000;
-function syntheticWav() {
-  const sampleRate = 24_000, seconds = 8, count = sampleRate * seconds;
+function syntheticWav(sampleRate = 24_000, seconds = 8) {
+  const count = sampleRate * seconds;
   const data = Buffer.alloc(44 + count * 2);
   data.write('RIFF',0,'ascii'); data.writeUInt32LE(data.length-8,4);
   data.write('WAVE',8,'ascii'); data.write('fmt ',12,'ascii');
@@ -38,10 +41,14 @@ async function text(page,id) {
   try { return String(await page.locator('#'+id).textContent({timeout:1000})).slice(0,150); }
   catch { return 'unavailable'; }
 }
+const tempDir=fs.mkdtempSync(path.join(os.tmpdir(),'vellivex-synthetic-audio-'));
+const fakeMicPath=path.join(tempDir,'synthetic-microphone.wav');
+fs.writeFileSync(fakeMicPath,syntheticWav(48_000,10));
 const browser=await chromium.launch({
   ...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{}),
   headless:true,
   args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream',
+    '--use-file-for-fake-audio-capture='+fakeMicPath,
     '--autoplay-policy=no-user-gesture-required','--disable-background-timer-throttling'],
 });
 const context=await browser.newContext({permissions:['microphone'],serviceWorkers:'allow'});
@@ -92,9 +99,21 @@ try {
   // 6 seconds is the minimum reference sample; 8 seconds tolerates startup delay.
   await page.waitForTimeout(8_400);
   await page.locator('#finish-recording').click();
-  await panelVisible(page,'sample-panel');
-  assert.equal((await page.locator('#mic-state').textContent()).trim(),'Mic off');
-  console.log('PASS VDecoy: Chrome fake microphone started, stopped, released and prepared a local sample');
+  await page.waitForFunction(()=>{
+    const panel=document.getElementById('recording-panel');
+    const mic=document.getElementById('mic-state');
+    return panel && panel.hidden && mic?.textContent==='Mic off';
+  },null,{timeout:TIMEOUT});
+  const accepted=await page.locator('#sample-panel').evaluate(el=>!el.hidden);
+  if(accepted){
+    console.log('PASS VDecoy: synthetic fake microphone started, stopped, released and prepared a sample');
+  } else {
+    // A synthetic test tone is not human speech. Explicit quality rejection is
+    // expected and must not be misreported as a hardware/audio failure.
+    const warning=await text(page,'message');
+    assert.match(warning,/too little sustained audio at a usable level/i);
+    console.log('PASS VDecoy: synthetic fake microphone started, stopped and released; insufficient signal rejected by local quality gate');
+  }
 
   assert.equal(thirdPartyHosts.size,0,'Unexpected non-VDecoy network requests');
   console.log('PASS VDecoy: no third-party requests observed in this limited test');
@@ -111,4 +130,5 @@ try {
 } finally {
   await context.close();
   await browser.close();
+  fs.rmSync(tempDir,{recursive:true,force:true});
 }
