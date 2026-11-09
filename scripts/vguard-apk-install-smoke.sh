@@ -174,3 +174,7 @@ if ! "$sdk/platform-tools/adb" shell pidof "$package" | grep -Eq '[0-9]+'; then
   exit 1
 fi
 echo 'PASS VGuard: app launched and remained running in Android emulator. VPN permission request and firewall operation remain UNTESTED.'
+if [[ "${VGUARD_PROBE_BASELINES:-false}" == 'true' ]]; then
+  echo 'Starting local-only probe baseline checks; firewall must remain OFF.'
+  bash scripts/vguard-probe-baselines.sh "$sdk"
+fi
