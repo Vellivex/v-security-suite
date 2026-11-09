@@ -81,6 +81,21 @@ async function syntheticVKey(browser) {
     console.error('VKey host state=' + (host ? await status(host, '#session-status') : 'not opened'));
     console.error('VKey peer state=' + (peer ? await status(peer, '#session-status') : 'not opened'));
     console.error('VKey peer notice=' + (peer ? await status(peer, '#notice') : 'not opened'));
+    console.error('VKey host end reason=' + (host ? await status(host, '#ended-message') : 'not opened'));
+    console.error('VKey peer end reason=' + (peer ? await status(peer, '#ended-message') : 'not opened'));
+    for (const [label, page] of [['host', host], ['peer', peer]]) {
+      if (!page) continue;
+      try {
+        const diagnostic = await page.evaluate(() => {
+          document.getElementById('refresh-checks')?.click();
+          const ids = ['check-gathering','check-network','check-connection','check-encryption',
+            'check-data-channel','check-local-routes','check-remote-routes','check-peer-handshake',
+            'check-relay-fallback'];
+          return Object.fromEntries(ids.map(id => [id, document.getElementById(id)?.textContent?.slice(0, 100) || 'none']));
+        });
+        console.error('VKey ' + label + ' safe ICE diagnostics=' + JSON.stringify(diagnostic));
+      } catch { console.error('VKey ' + label + ' diagnostics unavailable'); }
+    }
     console.error('VKey error type=' + (error?.name || 'unknown'));
     throw new Error('VKey real browser acceptance did not complete at stage: ' + stage);
   } finally {
