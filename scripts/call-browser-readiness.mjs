@@ -55,6 +55,10 @@ try {
   await page.locator('#call-consent').check();
   await page.locator('#call-headphones').check();
   await page.waitForTimeout(500);
+  console.log('Vellivex Call consent-state controls='+JSON.stringify(await page.evaluate(()=>Object.fromEntries(
+    ['call-create','call-join','call-mic-on','call-sound','call-verify','call-end'].map(id=>
+      [id,{disabled:document.getElementById(id)?.disabled??null,checked:document.getElementById(id)?.checked??null}])
+  ))));
   assert.equal(await page.locator('#call-create').isDisabled(),true);
   assert.equal(await page.locator('#call-join').isDisabled(),true);
   assert.equal(await page.locator('#call-mic-on').isDisabled(),true);
