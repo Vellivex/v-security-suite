@@ -41,6 +41,7 @@ badging=$("$aapt" dump badging "$APK")
 package=$(printf '%s\n' "$badging" | sed -nE "s/^package: name='([^']+)'.*/\1/p" | head -1)
 version=$(printf '%s\n' "$badging" | sed -nE "s/^package: name='[^']+' versionCode='[^']+' versionName='([^']+)'.*/\1/p" | head -1)
 launch=$(printf '%s\n' "$badging" | sed -nE "s/^launchable-activity: name='([^']+)'.*/\1/p" | head -1)
+echo "VGuard Android manifest: package=${package:-missing}; version=${version:-unspecified}; launcher=${launch:-missing}"
 if [[ ! "$package" =~ ^com\.vellivex\.[A-Za-z0-9_.]+$ ]]; then
   echo "FAIL VGuard: unexpected application package prefix" >&2
   exit 1
