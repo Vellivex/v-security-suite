@@ -42,10 +42,12 @@ try {
     // No phone numbers, message bodies or sender details are logged.
     const available=settled && result.countryEnabled && result.countryCount>0 &&
       /countries listed/i.test(result.coverage);
-    results.push({provider,available,countryCount:result.countryCount,status:result.status,coverage:result.coverage});
+    const ukListed=/United Kingdom \(\+44\): listed\./i.test(result.coverage);
+    results.push({provider,available,ukListed,countryCount:result.countryCount,status:result.status,coverage:result.coverage});
     console.log((available?'PASS':'NOTICE')+' VNumber '+provider+
       ': '+(available?'free country list loaded':'provider did not return a usable country list')+
       '; countries='+result.countryCount+
+      '; UK listed='+ukListed+
       '; status='+JSON.stringify(result.status));
   }
   assert.ok(results.some(r=>r.available),
