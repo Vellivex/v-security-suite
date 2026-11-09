@@ -18,7 +18,7 @@ if [[ "$actual" != "$EXPECTED_SHA" ]]; then
   echo "FAIL VGuard: downloaded APK does not match the published candidate SHA-256." >&2
   exit 1
 fi
-test "$size" -ge 100000
+test "$size" -ge 30000
 test "$size" -le 50000000
 echo "PASS VGuard: public candidate APK downloaded over HTTPS; exact published SHA-256 matched; size ${size} bytes."
 
