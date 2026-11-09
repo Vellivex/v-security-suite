@@ -1,0 +1,42 @@
+name: Vellivex VDecoy synthetic browser acceptance
+on:
+  schedule:
+    - cron: '29 8 * * 2'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vdecoy-browser-acceptance.yml'
+      - 'scripts/vdecoy-browser-capture.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-vdecoy-browser-qa
+  cancel-in-progress: true
+jobs:
+  synthetic-capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      CI: 'true'
+    steps:
+      - name: Fetch public source without GitHub credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned Playwright and select hosted Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Check VDecoy synthetic WAV import and virtual microphone
+        run: node scripts/vdecoy-browser-capture.mjs
