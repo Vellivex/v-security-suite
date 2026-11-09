@@ -1,0 +1,38 @@
+name: Vellivex VMail read-only browser readiness
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vmail-readiness.yml'
+      - 'scripts/vmail-browser-readiness.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-vmail-readonly-qa
+  cancel-in-progress: true
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Fetch Vellivex public test source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned browser library and detect preinstalled Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "CHROME_EXECUTABLE=$(command -v chromium)" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - name: Check public mail service readiness without creating inbox
+        run: node scripts/vmail-browser-readiness.mjs
