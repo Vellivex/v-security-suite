@@ -102,20 +102,61 @@ tap desc 'Search apps or package names'
 "$adb" shell input keyevent 4 >/dev/null
 sleep 2
 tap desc 'Block internet for VGuard QA Blocked'
-echo 'PASS VGuard: fictional Blocked app selected using real native UI.'
+echo 'PASS VGuard: fictional Blocked app toggle interacted with via real native UI.'
 tap desc 'Overview tab'
-tap text 'Start blocking'
-tap text 'Continue'
-# An Android system UI confirmation is essential; don't grant via shell bypass.
-if ! tap text 'OK';then
-  tap text 'Allow'
-fi
-sleep 3
-if ! dump_ui || ! grep -q 'ACTIVE' "$xml";then
-  echo 'FAIL VGuard: Android UI did not show ACTIVE after consent.' >&2
+dump_ui
+if ! grep -q '1 app selected' "$xml"; then
+  echo 'FAIL VGuard: blocked-app selection did not persist in Overview. No VPN started.' >&2
+  python3 - "$xml" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+values=[x.attrib.get('text','') for x in root.iter('node') if x.attrib.get('text','')]
+print('QA overview labels:',repr([s[:90] for s in values if any(q in s.lower() for q in ['blocking','selected','apps','error'])][:12]))
+PY
   exit 1
 fi
-echo 'PASS VGuard: Android VPN permission accepted through native dialog; UI reports ACTIVE.'
+echo 'PASS VGuard: Overview confirms exactly one fictional app selected before VPN start.'
+tap text 'Start blocking'
+sleep 1
+permission='already_granted'
+# VpnService.prepare() can return null if Android consent already exists.
+point=$(find_xy text 'Continue') || point=''
+if [[ -n "$point" ]]; then
+  read -r x y <<< "$point"
+  "$adb" shell input tap "$x" "$y" >/dev/null
+  permission='dialog_presented'
+  sleep 1
+  confirmed=false
+  for option in OK Allow Connect; do
+    point=$(find_xy text "$option") || point=''
+    if [[ -n "$point" ]]; then
+      read -r x y <<< "$point"
+      "$adb" shell input tap "$x" "$y" >/dev/null
+      confirmed=true
+      break
+    fi
+  done
+  if [[ "$confirmed" != 'true' ]]; then
+    echo 'NOTICE VGuard: Android VPN permission button not found; checking whether consent is already granted.'
+  fi
+fi
+active=false
+for ((attempt=0;attempt<8;attempt++)); do
+  sleep 1
+  dump_ui || continue
+  if grep -q 'text="ACTIVE"' "$xml";then active=true;break;fi
+done
+if [[ "$active" != 'true' ]];then
+  echo "FAIL VGuard: Android UI never reported ACTIVE; permission path=$permission." >&2
+  python3 - "$xml" <<'PY'
+import sys,xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+values=[x.attrib.get('text','') for x in root.iter('node') if x.attrib.get('text','')]
+print('QA visible labels:',repr([s[:110] for s in values if any(q in s.lower() for q in ['vpn','blocking','permission','connect','continue','app','retry','error','allow'])][:20]))
+PY
+  exit 1
+fi
+echo "PASS VGuard: actual Android emulator UI reports ACTIVE, permission path=$permission."
 probe blocked NO_CONNECTION
 probe allowed CONNECTED
 echo 'PASS VGuard: selective VPN rule blocks only the selected fictional app.'
