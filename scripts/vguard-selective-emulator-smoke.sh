@@ -10,8 +10,19 @@ trap 'rm -rf "$scratch"' EXIT
 xml="$scratch/window.xml"
 
 dump_ui() {
-  timeout 12 "$adb" shell uiautomator dump /sdcard/vguard-qa-window.xml >/dev/null 2>&1 || return 1
-  timeout 8 "$adb" exec-out cat /sdcard/vguard-qa-window.xml > "$xml"
+  local target='/data/local/tmp/vguard-qa-window.xml'
+  local output
+  "$adb" shell rm -f "$target" >/dev/null 2>&1 || true
+  output=$(timeout 16 "$adb" shell uiautomator dump --compressed "$target" 2>&1) || {
+    echo "Android UI dump command failed: ${output:0:180}" >&2
+    return 2
+  }
+  if ! "$adb" shell test -s "$target" >/dev/null 2>&1; then
+    echo "Android UI hierarchy file not produced: ${output:0:180}" >&2
+    return 2
+  fi
+  timeout 8 "$adb" exec-out cat "$target" > "$xml"
+  test -s "$xml"
 }
 # Find an element by exact or substring text/description, returning centre coordinates.
 find_xy() {
