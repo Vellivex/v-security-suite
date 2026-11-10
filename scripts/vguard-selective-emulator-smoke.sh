@@ -20,7 +20,19 @@ find_xy() {
   python3 - "$xml" "$selector" "$needle" <<'PY'
 import sys,xml.etree.ElementTree as ET,re
 source,kind,needle=sys.argv[1:]
-root=ET.parse(source).getroot()
+raw=open(source,'rb').read()
+start=raw.find(b'<?xml')
+if start<0: start=raw.find(b'<hierarchy')
+if start<0:
+    # Only an ephemeral emulator is involved; don't log the UI contents.
+    print('QA XML dump has no hierarchy; bytes='+str(len(raw))+
+          '; first20_hex='+raw[:20].hex(),file=sys.stderr)
+    sys.exit(2)
+try: root=ET.fromstring(raw[start:])
+except ET.ParseError:
+    print('QA XML hierarchy was malformed; bytes='+str(len(raw))+
+          '; first20_hex='+raw[:20].hex(),file=sys.stderr)
+    sys.exit(2)
 for el in root.iter('node'):
     s=el.attrib.get('content-desc' if kind=='desc' else 'text','')
     if s==needle or (kind=='contains' and needle in (s+' '+el.attrib.get('content-desc',''))):
@@ -34,11 +46,17 @@ PY
 }
 tap() {
   local kind="$1" label="$2" point tries
-  for ((tries=0;tries<12;tries++)); do
-    if point=$(find_xy "$kind" "$label");then
+  for ((tries=0;tries<6;tries++)); do
+    local rc=0
+    point=$(find_xy "$kind" "$label") || rc=$?
+    if [[ "$rc" == 0 ]]; then
       read -r x y <<< "$point"
       "$adb" shell input tap "$x" "$y" >/dev/null
       return 0
+    fi
+    if [[ "$rc" == 2 ]]; then
+      echo 'FAIL VGuard QA: accessibility XML unavailable; cannot perform safe UI automation.' >&2
+      return 2
     fi
     sleep 1
   done
