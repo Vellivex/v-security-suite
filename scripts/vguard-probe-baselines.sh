@@ -92,3 +92,7 @@ done
 
 echo 'PASS VGuard: both independent Android probe applications have proven off-state HTTP baselines.'
 echo 'NOTICE VGuard: selective VPN blocking, VPN consent, stop/restart and GrapheneOS remain UNTESTED by these baselines.'
+if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
+  echo 'Running one-off selective VPN test before removing fictional probes and local server.'
+  bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk"
+fi
