@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 11
     env:
+      VGUARD_PROBE_BASELINES: 'true'
+      VGUARD_PROBE_ENFORCEMENT: 'true'
       VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'test/vguard-emulator-oneoff-20261110' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
