@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# One-off isolated Android emulator selective-VPN smoke test.
+# Requires successful baseline and two fictional probe APKs, firewall initially OFF.
+set -euo pipefail
+sdk="${1:?SDK root}"
+adb="$sdk/platform-tools/adb"
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+xml="$scratch/window.xml"
+
+dump_ui() {
+  timeout 12 "$adb" shell uiautomator dump /sdcard/vguard-qa-window.xml >/dev/null 2>&1 || return 1
+  timeout 8 "$adb" exec-out cat /sdcard/vguard-qa-window.xml > "$xml"
+}
+# Find an element by exact or substring text/description, returning centre coordinates.
+find_xy() {
+  local selector="$1" needle="$2"
+  dump_ui || return 1
+  python3 - "$xml" "$selector" "$needle" <<'PY'
+import sys,xml.etree.ElementTree as ET,re
+source,kind,needle=sys.argv[1:]
+root=ET.parse(source).getroot()
+for el in root.iter('node'):
+    s=el.attrib.get('content-desc' if kind=='desc' else 'text','')
+    if s==needle or (kind=='contains' and needle in (s+' '+el.attrib.get('content-desc',''))):
+        if el.attrib.get('enabled')!='true': continue
+        m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',el.attrib.get('bounds',''))
+        if m:
+            a,b,c,d=map(int,m.groups())
+            if c>a and d>b: print((a+c)//2,(b+d)//2);sys.exit(0)
+sys.exit(1)
+PY
+}
+tap() {
+  local kind="$1" label="$2" point tries
+  for ((tries=0;tries<12;tries++)); do
+    if point=$(find_xy "$kind" "$label");then
+      read -r x y <<< "$point"
+      "$adb" shell input tap "$x" "$y" >/dev/null
+      return 0
+    fi
+    sleep 1
+  done
+  echo "FAIL VGuard: cannot find expected emulator control ($kind:$label)." >&2
+  return 1
+}
+probe() {
+  local role="$1" expected="$2" result outcome
+  result=$(timeout 18 "$adb" shell am instrument -w -e mode http -e timeout_ms 2000 \
+   -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
+    echo "FAIL VGuard: fictional $role probe instrumentation unavailable." >&2
+    return 1
+  }
+  outcome=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: outcome=([A-Z_]+)\r?$/\1/p' | tail -1)
+  if [[ "$outcome" != "$expected" ]]; then
+    echo "FAIL VGuard: fictional $role network outcome ${outcome:-unknown}, expected $expected." >&2
+    return 1
+  fi
+  echo "PASS VGuard: fictional $role probe outcome=$expected."
+}
+# Start controlled local-only HTTP server; no external forwarding.
+python3 "$PWD/device-qa/http-server.py" > "$scratch/http.log" 2>&1 &
+server=$!
+trap 'kill "$server" 2>/dev/null || true; rm -rf "$scratch"' EXIT
+for ((i=0;i<20;i++));do
+  if curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null 2>&1;then break;fi
+  sleep .3
+done
+curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null
+echo 'PASS VGuard: emulator probe test server reachable on controlled host.'
+probe blocked CONNECTED
+probe allowed CONNECTED
+"$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
+sleep 1
+tap desc 'Apps tab'
+tap desc 'Search apps or package names'
+"$adb" shell input text 'VGuard%sQA%sBlocked' >/dev/null
+sleep 2
+tap desc 'Block internet for VGuard QA Blocked'
+echo 'PASS VGuard: fictional Blocked app selected using real native UI.'
+tap desc 'Overview tab'
+tap text 'Start blocking'
+tap text 'Continue'
+# An Android system UI confirmation is essential; don't grant via shell bypass.
+if ! tap text 'OK';then
+  tap text 'Allow'
+fi
+sleep 3
+if ! dump_ui || ! grep -q 'ACTIVE' "$xml";then
+  echo 'FAIL VGuard: Android UI did not show ACTIVE after consent.' >&2
+  exit 1
+fi
+echo 'PASS VGuard: Android VPN permission accepted through native dialog; UI reports ACTIVE.'
+probe blocked NO_CONNECTION
+probe allowed CONNECTED
+echo 'PASS VGuard: selective VPN rule blocks only the selected fictional app.'
+"$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
+sleep 1
+tap desc 'Overview tab'
+tap text 'Stop blocking'
+sleep 2
+probe blocked CONNECTED
+probe allowed CONNECTED
+echo 'PASS VGuard: stopping the firewall restores both fictional apps network access.'
+echo 'NOTICE VGuard: Android 15 emulator, IPv4 local HTTP only. GrapheneOS, real device, IPv6, DNS, lifecycle and cross-VPN compatibility remain untested.'
