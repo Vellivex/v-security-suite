@@ -2,12 +2,15 @@
 // Production web acceptance in Chrome on an isolated Android emulator.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { _android as android } from 'playwright';
+import { verifyCipherOffline } from './android-cipher-qa.mjs';
 
 const origin = 'https://www.vellivex.com';
 const vaultUrl = `${origin}/apps/vault`;
 const relayUrl = `${origin}/apps/relay`;
-const message = `Fictional Android browser QA ${randomUUID()}\nLine two.`;
+const messageMarker = randomUUID();
+const message = `Fictional Android browser QA ${messageMarker}\nLine two.`;
 const passphrase = `Android QA only ${randomUUID()}`;
 
 const devices = await android.devices();
@@ -24,6 +27,20 @@ async function openTool(page, url, requireServiceWorker = false) {
   assert.equal(page.url(), url, 'The test requires the production Vellivex tool.');
   if (requireServiceWorker) {
     assert.equal(response.fromServiceWorker(), true, 'The offline document must come from the service worker.');
+  }
+}
+
+async function openFirstPage(page) {
+  // ADB boot completion can precede Android's first usable network route.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await openTool(page, vaultUrl);
+      return;
+    } catch (error) {
+      if (attempt === 6 || !/ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED/.test(error.message)) throw error;
+      console.log('Waiting for the isolated Android emulator network to become ready.');
+      await delay(4_000);
+    }
   }
 }
 
@@ -49,7 +66,7 @@ try {
   const page = await context.newPage();
 
   stage = 'confirm the Android mobile browser';
-  await openTool(page, vaultUrl);
+  await openFirstPage(page);
   const mobile = await page.evaluate(() => ({ ua: navigator.userAgent, width: innerWidth }));
   assert.match(mobile.ua, /Android.*Chrome\/\d+.*Mobile/);
   assert.ok(mobile.width > 0 && mobile.width < 800, 'Expected the native Android phone viewport.');
@@ -64,7 +81,7 @@ try {
   await page.locator('#download-result').waitFor({ state: 'visible' });
   const envelope = await page.locator('#result').inputValue();
   assert.equal(JSON.parse(envelope).format, 'VVAULT');
-  assert.ok(!envelope.includes(message), 'The encrypted package must not include plaintext.');
+  assert.ok(!envelope.includes(messageMarker), 'The encrypted package must not include the plaintext marker.');
   console.log('PASS VVault encrypted fictional text in Android Chrome and offered an encrypted download');
 
   stage = 'VRelay encrypted file import';
@@ -113,6 +130,9 @@ try {
   await expectStatus(page, /Package format checked/);
   assert.ok(await page.locator('#result').inputValue() === envelope, 'Offline VRelay must preserve the exact package.');
   console.log('PASS VRelay reloaded from the service worker and validated the same package offline');
+
+  stage = 'V Cipher offline numbered QR text transfer';
+  await verifyCipherOffline(page, openTool);
 } catch (error) {
   console.error(`FAIL Android browser at ${stage}: ${error.message}`);
   process.exitCode = 1;

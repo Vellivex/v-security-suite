@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/android-web-acceptance.yml'
       - 'scripts/android-web-qa.mjs'
+      - 'scripts/android-cipher-qa.mjs'
       - 'scripts/android-vdecoy-qa.mjs'
       - 'scripts/live-two-browser-chat.mjs'
 permissions: {}
