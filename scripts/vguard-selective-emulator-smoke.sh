@@ -59,16 +59,10 @@ probe() {
   fi
   echo "PASS VGuard: fictional $role probe outcome=$expected."
 }
-# Start controlled local-only HTTP server; no external forwarding.
-python3 "$PWD/device-qa/http-server.py" > "$scratch/http.log" 2>&1 &
-server=$!
-trap 'kill "$server" 2>/dev/null || true; rm -rf "$scratch"' EXIT
-for ((i=0;i<20;i++));do
-  if curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null 2>&1;then break;fi
-  sleep .3
-done
+# The preceding baseline harness owns the controlled local HTTP server.
+# Reuse its listener; never open a competing port or access remote services.
 curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null
-echo 'PASS VGuard: emulator probe test server reachable on controlled host.'
+echo 'PASS VGuard: previously verified local-only test server remains reachable.'
 probe blocked CONNECTED
 probe allowed CONNECTED
 "$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
@@ -76,6 +70,7 @@ sleep 1
 tap desc 'Apps tab'
 tap desc 'Search apps or package names'
 "$adb" shell input text 'VGuard%sQA%sBlocked' >/dev/null
+"$adb" shell input keyevent 4 >/dev/null
 sleep 2
 tap desc 'Block internet for VGuard QA Blocked'
 echo 'PASS VGuard: fictional Blocked app selected using real native UI.'
