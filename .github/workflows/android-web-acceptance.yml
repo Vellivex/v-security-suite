@@ -6,7 +6,9 @@ on:
       - '.github/workflows/android-web-acceptance.yml'
       - 'scripts/android-web-qa.mjs'
       - 'scripts/android-cipher-qa.mjs'
+      - 'scripts/android-cipher-camera-qa.mjs'
       - 'scripts/android-vdecoy-qa.mjs'
+      - 'scripts/android-vdecoy-microphone-qa.mjs'
       - 'scripts/live-two-browser-chat.mjs'
 permissions: {}
 concurrency:
@@ -88,3 +90,6 @@ jobs:
       - name: Check Android Chrome VDecoy file import and preview
         if: ${{ !cancelled() && steps.library.outcome == 'success' }}
         run: node scripts/android-vdecoy-qa.mjs
+      - name: Check Android Chrome VDecoy recording and cleanup with synthetic audio
+        if: ${{ !cancelled() && steps.library.outcome == 'success' }}
+        run: node scripts/android-vdecoy-microphone-qa.mjs

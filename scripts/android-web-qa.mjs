@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { _android as android } from 'playwright';
+import { verifyCipherCamera } from './android-cipher-camera-qa.mjs';
 import { verifyCipherOffline } from './android-cipher-qa.mjs';
 
 const origin = 'https://www.vellivex.com';
@@ -133,6 +134,9 @@ try {
 
   stage = 'V Cipher offline numbered QR text transfer';
   await verifyCipherOffline(page, openTool);
+
+  stage = 'V Cipher offline QR scanning from synthetic camera video';
+  await verifyCipherCamera(page, openTool);
 } catch (error) {
   console.error(`FAIL Android browser at ${stage}: ${error.message}`);
   process.exitCode = 1;
