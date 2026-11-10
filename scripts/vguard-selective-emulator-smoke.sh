@@ -46,7 +46,7 @@ except ET.ParseError:
     sys.exit(2)
 for el in root.iter('node'):
     s=el.attrib.get('content-desc' if kind=='desc' else 'text','')
-    if s==needle or (kind=='contains' and needle in (s+' '+el.attrib.get('content-desc',''))):
+    if s.casefold()==needle.casefold() or (kind=='contains' and needle.casefold() in (s+' '+el.attrib.get('content-desc','')).casefold()):
         if el.attrib.get('enabled')!='true': continue
         m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',el.attrib.get('bounds',''))
         if m:
