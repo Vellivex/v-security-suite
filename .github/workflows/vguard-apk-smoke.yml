@@ -1,4 +1,5 @@
 name: Vellivex VGuard APK verification
+# One-off selective enforcement branch smoke test. Do not merge into main.
 on:
   schedule:
     - cron: '43 9 * * 0'
