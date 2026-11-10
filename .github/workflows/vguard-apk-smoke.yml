@@ -15,6 +15,7 @@ on:
     paths:
       - '.github/workflows/vguard-apk-smoke.yml'
       - 'scripts/vguard-apk-install-smoke.sh'
+      - 'scripts/vguard-selective-emulator-smoke.sh'
 permissions: {}
 concurrency:
   group: vellivex-vguard-public-package

@@ -160,11 +160,23 @@ echo "PASS VGuard: actual Android emulator UI reports ACTIVE, permission path=$p
 probe blocked NO_CONNECTION
 probe allowed CONNECTED
 echo 'PASS VGuard: selective VPN rule blocks only the selected fictional app.'
-"$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
-sleep 1
-tap desc 'Overview tab'
+# Return to the activity explicitly after the two probe instrumentations.
+# Keep its task and VPN running so Stop is the action that restores access.
+launch=$(timeout 20 "$adb" shell am start -W -n app.vguard.firewall/.MainActivity)
+if ! grep -q '^Status: ok' <<< "$launch"; then
+  echo 'FAIL VGuard: unable to return to the firewall activity to stop blocking.' >&2
+  exit 1
+fi
 tap text 'Stop blocking'
-sleep 2
+stopped=false
+for ((attempt=0;attempt<8;attempt++)); do
+  if find_xy text 'Start blocking' >/dev/null; then stopped=true; break; fi
+  sleep 1
+done
+if [[ "$stopped" != 'true' ]]; then
+  echo 'FAIL VGuard: Android UI never returned to Start blocking after Stop.' >&2
+  exit 1
+fi
 probe blocked CONNECTED
 probe allowed CONNECTED
 echo 'PASS VGuard: stopping the firewall restores both fictional apps network access.'
