@@ -178,7 +178,4 @@ if [[ "${VGUARD_PROBE_BASELINES:-false}" == 'true' ]]; then
   echo 'Starting local-only probe baseline checks; firewall must remain OFF.'
   bash scripts/vguard-probe-baselines.sh "$sdk"
 fi
-if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
-  echo 'Starting one-off controlled selective VPN emulator comparison.'
-  bash scripts/vguard-selective-emulator-smoke.sh "$sdk"
-fi
+
