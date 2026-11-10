@@ -1,0 +1,89 @@
+name: Vellivex Android Chrome acceptance
+on:
+  push:
+    branches: ['test/android-web-acceptance-20261110']
+    paths:
+      - '.github/workflows/android-web-acceptance.yml'
+      - 'scripts/android-web-qa.mjs'
+      - 'scripts/android-vdecoy-qa.mjs'
+      - 'scripts/live-two-browser-chat.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-android-web-qa
+  cancel-in-progress: true
+jobs:
+  android-chrome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - name: Fetch public source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Boot official Android 15 and verify Chrome
+        id: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?}}"
+          adb="$sdk/platform-tools/adb"
+          tools_dir=$(find "$sdk/cmdline-tools" -mindepth 2 -maxdepth 3 -type f -name sdkmanager -printf '%h\n' | sort -V | tail -1)
+          test -x "$tools_dir/sdkmanager" && test -x "$tools_dir/avdmanager"
+          test -c /dev/kvm
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chgrp "$(id -gn)" /dev/kvm
+            sudo chmod 0660 /dev/kvm
+          fi
+          test -r /dev/kvm && test -w /dev/kvm
+
+          image='system-images;android-35;google_apis;x86_64'
+          sdk_log="$RUNNER_TEMP/vellivex-android-sdk.log"
+          if ! timeout 360 "$tools_dir/sdkmanager" --sdk_root="$sdk" --install emulator "$image" < /dev/null > "$sdk_log" 2>&1; then
+            tail -n 14 "$sdk_log" >&2
+            exit 1
+          fi
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/vellivex-web-avds"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/vellivex-web-android"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_USER_HOME"
+          avd='vellivex-android-web-qa'
+          avd_dir="$ANDROID_AVD_HOME/$avd.avd"
+          printf 'no\n' | "$tools_dir/avdmanager" create avd --name "$avd" --package "$image" --path "$avd_dir" --device pixel_2 >/dev/null
+          if [[ ! -f "$ANDROID_AVD_HOME/$avd.ini" && -f "$avd_dir/config.ini" ]]; then
+            printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-35\n' "$avd_dir" > "$ANDROID_AVD_HOME/$avd.ini"
+          fi
+          emulator_log="$RUNNER_TEMP/vellivex-android-emulator.log"
+          nohup "$sdk/emulator/emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim \
+            -gpu swiftshader_indirect -accel on -netdelay none -netspeed full < /dev/null > "$emulator_log" 2>&1 &
+          if ! timeout 120 "$adb" wait-for-device || ! timeout 140 bash -c \
+            'until [[ "$("$1" shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 2; done' _ "$adb"; then
+            tail -n 35 "$emulator_log" >&2
+            exit 1
+          fi
+          "$adb" shell settings put global stay_on_while_plugged_in 7
+          "$adb" shell input keyevent KEYCODE_WAKEUP
+          "$adb" shell wm dismiss-keyguard
+          "$adb" shell pm path com.android.chrome | grep -q '^package:'
+          chrome_version=$("$adb" shell dumpsys package com.android.chrome | sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')
+          [[ "$chrome_version" =~ ^[0-9]+\. && "${chrome_version%%.*}" -ge 105 ]]
+          "$adb" shell am set-debug-app --persistent com.android.chrome
+          echo "Android API $("$adb" shell getprop ro.build.version.sdk | tr -d '\r'), Chrome $chrome_version."
+      - name: Install pinned Playwright library
+        id: library
+        shell: bash
+        run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+      - name: Check native Android Chrome encrypted file and offline use
+        run: node scripts/android-web-qa.mjs
+      - name: Check Android Chrome chat with an isolated Chrome peer
+        if: ${{ !cancelled() && steps.library.outcome == 'success' }}
+        shell: bash
+        env:
+          VELLIVEX_ANDROID_CHAT_MODE: hybrid
+        run: CHROME_EXECUTABLE="$(command -v google-chrome || command -v chromium)" node scripts/live-two-browser-chat.mjs
+      - name: Check Android Chrome VDecoy file import and preview
+        if: ${{ !cancelled() && steps.library.outcome == 'success' }}
+        run: node scripts/android-vdecoy-qa.mjs

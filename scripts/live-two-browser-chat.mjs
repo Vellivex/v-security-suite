@@ -3,12 +3,34 @@
 // No account credentials, real messages, screenshots, video, traces or secret logging.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { chromium } from 'playwright';
+import { _android as android, chromium } from 'playwright';
 
 const VKEY = 'https://vkey.vellivex.com/';
 const PRIVATE = 'https://private.vellivex.com/';
 const WAIT = 65_000;
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const backgroundArgs = [
+  '--disable-background-timer-throttling',
+  '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows',
+];
+
+async function openEndpoints(contextFactories) {
+  const contexts = [];
+  try {
+    for (const create of contextFactories) contexts.push(await create());
+    return contexts;
+  } catch (error) {
+    await Promise.allSettled(contexts.map(context => context.close()));
+    throw error;
+  }
+}
+
+async function assertAndroidEndpoints(host, peer, mode) {
+  if (mode === 'desktop') return;
+  const androidChrome = page => page.evaluate(() => /Android.+Chrome\//.test(navigator.userAgent));
+  assert.equal(await androidChrome(host), true, 'Host must be running actual Chrome for Android');
+  assert.equal(await androidChrome(peer), mode === 'dual', 'Unexpected peer runtime');
+}
 
 async function until(page, predicate, timeout = WAIT) {
   await page.waitForFunction(predicate, null, { timeout });
@@ -20,9 +42,8 @@ async function status(page, selector) {
       .slice(0, 180);
   } catch { return 'unavailable'; }
 }
-async function syntheticVKey(browser) {
-  const hostContext = await browser.newContext({ permissions: [], serviceWorkers: 'block' });
-  const peerContext = await browser.newContext({ permissions: [], serviceWorkers: 'block' });
+async function syntheticVKey(contextFactories, mode) {
+  const [hostContext, peerContext] = await openEndpoints(contextFactories);
   let host, peer, stage = 'opening';
   try {
     host = await hostContext.newPage();
@@ -31,6 +52,9 @@ async function syntheticVKey(browser) {
       host.goto(VKEY, { waitUntil: 'domcontentloaded', timeout: 25_000 }),
       peer.goto(VKEY, { waitUntil: 'domcontentloaded', timeout: 25_000 }),
     ]);
+    stage = 'verifying browser runtimes';
+    await assertAndroidEndpoints(host, peer, mode);
+
     stage = 'creating invitation';
     await host.locator('#display-name').fill('QA Host');
     await peer.locator('#display-name').fill('QA Peer');
@@ -106,9 +130,8 @@ async function syntheticVKey(browser) {
     await Promise.allSettled([hostContext.close(), peerContext.close()]);
   }
 }
-async function syntheticPrivate(browser) {
-  const hostContext = await browser.newContext({ permissions: [], serviceWorkers: 'block' });
-  const peerContext = await browser.newContext({ permissions: [], serviceWorkers: 'block' });
+async function syntheticPrivate(contextFactories, mode) {
+  const [hostContext, peerContext] = await openEndpoints(contextFactories);
   let host, peer, stage = 'opening';
   try {
     host = await hostContext.newPage();
@@ -117,6 +140,9 @@ async function syntheticPrivate(browser) {
       host.goto(PRIVATE, { waitUntil: 'domcontentloaded', timeout: 25_000 }),
       peer.goto(PRIVATE, { waitUntil: 'domcontentloaded', timeout: 25_000 }),
     ]);
+    stage = 'verifying browser runtimes';
+    await assertAndroidEndpoints(host, peer, mode);
+
     stage = 'consent and invitation';
     await host.locator('#consent').check();
     await peer.locator('#consent').check();
@@ -172,29 +198,64 @@ async function syntheticPrivate(browser) {
   }
 }
 
-const browser = await chromium.launch({
-  ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}),
-  headless: true,
-  args: [
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
-    '--disable-backgrounding-occluded-windows',
-  ],
-});
+const mode = process.env.VELLIVEX_ANDROID_CHAT_MODE || 'desktop';
+const run = process.env.VELLIVEX_E2E_TARGET || 'both';
+if (!['desktop', 'hybrid', 'dual'].includes(mode)) throw new Error('Invalid Android chat mode');
+if (!['both', 'vkey', 'private'].includes(run)) throw new Error('Invalid test selection');
+
+let browser;
+const devices = [];
 try {
-  const run = process.env.VELLIVEX_E2E_TARGET || 'both';
-  if (!['both','vkey','private'].includes(run)) throw Error('Invalid test selection');
+  const contextFactories = [];
+  if (mode !== 'desktop') {
+    devices.push(...await android.devices());
+    const required = mode === 'dual' ? 2 : 1;
+    assert.equal(devices.length, required, 'Start exactly the required number of isolated Android emulators');
+    for (const device of devices) {
+      assert.match(device.serial(), /^emulator-\d+$/, 'Only isolated Android emulators are supported');
+      assert.match((await device.shell('pm path com.android.chrome')).toString(), /^package:/m,
+        'Install official Google Chrome on the emulator first');
+      device.setDefaultTimeout(25_000);
+      contextFactories.push(() => device.launchBrowser({
+        pkg: 'com.android.chrome',
+        args: backgroundArgs,
+        viewport: null,
+        serviceWorkers: 'block',
+      }));
+    }
+  }
+  if (mode !== 'dual') {
+    browser = await chromium.launch({
+      ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}),
+      headless: true,
+      args: backgroundArgs,
+    });
+    const create = () => browser.newContext({ permissions: [], serviceWorkers: 'block' });
+    contextFactories.push(create);
+    if (mode === 'desktop') contextFactories.push(create);
+  }
   const outcomes = [];
-  if (run === 'both' || run === 'vkey') {
-    try { await syntheticVKey(browser); outcomes.push(true); }
-    catch { outcomes.push(false); }
+  for (const [name, test] of [['vkey', syntheticVKey], ['private', syntheticPrivate]]) {
+    if (run !== 'both' && run !== name) continue;
+    try {
+      await test(contextFactories, mode);
+      outcomes.push(true);
+    } catch (error) {
+      // A browser launch error may include machine-local paths. The typed error
+      // and stage messages are enough to diagnose without disclosing details.
+      console.error('Failed browser session for ' + name + ': ' + (error?.name || 'unknown'));
+      outcomes.push(false);
+    }
   }
-  if (run === 'both' || run === 'private') {
-    try { await syntheticPrivate(browser); outcomes.push(true); }
-    catch { outcomes.push(false); }
-  }
-  console.log('Browser checks passed: ' + outcomes.filter(Boolean).length + '/' + outcomes.length + '. One Chromium runner, not physical devices.');
+  const endpoints = {
+    desktop: 'two desktop Chromium contexts',
+    hybrid: 'Chrome on an Android emulator and a desktop Chromium peer',
+    dual: 'Chrome on two Android emulators',
+  };
+  console.log('Browser checks passed: ' + outcomes.filter(Boolean).length + '/' + outcomes.length +
+    ' using ' + endpoints[mode] + '.');
   if (outcomes.some(ok => !ok)) process.exitCode = 1;
 } finally {
-  await browser.close();
+  await Promise.allSettled(devices.map(device => device.close()));
+  if (browser) await browser.close();
 }
