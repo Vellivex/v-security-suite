@@ -154,6 +154,7 @@ VGUARD_PROBE_READY_MS=5000
 if ! vguard_activity_flow;then
   failures=$((failures+1))
   echo 'FAIL VGuard: native Activity/export flow incomplete; preserving failure and continuing independent system recovery.' >&2
+  qa_ui_diagnostics
   return_to_guard
 fi
 unset VGUARD_PROBE_READY_MS

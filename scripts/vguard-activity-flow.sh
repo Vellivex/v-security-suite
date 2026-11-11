@@ -87,10 +87,10 @@ assert len(nodes)==1, 'Disposable export filename was not entered exactly'
 PY
 }
 
-activity_assert_metadata_card() {
+activity_assert_metadata_card_once() {
   dump_ui || return 1
   python3 - "$xml" <<'PY'
-import sys,xml.etree.ElementTree as ET
+import re,sys,xml.etree.ElementTree as ET
 root=ET.parse(sys.argv[1]).getroot(); parents={child:parent for parent in root.iter() for child in parent}
 endpoints=[n for n in root.iter('node') if n.attrib.get('package')=='app.vguard.firewall' and n.attrib.get('text')=='10.0.2.2:18790']
 valid=False
@@ -100,10 +100,39 @@ for endpoint in endpoints:
         node=parents.get(node)
         if node is None: break
         texts=[n.attrib.get('text','') for n in node.iter('node')]
-        if 'Selected app' in texts and 'DROPPED' in texts and any(t.startswith('TCP  /  ') for t in texts): valid=True;break
-assert valid, 'No real dropped TCP endpoint card with generic Selected app label'
+        endpoints_here=[t for t in texts if re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}:\d+',t)]
+        if len(endpoints_here)==1 and texts.count('Selected app')==1 and texts.count('DROPPED')==1 and any(t.startswith('TCP  /  ') for t in texts): valid=True;break
+if not valid:raise SystemExit(1)
 print('PASS VGuard: native Activity shows DROPPED TCP10.0.2.2:18790 with generic Selected app metadata.')
 PY
+}
+
+activity_assert_metadata_card() {
+  local attempt point x start end
+  echo 'CHECK VGuard: actual initial Activity viewport before metadata discovery.'
+  qa_ui_diagnostics
+  for ((attempt=0;attempt<4;attempt++));do
+    if activity_assert_metadata_card_once;then return 0;fi
+    [[ "$attempt" == 3 ]] && break
+    dump_ui || return 1
+    point=$(python3 - "$xml" <<'PY'
+import re,sys,xml.etree.ElementTree as ET
+nodes=[n for n in ET.parse(sys.argv[1]).getroot().iter('node')
+       if n.attrib.get('package')=='app.vguard.firewall'
+       and n.attrib.get('class')=='android.widget.ScrollView'
+       and n.attrib.get('scrollable')=='true' and n.attrib.get('enabled')=='true']
+if len(nodes)!=1:raise SystemExit(1)
+m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',nodes[0].attrib.get('bounds',''))
+if not m:raise SystemExit(1)
+left,top,right,bottom=map(int,m.groups())
+if right<=left or bottom-top<100:raise SystemExit(1)
+print((left+right)//2,top+3*(bottom-top)//4,top+(bottom-top)//4)
+PY
+    ) || break
+    read -r x start end <<< "$point"
+    "$adb" shell input swipe "$x" "$start" "$x" "$end" 300 >/dev/null || return 1
+  done
+  return 1
 }
 
 activity_network_diagnostics() {
@@ -168,7 +197,13 @@ vguard_activity_flow() {
   fi
   return_to_guard || return 1
   tap nav 'Activity tab' || return 1
-  activity_assert_metadata_card || return 1
+  if ! activity_assert_metadata_card;then
+    failures=$((failures+1))
+    echo 'FAIL VGuard: bounded native viewports did not show a complete controlled TCP metadata card.' >&2
+    qa_ui_diagnostics
+  fi
+  # Rebuild the Activity screen at its top for the actual export controls.
+  tap nav 'Activity tab' || return 1
   cancel_name="VGuard-QA-cancel-$(date +%s%N).csv"
   save_name="VGuard-QA-activity-$(date +%s%N).csv"
   remote_csv="/sdcard/Download/$save_name"
@@ -184,7 +219,13 @@ vguard_activity_flow() {
     dump_ui || return 1
     if ! grep -Eq 'package="com\.(google\.android|android)\.documentsui"' "$xml"; then break; fi
   done
-  activity_assert_metadata_card || return 1
+  if ! activity_assert_metadata_card;then
+    failures=$((failures+1))
+    echo 'FAIL VGuard: bounded native viewports did not show a complete controlled TCP metadata card.' >&2
+    qa_ui_diagnostics
+  fi
+  # Rebuild the Activity screen at its top for the actual export controls.
+  tap nav 'Activity tab' || return 1
   if "$adb" shell test -e "/sdcard/Download/$cancel_name"; then
     echo 'FAIL VGuard: canceled export created a file.' >&2; return 1
   fi
