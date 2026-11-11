@@ -14,7 +14,11 @@ async function verifiedResponse(response,file){
   if('sha256-'+btoa(String.fromCharCode(...digest))!==file.integrity)throw Error('Offline file failed integrity check');
   return new Response(bytes,{status:200,headers});
 }
-self.addEventListener('install',event=>event.waitUntil((async()=>{
+let installation=null;
+function installPinnedFiles(){
+  if(installation)return installation;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  installation=(async()=>{
   const existed=await caches.has(CACHE);
   const cache=await caches.open(CACHE);
   // A repeated installation of this exact release must never rewrite or delete
@@ -22,21 +26,51 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
   if(existed){
     for(const file of FILES){
       await verifiedResponse(await cache.match(file.url),file);
+      if(controller.signal.aborted)throw Error('Offline verification timed out');
     }
     return;
   }
   try{
     for(const file of FILES){
-      const request=new Request(file.source||file.url,{integrity:file.integrity,cache:'reload',redirect:'error',credentials:'same-origin',referrerPolicy:'no-referrer'});
+      const request=new Request(file.source||file.url,{integrity:file.integrity,cache:'reload',redirect:'error',credentials:'same-origin',referrerPolicy:'no-referrer',signal:controller.signal});
       const response=await fetch(request);
       if(isDocument(file)&&response.headers.get(ACCESS_HEADER)!=='verified')throw Error('Sign in before enabling offline use.');
-      await cache.put(file.url,await verifiedResponse(response,file));
+      const verified=await verifiedResponse(response,file);
+      if(controller.signal.aborted)throw Error('Offline verification timed out');
+      await cache.put(file.url,verified);
     }
   }catch(error){if(!existed)await caches.delete(CACHE);throw error;}
+  })().finally(()=>{clearTimeout(timer);installation=null;});
+  return installation;
+}
+self.addEventListener('install',event=>event.waitUntil((async()=>{
+  // Updating an older controller must not depend on an app cookie: otherwise
+  // anonymous users remain trapped behind the old cache-first controller.
+  // Fresh offline installations still finish all authenticated file checks.
+  if(!self.registration?.active)await installPinnedFiles();
+  await self.skipWaiting?.();
 })()));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('v-tools-')&&key!==CACHE).map(key=>caches.delete(key))))));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{
+  // Never erase a previous working offline release during a control upgrade.
+  // Existing pages are not reloaded; their next navigation uses the new gate.
+  await self.clients?.claim();
+})()));
+self.addEventListener('message',event=>{
+  if(event.data?.type==='VELLIVEX_APP_ACCESS_POLICY'&&event.ports?.[0])event.ports[0].postMessage({version:'email-gate-v2'});
+});
+async function cachedFile(file){
+  const available=await caches.keys();
+  const names=[...available.filter(name=>name===CACHE),...available.filter(name=>name.startsWith('v-tools-')&&name!==CACHE)];
+  for(const name of names){
+    // Reconstruct pinned metadata and verify current release bytes even when
+    // using an older cache. Mutable cache headers never establish trust.
+    try{return await verifiedResponse(await (await caches.open(name)).match(file.url),file);}catch{}
+  }
+  throw Error('No verified offline copy');
+}
 const unavailable=()=>new Response('Offline files failed verification or are incomplete. Save any encrypted files you need, close all Vellivex tool tabs, clear this site’s stored data in browser settings, then reopen online and enable offline use. Clearing site data removes offline files.',{status:503,headers:{'Content-Type':'text/plain','Cache-Control':'no-store'}});
 const accessUnavailable=()=>new Response('Vellivex could not check your sign-in. Reconnect and try again. Your saved offline files have not been changed.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}});
+const refreshing=()=>new Response('Offline files are being verified for this release. Keep this tab online, then reload. Your saved files have not been changed.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}});
 async function documentAdmission(request){
   // A previously verified installation remains usable in explicit offline mode.
   // Online failures never silently turn into signed-in access or erase local data.
@@ -62,12 +96,18 @@ self.addEventListener('fetch',event=>{
   event.respondWith((async()=>{
     if(isDocument(file)&&(event.request.mode==='navigate'||event.request.destination==='document')){
       const admission=await documentAdmission(event.request);if(admission)return admission;
+      if(self.navigator?.onLine!==false){
+        // Refresh in the background after admission. A slow asset must never
+        // block a usable pinned legacy document or force a page reload.
+        let cached;try{cached=await cachedFile(file);}catch{}
+        event.waitUntil?.(installPinnedFiles().catch(()=>{}));
+        return cached||refreshing();
+      }
     }
     try{
-      const cache=await caches.open(CACHE);
       // Recheck bytes and reconstruct metadata on every read. Never return the
       // cached response object or trust headers left in mutable browser storage.
-      return await verifiedResponse(await cache.match(file.url),file);
+      return await cachedFile(file);
     }catch{return unavailable();}
   })());
 });

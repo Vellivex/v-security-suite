@@ -5,6 +5,70 @@ const MARKETING_PATHS = new Set(['/', '/index.html', '/beta', '/source', '/trust
 const SITE_ORIGINS = new Set(['https://vellivex.com', 'https://www.vellivex.com']);
 const MAIL_UPSTREAM = 'https://vellivex-disposable-mail-pilot.vellivex-call.workers.dev';
 const ACCOUNT_LINK = '<a href="https://call.vellivex.com/access" data-app-access-link="true">Sign in / account</a>';
+const MIGRATION_PATH = '/app-access-migration.js';
+export const MIGRATION_SCRIPT = '(' + function () {
+  'use strict';
+  const serviceWorker = navigator.serviceWorker;
+  if (!serviceWorker || navigator.onLine === false) return;
+  let state = 'pending', status;
+  const cachedTool = target => {
+    const anchor = target?.closest?.('a[href]');
+    if (!anchor || anchor.hasAttribute('download')) return false;
+    const url = new URL(anchor.href, location.href);
+    return url.origin === location.origin && /^\/apps\/(?:vault|relay|cipher\/(?:vault|relay))\/?$/.test(url.pathname);
+  };
+  function intercept(event) {
+    if (state === 'ready' || event.defaultPrevented || !cachedTool(event.target)) return;
+    event.preventDefault();
+    if (!status) {
+      status = document.createElement('p'); status.setAttribute('role', 'status'); status.className = 'fine';
+      (document.querySelector('#products') || document.querySelector('main') || document.body).prepend(status);
+    }
+    status.textContent = state === 'failed' ? 'Offline app access could not be updated. Reconnect and reload this page before opening these tools. Your saved files have not been changed.' : 'Updating offline app access. Please select the app again in a moment.';
+  }
+  document.addEventListener('click', intercept, true);
+  document.addEventListener('auxclick', intercept, true);
+  const cleanups = [];
+  const deadline = new Promise((_, reject) => {
+    const timer = setTimeout(() => reject(Error('Update timed out')), 12000);
+    cleanups.push(() => clearTimeout(timer));
+  });
+  const update = (async () => {
+    const registration = await serviceWorker.getRegistration('/apps/');
+    if (state !== 'pending') return;
+    if (!registration) return;
+    if (registration.scope !== new URL('/apps/', location.origin).href ||
+        registration.active?.scriptURL !== new URL('/sw.js', location.origin).href) throw Error('Unexpected offline controller');
+    await registration.update();
+    if (state !== 'pending') return;
+    const installing = registration.installing || registration.waiting;
+    if (installing && installing.state !== 'activated') await new Promise((resolve, reject) => {
+      const changed = () => {
+        if (installing.state === 'activated') resolve();
+        else if (installing.state === 'redundant') reject(Error('Update failed'));
+      };
+      installing.addEventListener('statechange', changed);
+      cleanups.push(() => installing.removeEventListener('statechange', changed));
+      changed();
+    });
+    if (state !== 'pending') return;
+    const active = registration.active;
+    if (!active || active.state !== 'activated' || active.scriptURL !== new URL('/sw.js', location.origin).href) throw Error('No expected active controller');
+    await new Promise(resolve => {
+      const channel = new MessageChannel();
+      cleanups.push(() => { channel.port1.close(); channel.port2.close(); });
+      channel.port1.onmessage = event => { if (event.data?.version === 'email-gate-v2' && registration.active === active && active.state === 'activated') resolve(); };
+      active.postMessage({type: 'VELLIVEX_APP_ACCESS_POLICY'}, [channel.port2]);
+    });
+  })();
+  Promise.race([update, deadline]).then(() => {
+    state = 'ready';
+    document.removeEventListener('click', intercept, true);
+    document.removeEventListener('auxclick', intercept, true);
+    if (status) status.textContent = 'Offline app access is updated. Select an app to continue.';
+  }, () => { state = 'failed'; if (status) status.textContent = 'Offline app access could not be updated. Reconnect and reload this page before opening these tools. Your saved files have not been changed.'; })
+    .finally(() => { for (const cleanup of cleanups) cleanup(); });
+} + ')();\n';
 export const ACCESS_PRIVACY_HTML = '<section id="vellivex-email-access-privacy"><h2>Verified email and app access</h2>' +
   '<p>To open Vellivex apps, enter your email address and verify the eight-digit code we send. We store your verified email and access records so you can sign in across the apps. No name or password is required for this app access.</p>' +
   '<p>Essential sign-in cookies keep your access on this browser for up to 30 days. Verification codes expire after ten minutes. Our email delivery and hosting providers process the address, delivery and network information needed to provide this service. Limited verification and quota records help prevent abuse.</p>' +
@@ -29,6 +93,7 @@ function publicMarkup(html, isPrivacy) {
     // This is the current privacy page's content wrapper, after its existing lead.
     result = result.replace(/<div\s+class=(["'])wrap narrow content\1\s*>/i, opening => opening + ACCESS_PRIVACY_HTML);
   }
+  if (!result.includes('src="' + MIGRATION_PATH + '"')) result = result.replace(/<\/head\s*>/i, '<script defer src="' + MIGRATION_PATH + '"></script></head>');
   return result;
 }
 
@@ -43,6 +108,13 @@ function mailPolicy(value) {
 
 export async function transformSiteResponse(request, response) {
   const url = new URL(request.url), path = url.pathname === '/' ? '/' : url.pathname.replace(/\/$/, '');
+  if (SITE_ORIGINS.has(url.origin) && url.pathname === MIGRATION_PATH && !url.search && ['GET', 'HEAD'].includes(request.method)) {
+    try { void response.body?.cancel(); } catch {}
+    return new Response(request.method === 'HEAD' ? null : MIGRATION_SCRIPT, {status: 200, headers: {
+      'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cross-Origin-Resource-Policy': 'same-origin',
+    }});
+  }
   if (!SITE_ORIGINS.has(url.origin) || !['GET', 'HEAD'].includes(request.method) || response.status !== 200 ||
       response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/html') return response;
   const isMail = path === '/apps/mail';
