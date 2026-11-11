@@ -50,7 +50,9 @@ if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
   cp "${GITHUB_WORKSPACE:?}/apps/vguard/device-qa/protocol-server.py" device-qa/protocol-server.py
   echo 'NOTICE VGuard: using reviewed branch probes/endpoints with bounded diagnostics and arrival receipts; production APK is unchanged.'
 fi
-python3 device-qa/build-probes.py --sdk "$sdk" \
+probe_build_options=()
+if [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then probe_build_options+=(--shared-uid);fi
+python3 device-qa/build-probes.py --sdk "$sdk" "${probe_build_options[@]}" \
   --keystore "$root/qa-probe-only.p12" \
   --password-file "$password_file" > "$root/probes-build.log"
 test -f build/qa-probes/VGuard-QA-blocked.apk
@@ -121,6 +123,7 @@ for attempt in range(30):
 CHECK_PROTOCOL_SERVER
   export VGUARD_PROTOCOL_LOG="$root/protocol-server.log"
   export VGUARD_BLOCKED_APK="$root/VGuard/build/qa-probes/VGuard-QA-blocked.apk"
+  export VGUARD_QA_APK_DIR="$root/VGuard/build/qa-probes"
   echo 'Running one-off selective VPN protocol/lifecycle test before removing fictional probes and local servers.'
   outcome=0
   bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk" || outcome=$?

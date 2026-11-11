@@ -1,6 +1,6 @@
 name: Vellivex VGuard APK verification
 # One-off selective enforcement branch smoke test. Do not merge into main.
-# One-off consent/profile/package and existing-TCP-socket follow-up.
+# Final finite shared-identity, metadata/export and system-recovery batch.
 on:
   workflow_dispatch:
     inputs:
@@ -15,6 +15,9 @@ on:
       - 'scripts/vguard-apk-install-smoke.sh'
       - 'scripts/vguard-selective-emulator-smoke.sh'
       - 'scripts/vguard-core-lifecycle.sh'
+      - 'scripts/vguard-final-lifecycle.sh'
+      - 'scripts/vguard-activity-flow.sh'
+      - 'scripts/vguard-system-recovery.sh'
       - 'scripts/vguard-persistent-check.py'
       - 'apps/vguard/device-qa/Probe.java'
       - 'apps/vguard/device-qa/protocol-server.py'
@@ -25,11 +28,16 @@ concurrency:
 jobs:
   apk-verification:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        acceptance: [core, final]
     env:
       VGUARD_PROBE_BASELINES: 'true'
       VGUARD_PROBE_ENFORCEMENT: 'true'
       VGUARD_CORE_ONLY: 'true'
+      VGUARD_FINAL_ONLY: ${{ matrix.acceptance == 'final' && 'true' || 'false' }}
       VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'vellivex/vguard-selective-acceptance' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
@@ -45,4 +53,8 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/vguard-apk-install-smoke.sh | tee "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          grep -Fqx 'PASS VGuard: emulator core lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          if [[ "$VGUARD_FINAL_ONLY" == true ]];then
+            grep -Fqx 'PASS VGuard: emulator final identity and recovery acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          else
+            grep -Fqx 'PASS VGuard: emulator core lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          fi

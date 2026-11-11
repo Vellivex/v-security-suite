@@ -8,6 +8,8 @@ set_probe_rule() {
   case "$role" in
     blocked) label='VGuard QA Blocked'; query='VGuard%sQA%sBlocked' ;;
     allowed) label='VGuard QA Allowed'; query='VGuard%sQA%sAllowed' ;;
+    shared_one) label='VGuard QA Shared One'; query='VGuard%sQA%sShared%sOne' ;;
+    shared_two) label='VGuard QA Shared Two'; query='VGuard%sQA%sShared%sTwo' ;;
     *) echo 'FAIL VGuard: unknown fictional probe role.' >&2; return 1 ;;
   esac
   tap contains 'Apps tab'
@@ -82,6 +84,8 @@ wait_persistent_baseline() {
   return 1
 }
 
+if [[ "${VGUARD_CORE_FUNCTIONS_ONLY:-false}" == true ]]; then return 0;fi
+
 return_to_guard
 tap contains 'Apps tab'
 tap contains 'Normal profile'
@@ -101,12 +105,16 @@ assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
 return_to_guard
+tap contains 'Apps tab'
 tap contains 'Journey profile'
+tap contains 'Overview tab'
 assert_profile_active Journey
 if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
 if ! probe allowed NO_CONNECTION tcp; then failures=$((failures+1));fi
 return_to_guard
+tap contains 'Apps tab'
 tap contains 'Normal profile'
+tap contains 'Overview tab'
 assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi

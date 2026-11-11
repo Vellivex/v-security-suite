@@ -358,7 +358,11 @@ probe_pair CONNECTED final-rule-removed
 echo 'CHECK VGuard: final-rule removal completed; per-protocol results recorded above.'
 fi
 # Core UI lifecycle checks reuse the same fictional probes and controlled hosts.
-source "${GITHUB_WORKSPACE:?}/scripts/vguard-core-lifecycle.sh"
+if [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then
+  source "${GITHUB_WORKSPACE:?}/scripts/vguard-final-lifecycle.sh"
+else
+  source "${GITHUB_WORKSPACE:?}/scripts/vguard-core-lifecycle.sh"
+fi
 echo 'NOTICE VGuard: real GrapheneOS/device, sleep/network transitions and cross-VPN compatibility remain untested. IPv6 is verified only when its explicit baseline/active/stopped comparisons passed.'
 if [[ "$failures" -gt 0 ]]; then
   echo "FAIL VGuard: completed independent protocol/lifecycle checks with $failures unresolved assertions; no full acceptance pass."
@@ -368,7 +372,9 @@ if [[ "$blockers" -gt 0 ]]; then
   echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
   exit 1
 fi
-if [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
+if [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then
+  echo 'PASS VGuard: emulator final identity and recovery acceptance completed.'
+elif [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
   echo 'PASS VGuard: emulator core lifecycle acceptance completed.'
 else
   echo 'PASS VGuard: emulator protocol and lifecycle acceptance completed.'
