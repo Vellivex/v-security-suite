@@ -1,4 +1,4 @@
-name: Vellivex VPhone local workspace browser acceptance
+name: Vellivex VPhone sign-in gate availability
 on:
   schedule:
     - cron: '41 8 * * 3'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/vphone-browser-acceptance.yml'
       - 'scripts/vphone-browser-workspace.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-vphone-browser-qa
@@ -36,5 +38,5 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Test fictional contacts and unsent drafts in real Chromium
+      - name: Check VPhone sign-in gate; workspace checks require sign-in
         run: node scripts/vphone-browser-workspace.mjs

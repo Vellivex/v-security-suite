@@ -1,4 +1,4 @@
-name: Vellivex real browser chat acceptance
+name: Vellivex chat sign-in gate availability
 on:
   schedule:
     - cron: '17 8 * * 1'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/browser-chat-acceptance.yml'
       - 'scripts/live-two-browser-chat.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-real-browser-chat
@@ -42,7 +44,7 @@ jobs:
             echo "No system Chrome found; installing Chromium."
             npx playwright install --with-deps chromium
           fi
-      - name: Run two real browser chat sessions with fictional messages
+      - name: Check chat sign-in gates; two-browser chat requires sign-in
         shell: bash
         run: |
           set -euo pipefail

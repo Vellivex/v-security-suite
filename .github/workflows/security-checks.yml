@@ -14,6 +14,11 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
+      - name: Select Node 24 for SQLite-backed authentication regressions
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - name: Web crypto, private feedback and sensitive-session regressions
         run: node --test tests/*.test.mjs
       - name: Frozen fictional mobile fixtures and authentication expectations

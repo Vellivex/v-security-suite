@@ -1,4 +1,4 @@
-name: Vellivex VNumber public feed browser check
+name: Vellivex VNumber sign-in gate availability
 on:
   schedule:
     - cron: '07 9 * * 5'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/vnumber-feed.yml'
       - 'scripts/vnumber-browser-feed.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-vnumber-public-browser-qa
@@ -36,5 +38,5 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Check free country feeds without selecting number
+      - name: Check VNumber sign-in gate; feed checks require sign-in
         run: node scripts/vnumber-browser-feed.mjs

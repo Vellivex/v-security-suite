@@ -2,6 +2,12 @@
 // Synthetic browser-only VDecoy input/preview test; no human voice or model inference.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import {publicBrowserPreflight} from './live-browser-gate.mjs';
+
+// These unattended contexts have no email-verified app session. A healthy gate
+// is availability evidence only; preserve the deeper checks below for an
+// explicitly verified browser context, never an authentication bypass.
+if ((await publicBrowserPreflight("VDecoy", ["https://vdecoy.vellivex.com/"])).deepChecks === 'not-run') process.exit(0);
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

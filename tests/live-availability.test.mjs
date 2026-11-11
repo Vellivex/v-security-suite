@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PAGES, BRAND_ICONS, APP_FAVICONS, checkPage, checkAll, checkSvg, checkBrandIcons, checkAppFavicons } from '../scripts/live-availability.mjs';
 
-function response({ status = 200, type = 'text/html; charset=utf-8', url = 'https://vkey.vellivex.com/' } = {}) {
-  return { status, url, headers: new Headers({ 'content-type': type }), body: { async cancel() {} } };
+function response({ status = 200, type = 'text/html; charset=utf-8', url = 'https://vkey.vellivex.com/', headers = {'X-Vellivex-App-Access':'required','Cache-Control':'no-store','Referrer-Policy':'no-referrer'} } = {}) {
+  return { status, url, headers: new Headers({ 'content-type': type, ...headers }), body: { async cancel() {} } };
 }
 
 test('availability allowlist covers all eleven public apps and the two site pages', () => {
   assert.deepEqual(PAGES.map(([, url]) => url).sort(), [
-    'https://call.vellivex.com/',
+    'https://call.vellivex.com/call.html',
     'https://private.vellivex.com/',
     'https://vdecoy.vellivex.com/',
     'https://vkey.vellivex.com/',
@@ -30,7 +30,7 @@ test('availability allowlist covers all eleven public apps and the two site page
   }
 });
 
-test('availability check passes only matching-origin HTML 200', async () => {
+test('availability check distinguishes the expected sign-in gate from app functionality', async () => {
   const result = await checkPage('VKey', 'https://vkey.vellivex.com/', {
     fetcher: async (url, init) => {
       assert.equal(init.method, 'GET');
@@ -40,6 +40,26 @@ test('availability check passes only matching-origin HTML 200', async () => {
     },
   });
   assert.equal(result.ok, true);
+  assert.equal(result.availability,'sign-in-required');
+  assert.equal(result.appTested,false);
+});
+
+test('a generic HTML success, authenticated marker or cacheable gate is not healthy anonymous app admission',async()=>{
+  for(const headers of [{},{'X-Vellivex-App-Access':'verified'},{'X-Vellivex-App-Access':'required'},
+    {'X-Vellivex-App-Access':'required','Cache-Control':'public, max-age=3600','Referrer-Policy':'no-referrer'},
+    {'X-Vellivex-App-Access':'required','Cache-Control':'no-store','Referrer-Policy':'origin'}]){
+    const result=await checkPage('VKey','https://vkey.vellivex.com/',{fetcher:async()=>response({headers})});
+    assert.equal(result.ok,false);assert.equal(result.appTested,false);
+  }
+  const wrongPath=await checkPage('VKey','https://vkey.vellivex.com/',{fetcher:async()=>response({url:'https://vkey.vellivex.com/access'})});
+  assert.equal(wrongPath.ok,false);
+});
+
+test('public information remains available without being reported as an app test',async()=>{
+  const url='https://www.vellivex.com/';
+  const result=await checkPage('Website',url,{fetcher:async()=>response({url,headers:{}})});
+  assert.equal(result.ok,true);assert.equal(result.availability,'public-page');assert.equal(result.appTested,false);
+  assert.equal((await checkPage('Website',url,{fetcher:async()=>response({url})})).ok,false);
 });
 
 test('availability check rejects redirects, challenges, non-HTML and wrong-origin responses', async () => {

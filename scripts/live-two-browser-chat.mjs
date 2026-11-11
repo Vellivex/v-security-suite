@@ -4,6 +4,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { chromium } from 'playwright';
+import {publicBrowserPreflight} from './live-browser-gate.mjs';
+
+// These unattended contexts have no email-verified app session. A healthy gate
+// is availability evidence only; preserve the deeper checks below for an
+// explicitly verified browser context, never an authentication bypass.
+if ((await publicBrowserPreflight("VKey and Private", ["https://vkey.vellivex.com/", "https://private.vellivex.com/"])).deepChecks === 'not-run') process.exit(0);
 
 const VKEY = 'https://vkey.vellivex.com/';
 const PRIVATE = 'https://private.vellivex.com/';

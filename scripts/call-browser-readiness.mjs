@@ -4,6 +4,12 @@
 // Sends one unauthenticated negative-test allocation POST; must be denied.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import {publicBrowserPreflight} from './live-browser-gate.mjs';
+
+// These unattended contexts have no email-verified app session. A healthy gate
+// is availability evidence only; preserve the deeper checks below for an
+// explicitly verified browser context, never an authentication bypass.
+if ((await publicBrowserPreflight("Vellivex Call", ["https://call.vellivex.com/call.html"])).deepChecks === 'not-run') process.exit(0);
 
 const ORIGIN='https://call.vellivex.com';
 const browser=await chromium.launch({
