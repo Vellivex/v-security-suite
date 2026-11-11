@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/browser-engine-acceptance.yml'
       - 'scripts/browser-engine-acceptance.mjs'
+      - 'scripts/cipher-engine-interoperability.mjs'
+      - 'apps/cipher/protocol.js'
 permissions: {}
 concurrency:
   group: vellivex-browser-engine-qa-${{ github.ref }}
@@ -31,3 +33,6 @@ jobs:
       - name: Test WebKit production encryption and offline recovery
         if: ${{ !cancelled() }}
         run: node scripts/browser-engine-acceptance.mjs webkit
+      - name: Test local-source Cipher interoperability in both native engines
+        if: ${{ !cancelled() }}
+        run: node scripts/cipher-engine-interoperability.mjs

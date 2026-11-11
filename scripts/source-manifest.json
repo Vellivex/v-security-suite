@@ -131,6 +131,7 @@
   "scripts/browser-engine-acceptance.mjs",
   "scripts/build.sh",
   "scripts/call-browser-readiness.mjs",
+  "scripts/cipher-engine-interoperability.mjs",
   "scripts/git-hooks/pre-commit",
   "scripts/git-hooks/pre-push",
   "scripts/install-public-identity-hooks.py",

@@ -36,3 +36,35 @@ test('session identity re-export fails explicitly before password derivation',as
  const restored=await importIdentity(await exportIdentity(alice,password),password);let derivations=0;const original=crypto.subtle.deriveKey.bind(crypto.subtle);t.mock.method(crypto.subtle,'deriveKey',(...args)=>{derivations++;return original(...args);});
  await assert.rejects(exportIdentity(restored,password),/Session private keys cannot be exported.*original encrypted backup/);assert.equal(derivations,0);
 });
+test('native ES256 export metadata preserves the established contact and backup format',async t=>{
+ const native=crypto.subtle.exportKey.bind(crypto.subtle);let publicExports=0,privateExports=0;
+ t.mock.method(crypto.subtle,'exportKey',async(format,key)=>{
+  const value=await native(format,key);
+  if(format==='jwk'&&key.algorithm.name==='ECDSA'){
+   if(key.type==='public')publicExports++;else privateExports++;
+   return {...value,alg:'ES256'};
+  }
+  return value;
+ });
+ let generated,backup;
+ try{generated=await generateIdentity();backup=await exportIdentity(generated,password);}
+ finally{t.mock.restoreAll();}
+ assert.equal(publicExports,1);assert.equal(privateExports,1);
+ assert.equal(Object.prototype.hasOwnProperty.call(generated.card.sig,'alg'),false);
+ const restored=await importIdentity(backup,password);
+ assert.equal(restored.fingerprint,generated.fingerprint);
+ assert.deepEqual(restored.card,generated.card);
+ assert.equal((await importCard(JSON.stringify(generated.card))).fingerprint,generated.fingerprint);
+ const encrypted=await seal(restored,b,'Native metadata interoperability',secret);
+ assert.equal(await open(bob,JSON.stringify(generated.card),encrypted,secret),'Native metadata interoperability');
+});
+test('normalization accepts only native ES256 metadata and keeps imported cards strict',async t=>{
+ const native=crypto.subtle.exportKey.bind(crypto.subtle);
+ t.mock.method(crypto.subtle,'exportKey',async(format,key)=>{
+  const value=await native(format,key);
+  return format==='jwk'&&key.algorithm.name==='ECDSA'?{...value,alg:'ES384'}:value;
+ });
+ try{await assert.rejects(generateIdentity(),/Invalid V Cipher data/);await assert.rejects(exportIdentity(alice,password),/Invalid V Cipher data/);}
+ finally{t.mock.restoreAll();}
+ for(const alg of ['ES256','ES384'])await assert.rejects(importCard(JSON.stringify({...alice.card,sig:{...alice.card.sig,alg}})),/Invalid V Cipher data/);
+});
