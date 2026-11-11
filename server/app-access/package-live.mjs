@@ -14,7 +14,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const JS = 'application/javascript+module';
 export const LIVE_OFFLINE_MANIFEST_SHA256 = '9333de045d33583f27a4059263efb9ddc96fd3b3d5ce23de315f7fda685373ed';
 export const SITE_SOURCE_HASHES = Object.freeze({
-  'sw.js': 'da887a96081447cb2f4077df01d5a291e19ba82df0d256702d1a8284ea631c41',
+  'sw.js': '4649ea41a93ce0f20783903254b43b1ec4784bf6ab357608fe80b82bafca0ad6',
   'mail-ui.js': 'be887402c1c6a6e4ee0f9671348941e00bf230d6cfceeb9aa575b4db72147c4d',
   'sms-ui.js': '82caad5287b9d339ef67a404b07437c3b5eeeb1280316a199624c4479a29603a'
 });

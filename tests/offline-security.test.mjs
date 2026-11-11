@@ -3,6 +3,7 @@ import {makeWorker} from '../server/handler.js';import {page,notFound} from '../
 import {createHash} from 'node:crypto';import {offlineRelease} from '../scripts/offline-release.mjs';
 const template=await readFile(new URL('../web/sw.js',import.meta.url),'utf8');
 const integrity='sha256-'+createHash('sha256').update('source').digest('base64');
+function runWorker(source,context){context.AbortController??=AbortController;context.setTimeout??=setTimeout;context.clearTimeout??=clearTimeout;context.caches.keys??=async()=>[source.match(/const CACHE='([^']+)'/)[1]];return vm.runInNewContext(source,context);}
 const headerWorker=makeWorker(page,notFound,{'/app.js':{body:'source',type:'text/javascript; charset=utf-8'}});
 const expectedHeaders=Object.fromEntries(await Promise.all(['/app.js','/apps/vault','/apps/relay','/apps/cipher/vault','/apps/cipher/relay'].map(async path=>[path,Object.fromEntries((await headerWorker.fetch(new Request('https://v.test'+path),{})).headers)])));
 
@@ -11,7 +12,7 @@ function runtime({cached=false,failDownload=false,document=false,damaged=false}=
  const cache={async match(){return response;},async put(path,value){response=value;}};
  const self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};
  const RequestAtOrigin=class extends Request{constructor(url,options){super(new URL(url,self.location.origin),options);}};
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-test').replace('__ASSET_MANIFEST__',JSON.stringify([{url:document?'/apps/vault':'/app.js',headers:expectedHeaders[document?'/apps/vault':'/app.js'],...(document?{source:'/offline/vault',type:'text/html; charset=utf-8'}:{}),integrity}])),{self,caches:{async has(){return cached;},async open(){return cache;},async delete(name){deleted.push(name);},async keys(){return ['v-tools-test'];}},Request:RequestAtOrigin,Response,Headers,URL,crypto,btoa,fetch:async request=>{calls.push(request);return new Response('source',{status:failDownload?503:200,headers:{'Content-Type':'text/plain','Content-Security-Policy':"connect-src 'none'",'X-Vellivex-App-Access':'verified'}});}});
+ runWorker(template.replace('__CACHE_ID__','v-tools-test').replace('__ASSET_MANIFEST__',JSON.stringify([{url:document?'/apps/vault':'/app.js',headers:expectedHeaders[document?'/apps/vault':'/app.js'],...(document?{source:'/offline/vault',type:'text/html; charset=utf-8'}:{}),integrity}])),{self,caches:{async has(){return cached;},async open(){return cache;},async delete(name){deleted.push(name);},async keys(){return ['v-tools-test'];}},Request:RequestAtOrigin,Response,Headers,URL,crypto,btoa,fetch:async request=>{calls.push(request);return new Response('source',{status:failDownload?503:200,headers:{'Content-Type':'text/plain','Content-Security-Policy':"connect-src 'none'",'X-Vellivex-App-Access':'verified'}});}});
  return {events,calls,deleted};
 }
 test('offline cache miss returns an error without loading replacement network code',async()=>{const r=runtime();let response;r.events.fetch({request:new Request('https://v.test/app.js'),respondWith(promise){response=promise;}});assert.equal((await response).status,503);assert.equal(r.calls.length,0);});
@@ -25,7 +26,7 @@ test('worker-only changes cannot reuse and delete the active release cache',asyn
  const manifest=[{url:'/app.js',headers:expectedHeaders['/app.js'],integrity}],old=offlineRelease(manifest,template),next=offlineRelease(manifest,template+'\n// worker-only update');assert.notEqual(old.cacheId,next.cacheId);assert.equal(old.cacheId,offlineRelease(manifest,template).cacheId);
  const names=new Map([[old.cacheId,new Map([['/app.js',new Response('source')]])]]),deleted=[],events={};const self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};class OriginRequest extends Request{constructor(url,options){super(new URL(url,self.location.origin),options);}}
  const caches={async has(name){return names.has(name);},async open(name){if(!names.has(name))names.set(name,new Map());const values=names.get(name);return {async match(path){return values.get(path);},async put(path,value){values.set(path,value);}};},async delete(name){deleted.push(name);return names.delete(name);}};
- vm.runInNewContext(next.source,{self,caches,Request:OriginRequest,Response,Headers,URL,crypto,btoa,fetch:async()=>new Response('failed update',{status:503})});let work;events.install({waitUntil(value){work=value;}});await assert.rejects(work);assert.deepEqual(deleted,[next.cacheId]);assert.equal(await names.get(old.cacheId).get('/app.js').text(),'source');
+ runWorker(next.source,{self,caches,Request:OriginRequest,Response,Headers,URL,crypto,btoa,fetch:async()=>new Response('failed update',{status:503})});let work;events.install({waitUntil(value){work=value;}});await assert.rejects(work);assert.deepEqual(deleted,[next.cacheId]);assert.equal(await names.get(old.cacheId).get('/app.js').text(),'source');
 });
 test('offline release generation rejects truncated transfer output and incomplete policy',()=>{
  const valid={url:'/app.js',headers:expectedHeaders['/app.js'],integrity};
@@ -51,7 +52,7 @@ test('cache open, lookup, clone, body and digest failures all fail closed withou
   const cache={async match(){if(fault==='match')throw Error('synthetic match failure');return response;}};
   const self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};
   const testCrypto={subtle:{async digest(...args){if(fault==='digest')throw Error('synthetic digest failure');return crypto.subtle.digest(...args);}}};
-  vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-fault').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers:expectedHeaders['/app.js'],integrity}])),{self,caches:{async open(){if(fault==='open')throw Error('synthetic storage failure');return cache;}},crypto:testCrypto,URL,Response,btoa,fetch(){network++;throw Error('unexpected network');}});
+  runWorker(template.replace('__CACHE_ID__','v-tools-fault').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers:expectedHeaders['/app.js'],integrity}])),{self,caches:{async open(){if(fault==='open')throw Error('synthetic storage failure');return cache;}},crypto:testCrypto,URL,Response,btoa,fetch(){network++;throw Error('unexpected network');}});
   let pending;events.fetch({request:new Request('https://v.test/app.js'),respondWith(p){pending=p;}});
   const result=await pending;assert.equal(result.status,503,fault);assert.equal(result.headers.get('Cache-Control'),'no-store');assert.ok(!(await result.text()).includes('synthetic'));assert.equal(network,0);
  }
@@ -61,10 +62,10 @@ test('offline worker does not intercept cross-origin, write-method or unknown-pa
   let intercepted=false;r.events.fetch({request:new Request(url,{method}),respondWith(){intercepted=true;}});assert.equal(intercepted,false);
  }assert.equal(r.calls.length,0);
 });
-test('offline activation removes retired tool caches while retaining current and unrelated caches',async()=>{
- const events={},deleted=[];const self={addEventListener(type,fn){events[type]=fn;}};
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-current').replace('__ASSET_MANIFEST__','[]'),{self,Response,caches:{async keys(){return ['v-tools-current','v-tools-retired','unrelated-cache'];},async delete(name){deleted.push(name);}}});
- let work;events.activate({waitUntil(p){work=p;}});await work;assert.deepEqual(deleted,['v-tools-retired']);
+test('offline activation preserves all existing caches and claims clients without reloading them',async()=>{
+ const events={},deleted=[];let claimed=false;const self={clients:{async claim(){claimed=true;}},addEventListener(type,fn){events[type]=fn;}};
+ runWorker(template.replace('__CACHE_ID__','v-tools-current').replace('__ASSET_MANIFEST__','[]'),{self,Response,caches:{async keys(){return ['v-tools-current','v-tools-retired','unrelated-cache'];},async delete(name){deleted.push(name);}}});
+ let work;events.activate({waitUntil(p){work=p;}});await work;assert.deepEqual(deleted,[]);assert.equal(claimed,true);
 });
 
 async function flush(){for(let i=0;i<12;i++)await Promise.resolve();}
@@ -109,39 +110,39 @@ test('successful offline completion clears its single deadline and state listene
 for(const path of ['/app.js','/apps/vault','/apps/relay','/apps/cipher/vault','/apps/cipher/relay'])test(`header-only cache tampering cannot change offline policy or MIME for ${path}`,async()=>{
  const events={};let network=0;const headers={...expectedHeaders[path],'content-type':'text/html; charset=iso-8859-1','content-security-policy':"default-src * 'unsafe-inline'; connect-src *",'permissions-policy':'camera=*, microphone=*','cross-origin-opener-policy':'unsafe-none','cross-origin-resource-policy':'cross-origin','referrer-policy':'unsafe-url','x-content-type-options':'','refresh':'0;url=https://attacker.invalid/','content-disposition':'attachment; filename="poison.html"','content-encoding':'gzip'};
  const cached=new Response('source',{status:200,headers}),self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:path,headers:expectedHeaders[path],integrity}])),{self,caches:{async open(){return {async match(){return cached;}};}},URL,Response,Headers,crypto,btoa,fetch(){network++;throw Error('Unexpected network');}});
+ runWorker(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:path,headers:expectedHeaders[path],integrity}])),{self,caches:{async open(){return {async match(){return cached;}};}},URL,Response,Headers,crypto,btoa,fetch(){network++;throw Error('Unexpected network');}});
  let pending;events.fetch({request:new Request('https://v.test'+path),respondWith(p){pending=p;}});const response=await pending;
  assert.equal(response.status,200);assert.equal(await response.text(),'source');assert.deepEqual(Object.fromEntries(response.headers),expectedHeaders[path]);assert.equal(network,0);
 });
 for(const headers of [undefined,{}, {'content-type':'text/javascript; charset=utf-8'}])test(`offline header metadata fails closed when ${headers===undefined?'missing':Object.keys(headers).length?'partial':'empty'}`,async()=>{
  const events={},self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};let network=0;
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers,integrity}])),{self,caches:{async open(){return {async match(){return new Response('source');}};}},URL,Response,Headers,crypto,btoa,fetch(){network++;throw Error('Unexpected network');}});
+ runWorker(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers,integrity}])),{self,caches:{async open(){return {async match(){return new Response('source');}};}},URL,Response,Headers,crypto,btoa,fetch(){network++;throw Error('Unexpected network');}});
  let pending;events.fetch({request:new Request('https://v.test/app.js'),respondWith(p){pending=p;}});const response=await pending;assert.equal(response.status,503);assert.equal(network,0);
 });
 test('new offline installation discards transport headers and caches only pinned policy',async()=>{
  const events={},saved=new Map(),self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};class OriginRequest extends Request{constructor(url,options){super(new URL(url,self.location.origin),options);}}
  const file={url:'/apps/cipher/vault',source:'/offline/cipher/vault',headers:expectedHeaders['/apps/cipher/vault'],integrity};
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([file])),{self,caches:{async has(){return false;},async open(){return {async put(path,response){saved.set(path,response);}};},async delete(){throw Error('Unexpected delete');}},URL,Request:OriginRequest,Response,Headers,crypto,btoa,fetch:async()=>new Response('source',{headers:{'content-type':'text/plain','content-security-policy':"connect-src *",'refresh':'0;url=https://attacker.invalid/','X-Vellivex-App-Access':'verified'}})});
+ runWorker(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([file])),{self,caches:{async has(){return false;},async open(){return {async put(path,response){saved.set(path,response);}};},async delete(){throw Error('Unexpected delete');}},URL,Request:OriginRequest,Response,Headers,crypto,btoa,fetch:async()=>new Response('source',{headers:{'content-type':'text/plain','content-security-policy':"connect-src *",'refresh':'0;url=https://attacker.invalid/','X-Vellivex-App-Access':'verified'}})});
  let pending;events.install({waitUntil(p){pending=p;}});await pending;const response=saved.get(file.url);assert.equal(await response.text(),'source');assert.deepEqual(Object.fromEntries(response.headers),file.headers);
 });
 test('new offline installation independently rejects bytes that violate the manifest hash',async()=>{
  const events={},saved=[],deleted=[],self={location:{origin:'https://v.test'},addEventListener(type,fn){events[type]=fn;}};class OriginRequest extends Request{constructor(url,options){super(new URL(url,self.location.origin),options);}}
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers:expectedHeaders['/app.js'],integrity}])),{self,caches:{async has(){return false;},async open(){return {async put(...args){saved.push(args);}};},async delete(name){deleted.push(name);}},URL,Request:OriginRequest,Response,Headers,crypto,btoa,fetch:async()=>new Response('wrong bytes')});
+ runWorker(template.replace('__CACHE_ID__','v-tools-headers').replace('__ASSET_MANIFEST__',JSON.stringify([{url:'/app.js',headers:expectedHeaders['/app.js'],integrity}])),{self,caches:{async has(){return false;},async open(){return {async put(...args){saved.push(args);}};},async delete(name){deleted.push(name);}},URL,Request:OriginRequest,Response,Headers,crypto,btoa,fetch:async()=>new Response('wrong bytes')});
  let pending;events.install({waitUntil(p){pending=p;}});await assert.rejects(pending,/integrity/);assert.equal(saved.length,0);assert.deepEqual(deleted,['v-tools-headers']);
 });
 
-function accessRuntime({online=true,network=async()=>new Response('live tool',{headers:{'X-Vellivex-App-Access':'verified'}}),cached='source',path='/apps/vault'}={}){
+function accessRuntime({online=true,installed=true,network=async()=>new Response('live tool',{headers:{'X-Vellivex-App-Access':'verified'}}),cached='source',path='/apps/vault'}={}){
  const events={},calls=[],writes=[],deleted=[],timers=new Map();let timerId=0;
  const self={location:{origin:'https://v.test'},navigator:{onLine:online},addEventListener(type,fn){events[type]=fn;}};
  class OriginRequest extends Request{constructor(input,options){super(typeof input==='string'?new URL(input,self.location.origin):input,options);}}
  const file={url:path,source:path.replace('/apps/','/offline/'),headers:expectedHeaders[path],integrity};
- vm.runInNewContext(template.replace('__CACHE_ID__','v-tools-access').replace('__ASSET_MANIFEST__',JSON.stringify([file])),{
+ runWorker(template.replace('__CACHE_ID__','v-tools-access').replace('__ASSET_MANIFEST__',JSON.stringify([file])),{
   self,URL,Request:OriginRequest,Response,Headers,crypto,btoa,AbortController,
   setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},
-  caches:{async has(){return false;},async open(){return {async match(){return cached===undefined?undefined:new Response(cached);},async put(url,response){writes.push({url,response});}};},async delete(name){deleted.push(name);}},
+  caches:{async has(){return installed;},async open(){return {async match(){return cached===undefined?undefined:new Response(cached);},async put(url,response){writes.push({url,response});}};},async delete(name){deleted.push(name);}},
   async fetch(request){calls.push(request);return network(request);}
  });
- return {calls,writes,deleted,timers,async navigate(){const request=new Request('https://v.test'+path);Object.defineProperty(request,'mode',{value:'navigate'});let pending;events.fetch({request,respondWith(value){pending=value;}});return pending;},async install(){let pending;events.install({waitUntil(value){pending=value;}});return pending;}};
+ return {calls,writes,deleted,timers,async navigate(){const request=new Request('https://v.test'+path);Object.defineProperty(request,'mode',{value:'navigate'});let pending;const background=[];events.fetch({request,respondWith(value){pending=value;},waitUntil(value){background.push(value);}});const response=await pending;await Promise.all(background);return response;},async install(){let pending;events.install({waitUntil(value){pending=value;}});return pending;}};
 }
 for(const path of ['/apps/vault','/apps/relay','/apps/cipher/vault','/apps/cipher/relay'])test(`online ${path} navigation checks access before returning pinned offline HTML`,async()=>{
  const r=accessRuntime({path});const response=await r.navigate();
@@ -175,10 +176,10 @@ test('explicit offline mode still rejects a tampered cached document',async()=>{
  const r=accessRuntime({online:false,cached:'tampered'});const response=await r.navigate();assert.equal(response.status,503);assert.equal(r.calls.length,0);
 });
 for(const marker of [undefined,'required','unexpected'])test(`new offline HTML installation rejects ${marker??'missing'} app-access admission even for the expected body hash`,async()=>{
- const r=accessRuntime({network:async()=>new Response('source',{headers:marker?{'X-Vellivex-App-Access':marker}:{}})});await assert.rejects(r.install(),/Sign in/);assert.equal(r.calls[0].credentials,'same-origin');assert.equal(r.calls[0].url,'https://v.test/offline/vault');assert.equal(r.writes.length,0);assert.deepEqual(r.deleted,['v-tools-access']);
+ const r=accessRuntime({installed:false,network:async()=>new Response('source',{headers:marker?{'X-Vellivex-App-Access':marker}:{}})});await assert.rejects(r.install(),/Sign in/);assert.equal(r.calls[0].credentials,'same-origin');assert.equal(r.calls[0].url,'https://v.test/offline/vault');assert.equal(r.writes.length,0);assert.deepEqual(r.deleted,['v-tools-access']);
 });
 test('a newly verified offline installation stores only pinned bytes and excludes access metadata',async()=>{
- const r=accessRuntime({network:async()=>new Response('source',{headers:{'X-Vellivex-App-Access':'verified','Content-Type':'text/plain','Set-Cookie':'secret=never-cache'}})});await r.install();assert.equal(r.writes.length,1);const response=r.writes[0].response;assert.equal(await response.text(),'source');assert.equal(response.headers.get('X-Vellivex-App-Access'),null);assert.equal(response.headers.get('Set-Cookie'),null);assert.deepEqual(Object.fromEntries(response.headers),expectedHeaders['/apps/vault']);
+ const r=accessRuntime({installed:false,network:async()=>new Response('source',{headers:{'X-Vellivex-App-Access':'verified','Content-Type':'text/plain','Set-Cookie':'secret=never-cache'}})});await r.install();assert.equal(r.writes.length,1);const response=r.writes[0].response;assert.equal(await response.text(),'source');assert.equal(response.headers.get('X-Vellivex-App-Access'),null);assert.equal(response.headers.get('Set-Cookie'),null);assert.deepEqual(Object.fromEntries(response.headers),expectedHeaders['/apps/vault']);
 });
 test('a repeated installation of the exact verified release preserves offline HTML without an online session',async()=>{
  const r=runtime({cached:true,document:true,failDownload:true});let work;r.events.install({waitUntil(value){work=value;}});await work;assert.equal(r.calls.length,0);assert.deepEqual(r.deleted,[]);
@@ -188,6 +189,47 @@ test('a denied later document removes the entire new partial installation and re
  const manifest=['/apps/vault','/apps/relay'].map(url=>({url,source:url.replace('/apps/','/offline/'),headers:expectedHeaders[url],integrity}));
  const self={location:{origin:'https://v.test'},addEventListener(type,listener){events[type]=listener;}};
  class OriginRequest extends Request{constructor(input,options){super(new URL(input,self.location.origin),options);}}
- vm.runInNewContext(template.replace('__CACHE_ID__',current).replace('__ASSET_MANIFEST__',JSON.stringify(manifest)),{self,URL,Request:OriginRequest,Response,Headers,crypto,btoa,caches:{async has(name){return stores.has(name);},async open(name){if(!stores.has(name))stores.set(name,new Map());return {async put(path,response){stores.get(name).set(path,response);}};},async delete(name){deleted.push(name);return stores.delete(name);}},fetch:async request=>new Response('source',{headers:{'X-Vellivex-App-Access':request.url.endsWith('/vault')?'verified':'required'}})});
+ runWorker(template.replace('__CACHE_ID__',current).replace('__ASSET_MANIFEST__',JSON.stringify(manifest)),{self,URL,Request:OriginRequest,Response,Headers,crypto,btoa,caches:{async has(name){return stores.has(name);},async open(name){if(!stores.has(name))stores.set(name,new Map());return {async put(path,response){stores.get(name).set(path,response);}};},async delete(name){deleted.push(name);return stores.delete(name);}},fetch:async request=>new Response('source',{headers:{'X-Vellivex-App-Access':request.url.endsWith('/vault')?'verified':'required'}})});
  let pending;events.install({waitUntil(value){pending=value;}});await assert.rejects(pending,/Sign in/);assert.deepEqual(deleted,[current]);assert.equal(stores.has(current),false);assert.equal(await stores.get(older).get('/apps/vault').text(),'older verified source');
+});
+
+function migrationRuntime({online=true,authorized=false,legacyBody='source',downloadFails=false,stallDownload=false}={}){
+ const events={},calls=[],deleted=[],background=[],timers=new Map(),stores=new Map([['v-tools-legacy',new Map([['/apps/vault',new Response(legacyBody,{headers:{'Content-Security-Policy':"connect-src *"}})]])]]);let skipped=0,claimed=0,timerId=0;
+ const self={location:{origin:'https://v.test'},navigator:{onLine:online},registration:{active:{}},async skipWaiting(){skipped++;},clients:{async claim(){claimed++;}},addEventListener(type,fn){events[type]=fn;}};
+ class OriginRequest extends Request{constructor(input,options){super(typeof input==='string'?new URL(input,self.location.origin):input,options);}}
+ const file={url:'/apps/vault',source:'/offline/vault',headers:expectedHeaders['/apps/vault'],integrity};
+ runWorker(template.replace('__CACHE_ID__','v-tools-migrated').replace('__ASSET_MANIFEST__',JSON.stringify([file])),{self,URL,Request:OriginRequest,Response,Headers,crypto,btoa,AbortController,setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},
+  caches:{async has(name){return stores.has(name);},async keys(){return [...stores.keys()];},async open(name){if(!stores.has(name))stores.set(name,new Map());return {async match(path){return stores.get(name).get(path);},async put(path,response){stores.get(name).set(path,response);}};},async delete(name){deleted.push(name);return stores.delete(name);}},
+  async fetch(request){calls.push(request);if(stallDownload&&request.url.endsWith('/offline/vault'))return new Promise((resolve,reject)=>request.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));if(!authorized)return new Response('<p>Sign in</p>',{headers:{'Content-Type':'text/html','X-Vellivex-App-Access':'required'}});return new Response('source',{status:downloadFails&&request.url.endsWith('/offline/vault')?503:200,headers:{'X-Vellivex-App-Access':'verified'}});}
+ });
+ return {stores,calls,deleted,events,background,timers,get skipped(){return skipped;},get claimed(){return claimed;},async upgrade(){for(const type of ['install','activate']){let pending;events[type]({waitUntil(value){pending=value;}});await pending;}},async navigate(){const request=new Request('https://v.test/apps/vault');Object.defineProperty(request,'mode',{value:'navigate'});let pending;events.fetch({request,respondWith(value){pending=value;},waitUntil(value){background.push(value);}});return pending;}};
+}
+test('an unsigned legacy installation upgrades control code and gates its next online navigation',async()=>{
+ const r=migrationRuntime();await r.upgrade();assert.equal(r.skipped,1);assert.equal(r.claimed,1);assert.equal(r.calls.length,0);assert.deepEqual(r.deleted,[]);assert.deepEqual([...r.stores.keys()],['v-tools-legacy']);
+ const response=await r.navigate();assert.equal(await response.text(),'<p>Sign in</p>');assert.equal(response.headers.get('Cache-Control'),'no-store');assert.equal(r.calls.length,1);assert.deepEqual([...r.stores.keys()],['v-tools-legacy']);
+});
+test('a migrated legacy release remains usable offline only with the currently pinned bytes and policy',async()=>{
+ const r=migrationRuntime({online:false});await r.upgrade();const response=await r.navigate();assert.equal(response.status,200);assert.equal(await response.text(),'source');assert.equal(response.headers.get('Content-Security-Policy'),expectedHeaders['/apps/vault']['content-security-policy']);assert.equal(r.calls.length,0);assert.deepEqual(r.deleted,[]);assert.deepEqual([...r.stores.keys()],['v-tools-legacy']);
+ const tampered=migrationRuntime({online:false,legacyBody:'tampered'});await tampered.upgrade();assert.equal((await tampered.navigate()).status,503);assert.equal(tampered.stores.has('v-tools-legacy'),true);assert.deepEqual(tampered.deleted,[]);
+});
+test('verified online access completes the migrated release without erasing the prior offline copy',async()=>{
+ const r=migrationRuntime({authorized:true});await r.upgrade();const response=await r.navigate();assert.equal(await response.text(),'source');await Promise.all(r.background);assert.deepEqual(r.calls.map(request=>new URL(request.url).pathname),['/apps/vault','/offline/vault']);assert.equal(r.stores.has('v-tools-migrated'),true);assert.equal(r.stores.has('v-tools-legacy'),true);assert.deepEqual(r.deleted,[]);
+});
+test('a failed authenticated cache refresh preserves a usable pinned legacy release',async()=>{
+ const r=migrationRuntime({authorized:true,downloadFails:true});await r.upgrade();assert.equal(await (await r.navigate()).text(),'source');await Promise.all(r.background);assert.deepEqual(r.deleted,['v-tools-migrated']);assert.equal(r.stores.has('v-tools-legacy'),true);assert.equal(r.stores.has('v-tools-migrated'),false);
+});
+test('migration policy handshake is explicit and does not expose files or identity',()=>{
+ const r=migrationRuntime(),messages=[];r.events.message({data:{type:'VELLIVEX_APP_ACCESS_POLICY'},ports:[{postMessage(value){messages.push(JSON.parse(JSON.stringify(value)));}}]});assert.deepEqual(messages,[{version:'email-gate-v2'}]);r.events.message({data:{type:'UNRELATED'},ports:[{postMessage(){throw Error('Unexpected response');}}]});assert.equal(r.calls.length,0);
+});
+test('a stalled background refresh never blocks a gated legacy document and is aborted after its total deadline',async()=>{
+ const r=migrationRuntime({authorized:true,stallDownload:true});await r.upgrade();
+ const response=await r.navigate();assert.equal(response.status,200);assert.equal(await response.text(),'source');
+ await flush();assert.equal(r.background.length,1);assert.equal(r.calls.length,2);assert.equal(r.timers.size,1);
+ const timer=[...r.timers.values()][0];assert.equal(timer.ms,20000);timer.fn();await Promise.all(r.background);
+ assert.equal(r.calls[1].signal.aborted,true);assert.deepEqual(r.deleted,['v-tools-migrated']);assert.equal(r.stores.has('v-tools-legacy'),true);assert.equal(r.timers.size,0);
+});
+test('a missing trusted document returns a retry response promptly while bounded refresh runs',async()=>{
+ const r=migrationRuntime({authorized:true,legacyBody:'untrusted',stallDownload:true});await r.upgrade();
+ const response=await r.navigate();assert.equal(response.status,503);assert.match(await response.text(),/being verified/);
+ await flush();for(const timer of r.timers.values())timer.fn();await Promise.all(r.background);assert.equal(r.stores.has('v-tools-legacy'),true);assert.equal(r.stores.has('v-tools-migrated'),false);
 });
