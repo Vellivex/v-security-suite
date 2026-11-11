@@ -1,0 +1,30 @@
+name: Vellivex Firefox WebKit live chat acceptance
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/cross-engine-chat-acceptance.yml'
+      - 'scripts/cross-engine-chat-acceptance.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-cross-engine-chat-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cross-engine-chat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch public source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned official browser test library
+        run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+      - name: Install official free native Firefox and WebKit browsers
+        run: npx playwright install --with-deps firefox webkit
+      - name: Test both live public chats in both native engine directions
+        run: node scripts/cross-engine-chat-acceptance.mjs
