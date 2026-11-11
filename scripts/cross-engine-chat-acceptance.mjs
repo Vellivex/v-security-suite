@@ -12,6 +12,14 @@ const apps=[
 ];
 const blocked=message=>Object.assign(new Error(message),{name:'EnvironmentBlocked'});
 const wait=(page,fn,timeout=WAIT)=>page.waitForFunction(fn,null,{timeout});
+async function waitForCleanup(results,pending){
+  const deadline=Date.now()+10000;
+  while(Date.now()<deadline){
+    await Promise.allSettled(pending);
+    if(results.some(result=>result.acknowledged))return;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+}
 const redact=text=>String(text).replace(/https?:\/\/\S+/g,'[link]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,240);
 async function safeStatus(page,app){try{return redact(await page.locator(app.status).textContent({timeout:1000}));}catch{return 'unavailable';}}
 async function prepare(page,app,who){
@@ -99,7 +107,7 @@ async function session(app,hostBrowser,peerBrowser,hostName,peerName){
     stage='end and bilateral cleanup';
     await host.locator(app.end).click();
     await Promise.all(pages.map(page=>clearState(page,app)));
-    await Promise.allSettled(responseWork);
+    await waitForCleanup(cleanup,responseWork);
     assert.ok(cleanup.some(result=>result.acknowledged),'No server cleanup acknowledgement observed');
     assert.deepEqual(errors,[],'Browser script errors occurred');
     outcome='PASS';
@@ -108,7 +116,7 @@ async function session(app,hostBrowser,peerBrowser,hostName,peerName){
     const states=await Promise.all(pages.map(page=>safeStatus(page,app)));
     const environment=error.name==='EnvironmentBlocked'||states.some(s=>/could not find a direct|no direct|network.*not available|Try another browser or network|use a different network/i.test(s));
     outcome=environment?'BLOCKED':'FAIL';
-    console.log(outcome+' '+label+' stage='+stage+' errorType='+error.name+' states='+JSON.stringify(states));
+    console.log(outcome+' '+label+' stage='+stage+' errorType='+error.name+' states='+JSON.stringify(states)+' cleanup='+JSON.stringify(cleanup));
   }finally{
     // Use each app's normal End action even after partial setup. Never print or
     // export room capabilities, invitations, fingerprints or ephemeral messages.
