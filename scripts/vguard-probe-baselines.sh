@@ -118,6 +118,7 @@ for attempt in range(30):
         if attempt==29: raise
         time.sleep(.2)
 CHECK_PROTOCOL_SERVER
+  export VGUARD_PROTOCOL_LOG="$root/protocol-server.log"
   echo 'Running one-off selective VPN protocol/lifecycle test before removing fictional probes and local servers.'
   outcome=0
   bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk" || outcome=$?

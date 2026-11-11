@@ -74,27 +74,108 @@ tap() {
   echo "FAIL VGuard: cannot find expected emulator control ($kind:$label)." >&2
   return 1
 }
+failures=0
+blockers=0
+declare -A baseline_ready
+probe_result=''
 probe() {
-  local role="$1" expected="$2" mode="${3:-http}" result outcome
-  result=$(timeout 20 "$adb" shell am instrument -w -e mode "$mode" -e timeout_ms 2000 \
-   -e host 10.0.2.2 -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
-    echo "FAIL VGuard: fictional $role $mode probe instrumentation unavailable." >&2
+  local role="$1" expected="$2" mode="${3:-http}" host="${4:-10.0.2.2}" result outcome deadline=20
+  [[ "$mode" == resolve ]] && deadline=65
+  result=$(timeout "$deadline" "$adb" shell am instrument -w -e mode "$mode" -e timeout_ms 2000 \
+   -e host "$host" -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
+    echo "FAIL VGuard: fictional $role $mode instrumentation failed or exceeded ${deadline}s; this is not a blocking pass." >&2
     return 1
   }
+  probe_result="$result"
   outcome=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: outcome=([A-Z_]+)\r?$/\1/p' | tail -1)
+  printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (test_uid|process_importance|active_network|failure|failure_detail|failure_cause|udp_stage|networks_tried|network_results)=' || true
   if [[ "$outcome" != "$expected" ]]; then
-    echo "FAIL VGuard: fictional $role $mode outcome ${outcome:-unknown}, expected $expected." >&2
-    printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (failure|failure_detail|failure_cause|udp_stage|networks_tried|network_results)=' >&2 || true
+    echo "FAIL VGuard: fictional $role $mode to $host outcome ${outcome:-unknown}, expected $expected." >&2
     return 1
   fi
-  echo "PASS VGuard: fictional $role $mode probe outcome=$expected."
+  if [[ "$mode" == tcp || "$mode" == udp ]]; then
+    local token receipt=false
+    token=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: test_token=(.*)\r?$/\1/p' | tr -d '\r' | tail -1)
+    if [[ -z "$token" ]]; then echo 'FAIL VGuard: probe omitted its unique token.' >&2; return 1; fi
+    for ((receipt_try=0;receipt_try<10;receipt_try++)); do
+      if grep -Fq "$token" "${VGUARD_PROTOCOL_LOG:?}"; then receipt=true; break; fi
+      [[ "$expected" != CONNECTED ]] && break
+      sleep .1
+    done
+    if [[ "$expected" == CONNECTED && "$receipt" != true ]] || [[ "$expected" == NO_CONNECTION && "$receipt" == true ]]; then
+      echo "FAIL VGuard: $role $mode host receipt disagrees with expected $expected." >&2
+      return 1
+    fi
+    echo "PASS VGuard: $role $mode unique host receipt=$receipt agrees with expected $expected."
+  fi
+  if [[ "$mode" == resolve ]]; then
+    local addresses receipt=false
+    addresses=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: addresses=(.*)\r?$/\1/p' | tr -d '\r' | tail -1)
+    for ((receipt_try=0;receipt_try<10;receipt_try++)); do
+      if grep -Fq "\"name\": \"$host\"" "${VGUARD_DNS_LOG:?}"; then receipt=true;break;fi
+      [[ "$expected" != CONNECTED ]] && break
+      sleep .1
+    done
+    if [[ "$expected" == CONNECTED && ( "$addresses" != '10.0.2.2' || "$receipt" != true ) ]] || [[ "$expected" == NO_CONNECTION && "$receipt" == true ]]; then
+      echo "FAIL VGuard: $role DNS address/host-receipt does not corroborate $expected." >&2
+      return 1
+    fi
+    echo "PASS VGuard: $role ordinary Android DNS exact-address and unique-name receipt agree with $expected."
+  fi
+  echo "PASS VGuard: fictional $role $mode to $host outcome=$expected."
 }
 probe_pair() {
-  local selected_expected="$1" mode
+  local selected_expected="$1" phase="$2" mode good
   for mode in http tcp udp underlying_http; do
-    probe blocked "$selected_expected" "$mode"
-    probe allowed CONNECTED "$mode"
+    if [[ "$selected_expected" == NO_CONNECTION && "${baseline_ready[$mode]:-false}" != true ]]; then
+      echo "BLOCKED VGuard: $phase $mode has no matching stable OFF baseline; no filtering pass claimed."
+      continue
+    fi
+    good=true
+    echo "CHECK VGuard: $phase $mode selected/control pair."
+    if ! probe blocked "$selected_expected" "$mode"; then failures=$((failures+1)); good=false; fi
+    if ! probe allowed CONNECTED "$mode"; then failures=$((failures+1)); good=false; fi
+    if [[ "$selected_expected" == CONNECTED ]]; then baseline_ready[$mode]="$good"; fi
   done
+}
+dns_pair() {
+  local selected_expected="$1" phase="$2" role expected good=true name
+  if [[ "${VGUARD_PROBE_DNS:-false}" != true ]]; then return 0; fi
+  if [[ "$selected_expected" == NO_CONNECTION && "${baseline_ready[dns]:-false}" != true ]]; then
+    echo 'BLOCKED VGuard: ordinary DNS lacked both matching OFF baselines.'
+    return 0
+  fi
+  for role in blocked allowed; do
+    expected=CONNECTED
+    [[ "$role" == blocked ]] && expected="$selected_expected"
+    name="$phase-$role-$(date +%s%N).vguard.test"
+    if ! probe "$role" "$expected" resolve "$name"; then failures=$((failures+1));good=false;fi
+  done
+  if [[ "$selected_expected" == CONNECTED ]]; then baseline_ready[dns]="$good";fi
+}
+ipv6_ready=false
+ipv6_pair() {
+  local selected_expected="$1" phase="$2" mode role expected good=true
+  if [[ "$phase" != baseline && "$ipv6_ready" != true ]]; then return 0; fi
+  for mode in tcp udp; do
+    for role in blocked allowed; do
+      expected=CONNECTED
+      [[ "$role" == blocked ]] && expected="$selected_expected"
+      if ! probe "$role" "$expected" "$mode" fec0::2; then
+        good=false
+        if [[ "$phase" != baseline ]]; then failures=$((failures+1));fi
+      fi
+    done
+  done
+  if [[ "$phase" == baseline ]]; then
+    ipv6_ready="$good"
+    if [[ "$good" != true ]]; then
+      blockers=$((blockers+1))
+      echo 'BLOCKED VGuard: controlled IPv6 endpoint lacked complete reachable guest baselines; no IPv6 enforcement claim.'
+    else
+      echo 'PASS VGuard: both independent apps have controlled native IPv6 TCP/UDP baselines.'
+    fi
+  fi
 }
 return_to_guard() {
   local launch
@@ -133,9 +214,14 @@ assert_active() {
 # Reuse its listener; never open a competing port or access remote services.
 curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null
 echo 'PASS VGuard: previously verified local-only test server remains reachable.'
-probe_pair CONNECTED
-probe blocked PERMISSION_DENIED service_access
-probe allowed PERMISSION_DENIED service_access
+probe_pair CONNECTED baseline
+dns_pair CONNECTED baseline
+echo 'CHECK VGuard: disposable guest IPv6 addresses and routes.'
+"$adb" shell ip -6 addr show
+"$adb" shell ip -6 route show
+ipv6_pair CONNECTED baseline
+if ! probe blocked PERMISSION_DENIED service_access; then failures=$((failures+1));fi
+if ! probe allowed PERMISSION_DENIED service_access; then failures=$((failures+1));fi
 "$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 1
 tap desc 'Apps tab'
@@ -187,34 +273,40 @@ if [[ -n "$point" ]]; then
 fi
 assert_active
 echo "PASS VGuard: actual Android emulator UI reports ACTIVE, permission path=$permission."
-probe_pair NO_CONNECTION
-echo 'PASS VGuard: selected app is blocked over IPv4 HTTP, TCP, UDP and explicit underlying-network HTTP; independent control remains connected.'
+probe_pair NO_CONNECTION active
+dns_pair NO_CONNECTION active
+ipv6_pair NO_CONNECTION active
 # Return explicitly after instrumentation, retaining the running VPN.
 return_to_guard
 tap text 'Stop blocking'
 assert_off
-probe_pair CONNECTED
-echo 'PASS VGuard: explicit Stop restores both probes across all four checked paths.'
+probe_pair CONNECTED stopped
+dns_pair CONNECTED stopped
+ipv6_pair CONNECTED stopped
 
 # Restart using the saved rule and consent, then force-stop the app. The
 # documented behavior is loss of filtering, not fail-closed protection.
 return_to_guard
 tap text 'Start blocking'
 assert_active
-probe_pair NO_CONNECTION
+probe_pair NO_CONNECTION restarted
 "$adb" shell am force-stop app.vguard.firewall
 return_to_guard
 assert_off
-probe_pair CONNECTED
-echo 'PASS VGuard: force-stop releases filtering and reopening truthfully reports OFF, with both probes connected.'
+probe_pair CONNECTED force-stopped
+echo 'CHECK VGuard: force-stop/reopen completed; per-protocol results recorded above.'
 
 # Retained selection can be deliberately restarted, and removing the last
 # selection through the ordinary interface must stop the VPN.
 return_to_guard
 tap text 'Start blocking'
 assert_active
-probe blocked NO_CONNECTION tcp
-probe allowed CONNECTED tcp
+if [[ "${baseline_ready[tcp]:-false}" == true ]]; then
+  if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
+  if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
+else
+  echo 'BLOCKED VGuard: final TCP selection check lacks a matching OFF baseline.'
+fi
 return_to_guard
 tap desc 'Apps tab'
 tap desc 'Search apps or package names'
@@ -227,7 +319,15 @@ sleep 2
 tap desc 'Block internet for VGuard QA Blocked'
 tap desc 'Overview tab'
 assert_off
-probe_pair CONNECTED
-echo 'PASS VGuard: removing the final selected app stops filtering and restores both probes.'
+probe_pair CONNECTED final-rule-removed
+echo 'CHECK VGuard: final-rule removal completed; per-protocol results recorded above.'
+echo 'NOTICE VGuard: real GrapheneOS/device, sleep/network transitions and cross-VPN compatibility remain untested. IPv6 is verified only when its explicit baseline/active/stopped comparisons passed.'
+if [[ "$failures" -gt 0 ]]; then
+  echo "FAIL VGuard: completed independent protocol/lifecycle checks with $failures unresolved assertions; no full acceptance pass."
+  exit 1
+fi
+if [[ "$blockers" -gt 0 ]]; then
+  echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
+  exit 1
+fi
 echo 'PASS VGuard: emulator protocol and lifecycle acceptance completed.'
-echo 'NOTICE VGuard: Android 15 emulator and controlled IPv4 endpoints only. GrapheneOS, real device, IPv6, DNS, sleep/network transitions and cross-VPN compatibility remain untested.'

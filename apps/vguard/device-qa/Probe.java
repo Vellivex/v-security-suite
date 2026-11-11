@@ -42,6 +42,13 @@ public final class Probe extends Instrumentation {
             finish(0, summary);
             return;
         }
+        summary.putInt("test_uid", android.os.Process.myUid());
+        android.app.ActivityManager.RunningAppProcessInfo process = new android.app.ActivityManager.RunningAppProcessInfo();
+        android.app.ActivityManager.getMyMemoryState(process);
+        summary.putInt("process_importance", process.importance);
+        ConnectivityManager connectivity = (ConnectivityManager) getTargetContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network active = connectivity.getActiveNetwork();
+        summary.putString("active_network", active == null ? "none" : active.toString());
         Socket persistent = null;
         try {
             int attempts = integer("attempts", 1, 1, 120);
@@ -55,6 +62,7 @@ public final class Probe extends Instrumentation {
             BufferedReader persistentReader = null;
             for (int attempt = 1; attempt <= attempts; attempt++) {
                 Bundle result = new Bundle();
+                result.putString("test_token", getTargetContext().getPackageName() + ":" + UUID.randomUUID().toString());
                 long at = SystemClock.elapsedRealtime();
                 try {
                     if ("http".equals(mode)) http(url, timeout, result);
@@ -205,7 +213,7 @@ public final class Probe extends Instrumentation {
     }
 
     private void exchange(Socket socket, BufferedReader input, Bundle result) throws Exception {
-        String token = getTargetContext().getPackageName() + ":" + UUID.randomUUID().toString();
+        String token = result.getString("test_token");
         socket.getOutputStream().write((token + "\n").getBytes(StandardCharsets.US_ASCII));
         socket.getOutputStream().flush();
         String response = input.readLine();
@@ -214,7 +222,7 @@ public final class Probe extends Instrumentation {
     }
 
     private void udp(String host, int port, int timeout, Bundle result) throws Exception {
-        String token = getTargetContext().getPackageName() + ":" + UUID.randomUUID().toString();
+        String token = result.getString("test_token");
         byte[] request = token.getBytes(StandardCharsets.US_ASCII);
         result.putString("udp_stage", "create");
         try (DatagramSocket socket = new DatagramSocket()) {

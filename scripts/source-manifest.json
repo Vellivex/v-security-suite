@@ -145,6 +145,7 @@
   "scripts/verify-vguard-payload.py",
   "scripts/verify-vguard-release.py",
   "scripts/vguard-apk-install-smoke.sh",
+  "scripts/vguard-dns-endpoint.py",
   "scripts/vguard-probe-baselines.sh",
   "scripts/vguard-selective-emulator-smoke.sh",
   "scripts/vguard-source-regressions.sh",

@@ -146,9 +146,41 @@ if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
   exit 1
 fi
 echo 'PASS VGuard: temporary runner can access hardware virtualisation without broadening KVM permissions.'
-"$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
+pid=''
+dns_pid=''
+dns_flags=()
+cleanup_runtime() {
+  if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
+  if [[ -n "$dns_pid" ]]; then kill "$dns_pid" 2>/dev/null || true; fi
+  rm -f "$APK"
+}
+trap cleanup_runtime EXIT
+if [[ "${VGUARD_PROBE_DNS:-false}" == 'true' ]]; then
+  if [[ "${GITHUB_ACTIONS:-}" != 'true' || "${RUNNER_ENVIRONMENT:-}" != 'github-hosted' ]]; then
+    echo 'FAIL VGuard: controlled port-53 fixture is restricted to a disposable GitHub-hosted runner.' >&2
+    exit 1
+  fi
+  export VGUARD_DNS_LOG="${RUNNER_TEMP:?}/vguard-dns-fixture.log"
+  dns_pid_file="${RUNNER_TEMP:?}/vguard-dns-fixture.pid"
+  rm -f "$dns_pid_file"
+  sudo -n python3 scripts/vguard-dns-endpoint.py --uid "$(id -u)" --gid "$(id -g)" \
+    --pid-file "$dns_pid_file" > "$VGUARD_DNS_LOG" 2>&1 &
+  for ((i=0;i<30;i++)); do
+    [[ -s "$dns_pid_file" ]] && break
+    sleep .2
+  done
+  if [[ ! -s "$dns_pid_file" ]]; then
+    echo 'FAIL VGuard: controlled loopback DNS server could not bind without altering host DNS.' >&2
+    tail -n 8 "$VGUARD_DNS_LOG" >&2
+    exit 1
+  fi
+  dns_pid=$(cat "$dns_pid_file")
+  [[ "$dns_pid" =~ ^[0-9]+$ ]]
+  python3 scripts/vguard-dns-endpoint.py --check
+  dns_flags=(-dns-server 127.0.0.1)
+fi
+"$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on "${dns_flags[@]}" > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
 if ! timeout 135 "$sdk/platform-tools/adb" wait-for-device; then
   echo 'FAIL VGuard: Android emulator did not appear over ADB. Emulator boot diagnostics:' >&2
   tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
@@ -164,6 +196,10 @@ if [[ "$booted" != '1' ]]; then
   echo 'FAIL VGuard: Android emulator did not complete startup.' >&2
   tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
   exit 1
+fi
+if [[ "${VGUARD_PROBE_DNS:-false}" == 'true' ]]; then
+  "$sdk/platform-tools/adb" shell settings put global private_dns_mode off
+  echo 'NOTICE VGuard: Private DNS is disabled only in the disposable emulator to test its ordinary controlled DNS resolver.'
 fi
 "$sdk/platform-tools/adb" install -r "$APK" >/dev/null
 echo 'PASS VGuard: APK installed on a clean Android emulator.'
