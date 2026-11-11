@@ -45,6 +45,7 @@ except ET.ParseError:
           '; first20_hex='+raw[:20].hex(),file=sys.stderr)
     sys.exit(2)
 for el in root.iter('node'):
+    if kind=='vpn_text' and el.attrib.get('package')!='com.android.vpndialogs': continue
     s=el.attrib.get('content-desc' if kind=='desc' else 'text','')
     if s.casefold()==needle.casefold() or (kind=='contains' and needle.casefold() in (s+' '+el.attrib.get('content-desc','')).casefold()):
         if el.attrib.get('enabled')!='true': continue
@@ -214,6 +215,11 @@ assert_active() {
 # Reuse its listener; never open a competing port or access remote services.
 curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null
 echo 'PASS VGuard: previously verified local-only test server remains reachable.'
+if [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
+  baseline_ready[tcp]=true
+  if ! probe blocked CONNECTED tcp; then failures=$((failures+1));baseline_ready[tcp]=false;fi
+  if ! probe allowed CONNECTED tcp; then failures=$((failures+1));baseline_ready[tcp]=false;fi
+else
 probe_pair CONNECTED baseline
 dns_pair CONNECTED baseline
 echo 'CHECK VGuard: disposable guest IPv6 addresses and routes.'
@@ -222,6 +228,7 @@ echo 'CHECK VGuard: disposable guest IPv6 addresses and routes.'
 ipv6_pair CONNECTED baseline
 if ! probe blocked PERMISSION_DENIED service_access; then failures=$((failures+1));fi
 if ! probe allowed PERMISSION_DENIED service_access; then failures=$((failures+1));fi
+fi
 "$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 1
 tap desc 'Apps tab'
@@ -257,13 +264,26 @@ if [[ -n "$point" ]]; then
   "$adb" shell input tap "$x" "$y" >/dev/null
   permission='dialog_presented'
   sleep 1
+  tap vpn_text 'Cancel'
+  assert_off
+  if [[ "${baseline_ready[tcp]:-false}" == true ]]; then
+    if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
+    if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
+  fi
+  echo 'CHECK VGuard: initial Android VPN consent canceled; OFF state and independent network results recorded.'
+  return_to_guard
+  tap text 'Start blocking'
+  tap text 'Continue'
+  sleep 1
+  permission='cancelled_then_pending'
   confirmed=false
   for option in OK Allow Connect; do
-    point=$(find_xy text "$option") || point=''
+    point=$(find_xy vpn_text "$option") || point=''
     if [[ -n "$point" ]]; then
       read -r x y <<< "$point"
       "$adb" shell input tap "$x" "$y" >/dev/null
       confirmed=true
+      permission='cancelled_then_approved'
       break
     fi
   done
@@ -271,8 +291,23 @@ if [[ -n "$point" ]]; then
     echo 'NOTICE VGuard: Android VPN permission button not found; checking whether consent is already granted.'
   fi
 fi
+if [[ "$permission" != 'cancelled_then_approved' ]]; then
+  blockers=$((blockers+1))
+  echo 'BLOCKED VGuard: fresh Android VPN consent cancellation was not observed.'
+fi
 assert_active
 echo "PASS VGuard: actual Android emulator UI reports ACTIVE, permission path=$permission."
+if [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
+  if [[ "${baseline_ready[tcp]:-false}" == true ]]; then
+    if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
+    if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
+  fi
+  return_to_guard
+  tap text 'Stop blocking'
+  assert_off
+  if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
+  if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
+else
 probe_pair NO_CONNECTION active
 dns_pair NO_CONNECTION active
 ipv6_pair NO_CONNECTION active
@@ -321,6 +356,9 @@ tap desc 'Overview tab'
 assert_off
 probe_pair CONNECTED final-rule-removed
 echo 'CHECK VGuard: final-rule removal completed; per-protocol results recorded above.'
+fi
+# Core UI lifecycle checks reuse the same fictional probes and controlled hosts.
+source "${GITHUB_WORKSPACE:?}/scripts/vguard-core-lifecycle.sh"
 echo 'NOTICE VGuard: real GrapheneOS/device, sleep/network transitions and cross-VPN compatibility remain untested. IPv6 is verified only when its explicit baseline/active/stopped comparisons passed.'
 if [[ "$failures" -gt 0 ]]; then
   echo "FAIL VGuard: completed independent protocol/lifecycle checks with $failures unresolved assertions; no full acceptance pass."
@@ -330,4 +368,8 @@ if [[ "$blockers" -gt 0 ]]; then
   echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
   exit 1
 fi
-echo 'PASS VGuard: emulator protocol and lifecycle acceptance completed.'
+if [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
+  echo 'PASS VGuard: emulator core lifecycle acceptance completed.'
+else
+  echo 'PASS VGuard: emulator protocol and lifecycle acceptance completed.'
+fi

@@ -43,9 +43,11 @@ class EchoTCP(socketserver.StreamRequestHandler):
                 token = data[:-1]
                 if not token or len(token) > 200:
                     return
+                # Record arrival before replying: a failed reply must not hide
+                # data that already reached this controlled endpoint.
+                log("tcp", self.client_address[0], token=token.decode("ascii", errors="replace"))
                 self.wfile.write(b"VGUARD_QA_OK " + token + b"\n")
                 self.wfile.flush()
-                log("tcp", self.client_address[0], token=token.decode("ascii", errors="replace"))
         except (OSError, TimeoutError):
             return
 
@@ -55,8 +57,8 @@ class EchoUDP(socketserver.BaseRequestHandler):
         data, sock = self.request
         if not data or len(data) > 200:
             return
-        sock.sendto(b"VGUARD_QA_OK " + data, self.client_address)
         log("udp", self.client_address[0], token=data.decode("ascii", errors="replace"))
+        sock.sendto(b"VGUARD_QA_OK " + data, self.client_address)
 
 
 def dns_response(query, ipv4, ipv6):
@@ -106,8 +108,8 @@ class DNSUDP(socketserver.BaseRequestHandler):
         data, sock = self.request
         response, detail = dns_response(data, self.server.ipv4, self.server.ipv6)
         if response is not None:
-            sock.sendto(response, self.client_address)
             log("dns_udp", self.client_address[0], **detail)
+            sock.sendto(response, self.client_address)
 
 
 class DNSTCP(socketserver.StreamRequestHandler):
@@ -127,9 +129,9 @@ class DNSTCP(socketserver.StreamRequestHandler):
                 response, detail = dns_response(data, self.server.ipv4, self.server.ipv6)
                 if response is None:
                     return
+                log("dns_tcp", self.client_address[0], **detail)
                 self.wfile.write(struct.pack("!H", len(response)) + response)
                 self.wfile.flush()
-                log("dns_tcp", self.client_address[0], **detail)
         except (OSError, TimeoutError):
             return
 

@@ -100,6 +100,8 @@ public final class Probe extends Instrumentation {
                 result.putInt("attempt", attempt);
                 result.putString("mode", mode);
                 result.putString("test_package", getTargetContext().getPackageName());
+                result.putLong("started_at_ms", at);
+                result.putLong("ended_at_ms", SystemClock.elapsedRealtime());
                 result.putLong("elapsed_ms", SystemClock.elapsedRealtime() - at);
                 result.putLong("since_start_ms", SystemClock.elapsedRealtime() - started);
                 if (attempts > 1) sendStatus(0, result); else summary.putAll(result);

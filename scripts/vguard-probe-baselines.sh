@@ -47,7 +47,8 @@ unset password
 cd "$root/VGuard"
 if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
   cp "${GITHUB_WORKSPACE:?}/apps/vguard/device-qa/Probe.java" device-qa/Probe.java
-  echo 'NOTICE VGuard: using reviewed branch test instrumentation with bounded failure diagnostics; production APK is unchanged.'
+  cp "${GITHUB_WORKSPACE:?}/apps/vguard/device-qa/protocol-server.py" device-qa/protocol-server.py
+  echo 'NOTICE VGuard: using reviewed branch probes/endpoints with bounded diagnostics and arrival receipts; production APK is unchanged.'
 fi
 python3 device-qa/build-probes.py --sdk "$sdk" \
   --keystore "$root/qa-probe-only.p12" \
@@ -119,6 +120,7 @@ for attempt in range(30):
         time.sleep(.2)
 CHECK_PROTOCOL_SERVER
   export VGUARD_PROTOCOL_LOG="$root/protocol-server.log"
+  export VGUARD_BLOCKED_APK="$root/VGuard/build/qa-probes/VGuard-QA-blocked.apk"
   echo 'Running one-off selective VPN protocol/lifecycle test before removing fictional probes and local servers.'
   outcome=0
   bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk" || outcome=$?

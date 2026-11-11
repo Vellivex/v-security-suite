@@ -1,6 +1,6 @@
 name: Vellivex VGuard APK verification
 # One-off selective enforcement branch smoke test. Do not merge into main.
-# Controlled TCP/UDP/underlying-network and lifecycle extension.
+# One-off consent/profile/package and existing-TCP-socket follow-up.
 on:
   workflow_dispatch:
     inputs:
@@ -25,7 +25,7 @@ jobs:
     env:
       VGUARD_PROBE_BASELINES: 'true'
       VGUARD_PROBE_ENFORCEMENT: 'true'
-      VGUARD_PROBE_DNS: 'true'
+      VGUARD_CORE_ONLY: 'true'
       VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'vellivex/vguard-selective-acceptance' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
@@ -41,4 +41,4 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/vguard-apk-install-smoke.sh | tee "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          grep -Fqx 'PASS VGuard: emulator protocol and lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          grep -Fqx 'PASS VGuard: emulator core lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
