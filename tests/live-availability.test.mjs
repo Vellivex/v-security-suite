@@ -6,8 +6,22 @@ function response({ status = 200, type = 'text/html; charset=utf-8', url = 'http
   return { status, url, headers: new Headers({ 'content-type': type }), body: { async cancel() {} } };
 }
 
-test('availability allowlist contains public HTTPS landing pages only', () => {
-  assert.equal(PAGES.length, 9);
+test('availability allowlist covers all eleven public apps and the two site pages', () => {
+  assert.deepEqual(PAGES.map(([, url]) => url).sort(), [
+    'https://call.vellivex.com/',
+    'https://private.vellivex.com/',
+    'https://vdecoy.vellivex.com/',
+    'https://vkey.vellivex.com/',
+    'https://vphone.vellivex.com/',
+    'https://www.vellivex.com/',
+    'https://www.vellivex.com/apps/cipher',
+    'https://www.vellivex.com/apps/guard',
+    'https://www.vellivex.com/apps/mail',
+    'https://www.vellivex.com/apps/relay',
+    'https://www.vellivex.com/apps/sms',
+    'https://www.vellivex.com/apps/vault',
+    'https://www.vellivex.com/testing',
+  ]);
   for (const [label, url] of PAGES) {
     assert.ok(label);
     assert.equal(new URL(url).protocol, 'https:');
