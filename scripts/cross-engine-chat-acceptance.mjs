@@ -58,7 +58,7 @@ async function session(app,hostBrowser,peerBrowser,hostName,peerName){
   const cleanup=[],responseWork=[],errors=[];let stage='opening',outcome='FAIL';
   const label=app.name+' '+hostName+' host -> '+peerName+' guest';
   for(const page of pages){
-    page.on('pageerror',()=>errors.push('browser-script-error'));
+    page.on('pageerror',error=>errors.push({name:error.name,message:redact(error.message)}));
     page.on('response',response=>{
       const request=response.request(),url=new URL(response.url());
       if(request.method()==='DELETE'&&url.origin===new URL(app.url).origin&&/^\/api\/rooms\/[^/]+$/.test(url.pathname)){
@@ -116,7 +116,7 @@ async function session(app,hostBrowser,peerBrowser,hostName,peerName){
     const states=await Promise.all(pages.map(page=>safeStatus(page,app)));
     const environment=error.name==='EnvironmentBlocked'||states.some(s=>/could not find a direct|no direct|network.*not available|Try another browser or network|use a different network/i.test(s));
     outcome=environment?'BLOCKED':'FAIL';
-    console.log(outcome+' '+label+' stage='+stage+' errorType='+error.name+' states='+JSON.stringify(states)+' cleanup='+JSON.stringify(cleanup));
+    console.log(outcome+' '+label+' stage='+stage+' errorType='+error.name+' assertion='+redact(error.message).replaceAll('\n',' ')+' states='+JSON.stringify(states)+' cleanup='+JSON.stringify(cleanup)+' scriptErrors='+JSON.stringify(errors));
   }finally{
     // Use each app's normal End action even after partial setup. Never print or
     // export room capabilities, invitations, fingerprints or ephemeral messages.
