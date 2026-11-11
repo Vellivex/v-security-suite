@@ -75,7 +75,10 @@ wait_persistent_baseline() {
     sleep .25
   done
   echo "FAIL VGuard: $role persistent TCP socket lacked a reachable baseline." >&2
-  tail -n 30 "$file" >&2
+  echo "Initial persistent attempt evidence ($role):" >&2
+  head -n 50 "$file" >&2
+  echo "Latest persistent attempt evidence ($role):" >&2
+  tail -n 20 "$file" >&2
   return 1
 }
 
@@ -90,72 +93,6 @@ set_probe_rule blocked false
 tap contains 'Normal profile'
 tap contains 'Overview tab'
 assert_off
-
-# Each process establishes exactly one socket and keeps it across activation.
-# The probe's tcp_persist mode never reconnects after a failed exchange.
-selected_series="$scratch/existing-selected.log"
-control_series="$scratch/existing-control.log"
-timeout 160 "$adb" shell am instrument -w -e mode tcp_persist -e host 10.0.2.2 \
-  -e attempts 90 -e interval_ms 500 -e timeout_ms 1000 \
-  app.vguard.qa.blocked/app.vguard.qa.Probe > "$selected_series" 2>&1 &
-selected_pid=$!
-timeout 160 "$adb" shell am instrument -w -e mode tcp_persist -e host 10.0.2.2 \
-  -e attempts 90 -e interval_ms 500 -e timeout_ms 1000 \
-  app.vguard.qa.allowed/app.vguard.qa.Probe > "$control_series" 2>&1 &
-control_pid=$!
-wait_persistent_baseline "$selected_series" selected
-wait_persistent_baseline "$control_series" control
-return_to_guard
-before_activation_ms=$(device_clock_ms)
-tap text 'Start blocking'
-assert_profile_active Normal
-active_ms=$(device_clock_ms)
-sleep 8
-return_to_guard
-before_stop_ms=$(device_clock_ms)
-# Freeze receipts before Stop; queued data delivered only after Stop is outside
-# the asserted active observation window, so must not be mislabeled as a leak.
-active_receipts="$scratch/protocol-before-stop.log"
-cp "${VGUARD_PROTOCOL_LOG:?}" "$active_receipts"
-tap text 'Stop blocking'
-assert_off
-# Keep the series intact for its completion/count checks. A dead selected
-# socket need not recover after Stop; fresh sockets are tested separately.
-wait "$selected_pid" || true
-wait "$control_pid" || true
-"$adb" shell am force-stop app.vguard.qa.blocked
-"$adb" shell am force-stop app.vguard.qa.allowed
-if ! python3 "${GITHUB_WORKSPACE:?}/scripts/vguard-persistent-check.py" \
-  "$selected_series" "$control_series" "$active_receipts" \
-  "$before_activation_ms" "$active_ms" "$before_stop_ms"; then
-  failures=$((failures+1))
-  python3 - "$selected_series" "$control_series" "$active_receipts" "$before_activation_ms" "$active_ms" "$before_stop_ms" <<'DIAGNOSTICS'
-import json,sys
-from pathlib import Path
-before,active,stop=map(int,sys.argv[4:])
-keys=('attempt','outcome','test_token','started_at_ms','ended_at_ms','failure','failure_detail')
-active_tokens=set()
-for role,path in zip(('selected','control'),sys.argv[1:3]):
-    records=[];pending={}
-    for line in Path(path).read_text(errors='replace').splitlines():
-        if line.startswith('INSTRUMENTATION_STATUS: ') and '=' in line:
-            k,v=line[len('INSTRUMENTATION_STATUS: '):].split('=',1);pending[k]=v
-        elif line.startswith('INSTRUMENTATION_STATUS_CODE:'):
-            records.append(pending);pending={}
-    baseline=[r for r in records if r.get('ended_at_ms','').isdigit() and int(r['ended_at_ms'])<before]
-    settled=[r for r in records if r.get('started_at_ms','').isdigit() and active<=int(r['started_at_ms'])<stop]
-    active_tokens.update(r.get('test_token') for r in settled)
-    print('PERSISTENT_EVIDENCE '+json.dumps({'role':role,'baseline':[ {k:r[k] for k in keys if k in r} for r in baseline[-3:]],'active':[ {k:r[k] for k in keys if k in r} for r in settled[:40]],'pending_record':bool(pending)},sort_keys=True))
-receipts=[]
-for line in Path(sys.argv[3]).read_text(errors='replace').splitlines():
-    try:r=json.loads(line)
-    except ValueError:continue
-    if r.get('token') in active_tokens:receipts.append(r)
-print('PERSISTENT_RECEIPTS '+json.dumps(receipts[:80],sort_keys=True))
-DIAGNOSTICS
-fi
-if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
-if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
 
 # Switching the active profile must exchange which independent UID is blocked.
 return_to_guard
@@ -222,3 +159,91 @@ assert_off
 if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
 echo 'CHECK VGuard: selected package uninstall/reinstall/retry completed; individual results above.'
+
+# Each process establishes exactly one socket and keeps it across activation.
+# The probe's tcp_persist mode never reconnects after a failed exchange.
+selected_series="$scratch/existing-selected.log"
+control_series="$scratch/existing-control.log"
+timeout 250 "$adb" shell am instrument -w -e mode tcp_persist -e host 10.0.2.2 \
+  -e attempts 90 -e interval_ms 500 -e timeout_ms 2000 \
+  app.vguard.qa.blocked/app.vguard.qa.Probe > "$selected_series" 2>&1 &
+selected_pid=$!
+persistent_baselines=true
+if ! wait_persistent_baseline "$selected_series" selected; then persistent_baselines=false;fi
+# Start the control only after observing the first app. This is one connection
+# attempt per app, not a retry of a failed socket or suppressed failure.
+timeout 250 "$adb" shell am instrument -w -e mode tcp_persist -e host 10.0.2.2 \
+  -e attempts 90 -e interval_ms 500 -e timeout_ms 2000 \
+  app.vguard.qa.allowed/app.vguard.qa.Probe > "$control_series" 2>&1 &
+control_pid=$!
+if ! wait_persistent_baseline "$control_series" control; then persistent_baselines=false;fi
+if [[ "$persistent_baselines" == true ]]; then
+return_to_guard
+before_activation_ms=$(device_clock_ms)
+tap text 'Start blocking'
+assert_profile_active Normal
+active_ms=$(device_clock_ms)
+sleep 8
+return_to_guard
+before_stop_ms=$(device_clock_ms)
+# Freeze receipts before Stop; queued data delivered only after Stop is outside
+# the asserted active observation window, so must not be mislabeled as a leak.
+active_receipts="$scratch/protocol-before-stop.log"
+cp "${VGUARD_PROTOCOL_LOG:?}" "$active_receipts"
+tap text 'Stop blocking'
+assert_off
+# Keep the series intact for its completion/count checks. A dead selected
+# socket need not recover after Stop; fresh sockets are tested separately.
+wait "$selected_pid" || true
+wait "$control_pid" || true
+"$adb" shell am force-stop app.vguard.qa.blocked
+"$adb" shell am force-stop app.vguard.qa.allowed
+if ! python3 "${GITHUB_WORKSPACE:?}/scripts/vguard-persistent-check.py" \
+  "$selected_series" "$control_series" "$active_receipts" \
+  "$before_activation_ms" "$active_ms" "$before_stop_ms"; then
+  failures=$((failures+1))
+  python3 - "$selected_series" "$control_series" "$active_receipts" "$before_activation_ms" "$active_ms" "$before_stop_ms" <<'DIAGNOSTICS'
+import json,sys
+from pathlib import Path
+before,active,stop=map(int,sys.argv[4:])
+keys=('attempt','outcome','test_token','started_at_ms','ended_at_ms','failure','failure_detail')
+active_tokens=set()
+for role,path in zip(('selected','control'),sys.argv[1:3]):
+    records=[];pending={}
+    for line in Path(path).read_text(errors='replace').splitlines():
+        if line.startswith('INSTRUMENTATION_STATUS: ') and '=' in line:
+            k,v=line[len('INSTRUMENTATION_STATUS: '):].split('=',1);pending[k]=v
+        elif line.startswith('INSTRUMENTATION_STATUS_CODE:'):
+            records.append(pending);pending={}
+    baseline=[r for r in records if r.get('ended_at_ms','').isdigit() and int(r['ended_at_ms'])<before]
+    settled=[r for r in records if r.get('started_at_ms','').isdigit() and active<=int(r['started_at_ms'])<stop]
+    active_tokens.update(r.get('test_token') for r in settled)
+    print('PERSISTENT_EVIDENCE '+json.dumps({'role':role,'baseline':[ {k:r[k] for k in keys if k in r} for r in baseline[-3:]],'active':[ {k:r[k] for k in keys if k in r} for r in settled[:40]],'pending_record':bool(pending)},sort_keys=True))
+receipts=[]
+for line in Path(sys.argv[3]).read_text(errors='replace').splitlines():
+    try:r=json.loads(line)
+    except ValueError:continue
+    if r.get('token') in active_tokens:receipts.append(r)
+print('PERSISTENT_RECEIPTS '+json.dumps(receipts[:80],sort_keys=True))
+DIAGNOSTICS
+fi
+else
+  # Baseline failure remains an acceptance failure. Preserve the original
+  # attempt before cleanup; independent profile/package cases already ran.
+  failures=$((failures+1))
+  echo 'FAIL VGuard: existing-socket acceptance blocked by its OFF-state baseline; no activation result claimed.' >&2
+  wait "$selected_pid" || true
+  wait "$control_pid" || true
+  "$adb" shell am force-stop app.vguard.qa.blocked
+  "$adb" shell am force-stop app.vguard.qa.allowed
+  for series in "$selected_series" "$control_series"; do
+    head -n 50 "$series" >&2
+    tail -n 20 "$series" >&2
+  done
+  echo 'DIAGNOSTIC VGuard: emulator network policy and UID process state after baseline failure.'
+  "$adb" shell dumpsys netpolicy | head -n 180 || true
+  "$adb" shell dumpsys connectivity trafficcontroller | head -n 180 || true
+fi
+if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
+if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
+

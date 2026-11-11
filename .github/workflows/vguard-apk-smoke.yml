@@ -14,6 +14,10 @@ on:
       - '.github/workflows/vguard-apk-smoke.yml'
       - 'scripts/vguard-apk-install-smoke.sh'
       - 'scripts/vguard-selective-emulator-smoke.sh'
+      - 'scripts/vguard-core-lifecycle.sh'
+      - 'scripts/vguard-persistent-check.py'
+      - 'apps/vguard/device-qa/Probe.java'
+      - 'apps/vguard/device-qa/protocol-server.py'
 permissions: {}
 concurrency:
   group: vellivex-vguard-public-package
