@@ -7,8 +7,10 @@ sdk="${1:?SDK root required}"
 adb="$sdk/platform-tools/adb"
 root=$(mktemp -d)
 server_pid=''
+protocol_pid=''
 cleanup() {
   if [[ -n "$server_pid" ]]; then kill "$server_pid" 2>/dev/null || true; fi
+  if [[ -n "$protocol_pid" ]]; then kill "$protocol_pid" 2>/dev/null || true; fi
   rm -rf "$root"
 }
 trap cleanup EXIT
@@ -93,6 +95,25 @@ done
 echo 'PASS VGuard: both independent Android probe applications have proven off-state HTTP baselines.'
 echo 'NOTICE VGuard: selective VPN blocking, VPN consent, stop/restart and GrapheneOS remain UNTESTED by these baselines.'
 if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
-  echo 'Running one-off selective VPN test before removing fictional probes and local server.'
+  python3 device-qa/protocol-server.py > "$root/protocol-server.log" 2>&1 &
+  protocol_pid=$!
+  python3 - <<'CHECK_PROTOCOL_SERVER'
+import socket,time
+for attempt in range(30):
+    try:
+        with socket.create_connection(('127.0.0.1',18790),timeout=1) as connection:
+            connection.sendall(b'host-readiness\n')
+            assert connection.makefile('rb').readline(100) == b'VGUARD_QA_OK host-readiness\n'
+        with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as connection:
+            connection.settimeout(1)
+            connection.sendto(b'host-readiness',('127.0.0.1',18791))
+            assert connection.recv(100) == b'VGUARD_QA_OK host-readiness'
+        print('PASS VGuard: controlled host TCP and UDP endpoints respond correctly.')
+        break
+    except (OSError,AssertionError):
+        if attempt==29: raise
+        time.sleep(.2)
+CHECK_PROTOCOL_SERVER
+  echo 'Running one-off selective VPN protocol/lifecycle test before removing fictional probes and local servers.'
   bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk"
 fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# One-off isolated Android emulator selective-VPN smoke test.
+# One-off isolated Android emulator selective-VPN protocol and lifecycle test.
 # Requires successful baseline and two fictional probe APKs, firewall initially OFF.
 set -euo pipefail
 sdk="${1:?SDK root}"
@@ -27,7 +27,7 @@ dump_ui() {
 # Find an element by exact or substring text/description, returning centre coordinates.
 find_xy() {
   local selector="$1" needle="$2"
-  dump_ui || return 1
+  dump_ui || return $?
   python3 - "$xml" "$selector" "$needle" <<'PY'
 import sys,xml.etree.ElementTree as ET,re
 source,kind,needle=sys.argv[1:]
@@ -75,29 +75,74 @@ tap() {
   return 1
 }
 probe() {
-  local role="$1" expected="$2" result outcome
-  result=$(timeout 18 "$adb" shell am instrument -w -e mode http -e timeout_ms 2000 \
-   -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
-    echo "FAIL VGuard: fictional $role probe instrumentation unavailable." >&2
+  local role="$1" expected="$2" mode="${3:-http}" result outcome
+  result=$(timeout 20 "$adb" shell am instrument -w -e mode "$mode" -e timeout_ms 2000 \
+   -e host 10.0.2.2 -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
+    echo "FAIL VGuard: fictional $role $mode probe instrumentation unavailable." >&2
     return 1
   }
   outcome=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: outcome=([A-Z_]+)\r?$/\1/p' | tail -1)
   if [[ "$outcome" != "$expected" ]]; then
-    echo "FAIL VGuard: fictional $role network outcome ${outcome:-unknown}, expected $expected." >&2
+    echo "FAIL VGuard: fictional $role $mode outcome ${outcome:-unknown}, expected $expected." >&2
+    printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (failure|networks_tried|network_results)=' >&2 || true
     return 1
   fi
-  echo "PASS VGuard: fictional $role probe outcome=$expected."
+  echo "PASS VGuard: fictional $role $mode probe outcome=$expected."
+}
+probe_pair() {
+  local selected_expected="$1" mode
+  for mode in http tcp udp underlying_http; do
+    probe blocked "$selected_expected" "$mode"
+    probe allowed CONNECTED "$mode"
+  done
+}
+return_to_guard() {
+  local launch
+  launch=$(timeout 20 "$adb" shell am start -W -n app.vguard.firewall/.MainActivity)
+  if ! grep -q '^Status: ok' <<< "$launch"; then
+    echo 'FAIL VGuard: unable to return to the firewall activity.' >&2
+    return 1
+  fi
+}
+assert_off() {
+  local attempt
+  for ((attempt=0;attempt<8;attempt++)); do
+    if find_xy text 'Start blocking' >/dev/null; then
+      echo 'PASS VGuard: native UI confirms blocking is OFF.'
+      return 0
+    fi
+    sleep 1
+  done
+  echo 'FAIL VGuard: native UI did not return to Start blocking.' >&2
+  return 1
+}
+assert_active() {
+  local attempt
+  for ((attempt=0;attempt<8;attempt++)); do
+    sleep 1
+    dump_ui || continue
+    if grep -q 'text="ACTIVE"' "$xml"; then
+      echo 'PASS VGuard: native UI confirms blocking is ACTIVE.'
+      return 0
+    fi
+  done
+  echo 'FAIL VGuard: native UI never reported ACTIVE.' >&2
+  return 1
 }
 # The preceding baseline harness owns the controlled local HTTP server.
 # Reuse its listener; never open a competing port or access remote services.
 curl -fsS --max-time 2 http://127.0.0.1:18789/check >/dev/null
 echo 'PASS VGuard: previously verified local-only test server remains reachable.'
-probe blocked CONNECTED
-probe allowed CONNECTED
+probe_pair CONNECTED
+probe blocked PERMISSION_DENIED service_access
+probe allowed PERMISSION_DENIED service_access
 "$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 1
 tap desc 'Apps tab'
 tap desc 'Search apps or package names'
+# Clear any restored fictional query before entering the expected app name.
+"$adb" shell input keyevent 123 >/dev/null
+"$adb" shell input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 >/dev/null
 "$adb" shell input text 'VGuard%sQA%sBlocked' >/dev/null
 "$adb" shell input keyevent 4 >/dev/null
 sleep 2
@@ -140,44 +185,49 @@ if [[ -n "$point" ]]; then
     echo 'NOTICE VGuard: Android VPN permission button not found; checking whether consent is already granted.'
   fi
 fi
-active=false
-for ((attempt=0;attempt<8;attempt++)); do
-  sleep 1
-  dump_ui || continue
-  if grep -q 'text="ACTIVE"' "$xml";then active=true;break;fi
-done
-if [[ "$active" != 'true' ]];then
-  echo "FAIL VGuard: Android UI never reported ACTIVE; permission path=$permission." >&2
-  python3 - "$xml" <<'PY'
-import sys,xml.etree.ElementTree as ET
-root=ET.parse(sys.argv[1]).getroot()
-values=[x.attrib.get('text','') for x in root.iter('node') if x.attrib.get('text','')]
-print('QA visible labels:',repr([s[:110] for s in values if any(q in s.lower() for q in ['vpn','blocking','permission','connect','continue','app','retry','error','allow'])][:20]))
-PY
-  exit 1
-fi
+assert_active
 echo "PASS VGuard: actual Android emulator UI reports ACTIVE, permission path=$permission."
-probe blocked NO_CONNECTION
-probe allowed CONNECTED
-echo 'PASS VGuard: selective VPN rule blocks only the selected fictional app.'
-# Return to the activity explicitly after the two probe instrumentations.
-# Keep its task and VPN running so Stop is the action that restores access.
-launch=$(timeout 20 "$adb" shell am start -W -n app.vguard.firewall/.MainActivity)
-if ! grep -q '^Status: ok' <<< "$launch"; then
-  echo 'FAIL VGuard: unable to return to the firewall activity to stop blocking.' >&2
-  exit 1
-fi
+probe_pair NO_CONNECTION
+echo 'PASS VGuard: selected app is blocked over IPv4 HTTP, TCP, UDP and explicit underlying-network HTTP; independent control remains connected.'
+# Return explicitly after instrumentation, retaining the running VPN.
+return_to_guard
 tap text 'Stop blocking'
-stopped=false
-for ((attempt=0;attempt<8;attempt++)); do
-  if find_xy text 'Start blocking' >/dev/null; then stopped=true; break; fi
-  sleep 1
-done
-if [[ "$stopped" != 'true' ]]; then
-  echo 'FAIL VGuard: Android UI never returned to Start blocking after Stop.' >&2
-  exit 1
-fi
-probe blocked CONNECTED
-probe allowed CONNECTED
-echo 'PASS VGuard: stopping the firewall restores both fictional apps network access.'
-echo 'NOTICE VGuard: Android 15 emulator, IPv4 local HTTP only. GrapheneOS, real device, IPv6, DNS, lifecycle and cross-VPN compatibility remain untested.'
+assert_off
+probe_pair CONNECTED
+echo 'PASS VGuard: explicit Stop restores both probes across all four checked paths.'
+
+# Restart using the saved rule and consent, then force-stop the app. The
+# documented behavior is loss of filtering, not fail-closed protection.
+return_to_guard
+tap text 'Start blocking'
+assert_active
+probe_pair NO_CONNECTION
+"$adb" shell am force-stop app.vguard.firewall
+return_to_guard
+assert_off
+probe_pair CONNECTED
+echo 'PASS VGuard: force-stop releases filtering and reopening truthfully reports OFF, with both probes connected.'
+
+# Retained selection can be deliberately restarted, and removing the last
+# selection through the ordinary interface must stop the VPN.
+return_to_guard
+tap text 'Start blocking'
+assert_active
+probe blocked NO_CONNECTION tcp
+probe allowed CONNECTED tcp
+return_to_guard
+tap desc 'Apps tab'
+tap desc 'Search apps or package names'
+# Clear any restored fictional query before entering the expected app name.
+"$adb" shell input keyevent 123 >/dev/null
+"$adb" shell input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 >/dev/null
+"$adb" shell input text 'VGuard%sQA%sBlocked' >/dev/null
+"$adb" shell input keyevent 4 >/dev/null
+sleep 2
+tap desc 'Block internet for VGuard QA Blocked'
+tap desc 'Overview tab'
+assert_off
+probe_pair CONNECTED
+echo 'PASS VGuard: removing the final selected app stops filtering and restores both probes.'
+echo 'PASS VGuard: emulator protocol and lifecycle acceptance completed.'
+echo 'NOTICE VGuard: Android 15 emulator and controlled IPv4 endpoints only. GrapheneOS, real device, IPv6, DNS, sleep/network transitions and cross-VPN compatibility remain untested.'

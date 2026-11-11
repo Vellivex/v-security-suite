@@ -1,9 +1,7 @@
 name: Vellivex VGuard APK verification
 # One-off selective enforcement branch smoke test. Do not merge into main.
-# Rerun with Android uppercase consent button handling.
+# Controlled TCP/UDP/underlying-network and lifecycle extension.
 on:
-  schedule:
-    - cron: '43 9 * * 0'
   workflow_dispatch:
     inputs:
       emulator:
@@ -23,11 +21,11 @@ concurrency:
 jobs:
   apk-verification:
     runs-on: ubuntu-latest
-    timeout-minutes: 11
+    timeout-minutes: 15
     env:
       VGUARD_PROBE_BASELINES: 'true'
       VGUARD_PROBE_ENFORCEMENT: 'true'
-      VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'test/vguard-emulator-oneoff-20261110' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
+      VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'vellivex/vguard-selective-acceptance' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
         shell: bash
@@ -39,4 +37,7 @@ jobs:
           git checkout --detach FETCH_HEAD
       - name: Verify APK checksum, signature, permissions and optional existing emulator
         shell: bash
-        run: bash scripts/vguard-apk-install-smoke.sh
+        run: |
+          set -euo pipefail
+          bash scripts/vguard-apk-install-smoke.sh | tee "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          grep -Fqx 'PASS VGuard: emulator protocol and lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
