@@ -129,6 +129,7 @@ fi
 
 # The fresh Journey profile is empty: activating it must stop, and returning
 # to the saved Normal selection must require a deliberate new Start.
+if [[ "${VGUARD_EXPORT_ONLY:-false}" != true ]];then
 return_to_guard
 tap nav 'Apps tab'
 tap text 'Journey'
@@ -146,13 +147,17 @@ assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp;then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp;then failures=$((failures+1));fi
 echo 'CHECK VGuard: empty-profile switch stops; returning to saved rules requires explicit Start.'
+fi
 
 source "${GITHUB_WORKSPACE:?}/scripts/vguard-activity-flow.sh"
+VGUARD_PROBE_READY_MS=5000
 if ! vguard_activity_flow;then
   failures=$((failures+1))
   echo 'FAIL VGuard: native Activity/export flow incomplete; preserving failure and continuing independent system recovery.' >&2
   return_to_guard
 fi
+unset VGUARD_PROBE_READY_MS
+if [[ "${VGUARD_EXPORT_ONLY:-false}" == true ]];then return 0;fi
 source "${GITHUB_WORKSPACE:?}/scripts/vguard-system-recovery.sh"
 if ! vguard_system_recovery;then
   failures=$((failures+1))

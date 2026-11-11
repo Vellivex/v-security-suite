@@ -51,6 +51,15 @@ public final class Probe extends Instrumentation {
         summary.putString("active_network", active == null ? "none" : active.toString());
         Socket persistent = null;
         try {
+            int readinessTimeout = integer("ready_timeout_ms", 0, 0, 10000);
+            if (readinessTimeout > 0 && !awaitNetworkReady(connectivity, readinessTimeout, summary)) {
+                summary.putString("outcome", "PROBE_ERROR");
+                summary.putString("failure", "ProbeNetworkNotReady");
+                summary.putString("test_package", getTargetContext().getPackageName());
+                summary.putString("mode", mode);
+                finish(0, summary);
+                return;
+            }
             int attempts = integer("attempts", 1, 1, 120);
             int timeout = integer("timeout_ms", 3500, 250, 30000);
             int interval = integer("interval_ms", 1000, 0, 10000);
@@ -129,6 +138,54 @@ public final class Probe extends Instrumentation {
         int value = Integer.parseInt(arguments.getString(key, Integer.toString(fallback)));
         if (value < min || value > max) throw new IllegalArgumentException(key);
         return value;
+    }
+
+    private boolean awaitNetworkReady(final ConnectivityManager manager, int timeout, Bundle result) throws Exception {
+        final Object lock = new Object();
+        final Network[] current = new Network[1];
+        final boolean[] knownUnblocked = new boolean[1];
+        android.app.ActivityManager.RunningAppProcessInfo state = new android.app.ActivityManager.RunningAppProcessInfo();
+        android.app.ActivityManager.getMyMemoryState(state);
+        result.putInt("readiness_initial_importance", state.importance);
+        final long began = SystemClock.elapsedRealtime();
+        boolean registered = false;
+        boolean ready = false;
+        ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network network) {
+                synchronized (lock) { current[0] = network; knownUnblocked[0] = false; lock.notifyAll(); }
+            }
+            @Override public void onBlockedStatusChanged(Network network, boolean blocked) {
+                synchronized (lock) {
+                    if (network.equals(current[0])) { knownUnblocked[0] = !blocked; lock.notifyAll(); }
+                }
+            }
+            @Override public void onLost(Network network) {
+                synchronized (lock) {
+                    if (network.equals(current[0])) { current[0] = null; knownUnblocked[0] = false; lock.notifyAll(); }
+                }
+            }
+        };
+        try {
+            // Observe only. Do not request/bind a different network or retry a socket.
+            manager.registerDefaultNetworkCallback(callback);
+            registered = true;
+            synchronized (lock) {
+                while (current[0] == null || !knownUnblocked[0]) {
+                    long remaining = timeout - (SystemClock.elapsedRealtime() - began);
+                    if (remaining <= 0) break;
+                    lock.wait(remaining);
+                }
+                ready = current[0] != null && knownUnblocked[0];
+                result.putString("readiness_network", current[0] == null ? "none" : current[0].toString());
+            }
+            return ready;
+        } finally {
+            if (registered) manager.unregisterNetworkCallback(callback);
+            android.app.ActivityManager.getMyMemoryState(state);
+            result.putInt("readiness_final_importance", state.importance);
+            result.putLong("readiness_wait_ms", SystemClock.elapsedRealtime() - began);
+            result.putString("readiness_status", ready ? "READY" : "NOT_READY");
+        }
     }
 
     private void serviceAccess(Bundle result) {

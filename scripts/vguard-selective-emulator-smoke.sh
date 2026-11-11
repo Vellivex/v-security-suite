@@ -108,14 +108,14 @@ probe_result=''
 probe() {
   local role="$1" expected="$2" mode="${3:-http}" host="${4:-10.0.2.2}" result outcome deadline=20
   [[ "$mode" == resolve ]] && deadline=65
-  result=$(timeout "$deadline" "$adb" shell am instrument -w -e mode "$mode" -e timeout_ms 2000 \
+  result=$(timeout "$deadline" "$adb" shell am instrument -w -e mode "$mode" -e timeout_ms 2000 -e ready_timeout_ms "${VGUARD_PROBE_READY_MS:-0}" \
    -e host "$host" -e url http://10.0.2.2:18789/check "app.vguard.qa.$role/app.vguard.qa.Probe" 2>&1) || {
     echo "FAIL VGuard: fictional $role $mode instrumentation failed or exceeded ${deadline}s; this is not a blocking pass." >&2
     return 1
   }
   probe_result="$result"
   outcome=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: outcome=([A-Z_]+)\r?$/\1/p' | tail -1)
-  printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (test_uid|process_importance|active_network|failure|failure_detail|failure_cause|udp_stage|networks_tried|network_results)=' || true
+  printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (test_uid|process_importance|active_network|failure|failure_detail|failure_cause|udp_stage|networks_tried|network_results|readiness_initial_importance|readiness_final_importance|readiness_wait_ms|readiness_network|readiness_status)=' || true
   if [[ "$outcome" != "$expected" ]]; then
     echo "FAIL VGuard: fictional $role $mode to $host outcome ${outcome:-unknown}, expected $expected." >&2
     return 1
@@ -398,7 +398,9 @@ if [[ "$blockers" -gt 0 ]]; then
   echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
   exit 1
 fi
-if [[ "${VGUARD_REMAINING_ONLY:-false}" == true ]];then
+if [[ "${VGUARD_EXPORT_ONLY:-false}" == true ]];then
+  echo 'PASS VGuard: emulator native export and clear acceptance completed.'
+elif [[ "${VGUARD_REMAINING_ONLY:-false}" == true ]];then
   echo 'PASS VGuard: emulator remaining UI and recovery acceptance completed.'
 elif [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then
   echo 'PASS VGuard: emulator final identity and recovery acceptance completed.'
