@@ -12,8 +12,10 @@ xml="$scratch/window.xml"
 dump_ui() {
   local target='/data/local/tmp/vguard-qa-window.xml'
   local output
+  local dump_options=(--compressed)
+  if [[ "${1:-}" == uncompressed ]];then dump_options=();fi
   "$adb" shell rm -f "$target" >/dev/null 2>&1 || true
-  output=$(timeout 16 "$adb" shell uiautomator dump --compressed "$target" 2>&1) || {
+  output=$(timeout 16 "$adb" shell uiautomator dump "${dump_options[@]}" "$target" 2>&1) || {
     echo "Android UI dump command failed: ${output:0:180}" >&2
     return 2
   }
@@ -398,7 +400,9 @@ if [[ "$blockers" -gt 0 ]]; then
   echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
   exit 1
 fi
-if [[ "${VGUARD_EXPORT_ONLY:-false}" == true ]];then
+if [[ "${VGUARD_CARD_ONLY:-false}" == true ]];then
+  echo 'PASS VGuard: emulator retained history card acceptance completed.'
+elif [[ "${VGUARD_EXPORT_ONLY:-false}" == true ]];then
   echo 'PASS VGuard: emulator native export and clear acceptance completed.'
 elif [[ "${VGUARD_REMAINING_ONLY:-false}" == true ]];then
   echo 'PASS VGuard: emulator remaining UI and recovery acceptance completed.'

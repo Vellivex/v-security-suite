@@ -151,6 +151,11 @@ fi
 
 source "${GITHUB_WORKSPACE:?}/scripts/vguard-activity-flow.sh"
 VGUARD_PROBE_READY_MS=5000
+if [[ "${VGUARD_CARD_ONLY:-false}" == true ]];then
+  if ! vguard_card_flow;then failures=$((failures+1));fi
+  unset VGUARD_PROBE_READY_MS
+  return 0
+fi
 if ! vguard_activity_flow;then
   failures=$((failures+1))
   echo 'FAIL VGuard: native Activity/export flow incomplete; preserving failure and continuing independent system recovery.' >&2

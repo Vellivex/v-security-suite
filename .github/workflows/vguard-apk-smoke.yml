@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        acceptance: [export]
+        acceptance: [history-card]
     env:
       VGUARD_PROBE_BASELINES: 'true'
       VGUARD_PROBE_ENFORCEMENT: 'true'
@@ -40,6 +40,7 @@ jobs:
       VGUARD_FINAL_ONLY: 'true'
       VGUARD_REMAINING_ONLY: 'true'
       VGUARD_EXPORT_ONLY: 'true'
+      VGUARD_CARD_ONLY: 'true'
       VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'vellivex/vguard-selective-acceptance' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
@@ -55,4 +56,4 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/vguard-apk-install-smoke.sh | tee "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          grep -Fqx 'PASS VGuard: emulator native export and clear acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
+          grep -Fqx 'PASS VGuard: emulator retained history card acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"

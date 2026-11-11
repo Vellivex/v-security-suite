@@ -88,10 +88,19 @@ PY
 }
 
 activity_assert_metadata_card_once() {
-  dump_ui || return 1
+  # Preserve native card containers for strict same-record association.
+  dump_ui uncompressed || return 1
   python3 - "$xml" <<'PY'
-import re,sys,xml.etree.ElementTree as ET
+import json,re,sys,xml.etree.ElementTree as ET
 root=ET.parse(sys.argv[1]).getroot(); parents={child:parent for parent in root.iter() for child in parent}
+def bounds(node):
+    match=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.attrib.get('bounds',''))
+    if not match:return None
+    a,b,c,d=map(int,match.groups())
+    return (a,b,c,d) if c>a and d>b else None
+viewports=[bounds(n) for n in root.iter('node') if n.attrib.get('package')=='app.vguard.firewall' and n.attrib.get('class')=='android.widget.ScrollView']
+if len(viewports)!=1 or viewports[0] is None:raise SystemExit(1)
+viewport=viewports[0]
 endpoints=[n for n in root.iter('node') if n.attrib.get('package')=='app.vguard.firewall' and n.attrib.get('text')=='10.0.2.2:18790']
 valid=False
 for endpoint in endpoints:
@@ -101,23 +110,38 @@ for endpoint in endpoints:
         if node is None: break
         texts=[n.attrib.get('text','') for n in node.iter('node')]
         endpoints_here=[t for t in texts if re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}:\d+',t)]
-        if len(endpoints_here)==1 and texts.count('Selected app')==1 and texts.count('DROPPED')==1 and any(t.startswith('TCP  /  ') for t in texts): valid=True;break
-if not valid:raise SystemExit(1)
+        if len(endpoints_here)==1 and texts.count('Selected app')==1 and texts.count('DROPPED')==1 and any(t.startswith('TCP  /  ') for t in texts):
+            fields=[n for n in node.iter('node') if n.attrib.get('text') in ('Selected app','DROPPED','10.0.2.2:18790') or n.attrib.get('text','').startswith('TCP  /  ')]
+            boxes=[bounds(n) for n in fields]
+            if len(boxes)==4 and all(b and b[1]>viewport[1] and b[3]<viewport[3] for b in boxes):valid=True;break
+if not valid:
+    evidence=[]
+    for endpoint in endpoints[:3]:
+        node=endpoint;ancestry=[]
+        for _ in range(3):
+            node=parents.get(node)
+            if node is None:break
+            texts=[n.attrib.get('text','') for n in node.iter('node') if n.attrib.get('text')]
+            ancestry.append({'class':node.attrib.get('class'),'bounds':node.attrib.get('bounds'),'texts':texts[:50]})
+        evidence.append({'target_bounds':endpoint.attrib.get('bounds'),'ancestors':ancestry})
+    if evidence:print('ACTIVITY_TARGET_ANCESTRY '+json.dumps(evidence,sort_keys=True),file=sys.stderr)
+    raise SystemExit(1)
 print('PASS VGuard: native Activity shows DROPPED TCP10.0.2.2:18790 with generic Selected app metadata.')
 PY
 }
 
 activity_assert_metadata_card() {
-  local attempt point x start end
+  local attempt point x start end gesture scans=0 corrections=0
   echo 'CHECK VGuard: actual initial Activity viewport before metadata discovery.'
   qa_ui_diagnostics
-  for ((attempt=0;attempt<4;attempt++));do
+  for ((attempt=0;attempt<6;attempt++));do
     if activity_assert_metadata_card_once;then return 0;fi
-    [[ "$attempt" == 3 ]] && break
-    dump_ui || return 1
+    [[ "$attempt" == 5 ]] && break
+    dump_ui uncompressed || return 1
     point=$(python3 - "$xml" <<'PY'
 import re,sys,xml.etree.ElementTree as ET
-nodes=[n for n in ET.parse(sys.argv[1]).getroot().iter('node')
+root=ET.parse(sys.argv[1]).getroot()
+nodes=[n for n in root.iter('node')
        if n.attrib.get('package')=='app.vguard.firewall'
        and n.attrib.get('class')=='android.widget.ScrollView'
        and n.attrib.get('scrollable')=='true' and n.attrib.get('enabled')=='true']
@@ -126,13 +150,53 @@ m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',nodes[0].attrib.get('bounds',''
 if not m:raise SystemExit(1)
 left,top,right,bottom=map(int,m.groups())
 if right<=left or bottom-top<100:raise SystemExit(1)
-print((left+right)//2,top+3*(bottom-top)//4,top+(bottom-top)//4)
+height=bottom-top;middle=(top+bottom)//2;targets=[]
+for node in root.iter('node'):
+    if node.attrib.get('package')!='app.vguard.firewall' or node.attrib.get('text')!='10.0.2.2:18790':continue
+    match=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.attrib.get('bounds',''))
+    if match:
+        x1,y1,x2,y2=map(int,match.groups())
+        if x2>x1 and y2>y1 and top<=y1<y2<=bottom:targets.append((y2-y1,(y1+y2)//2))
+if targets:
+    _,target=max(targets,key=lambda pair:(pair[0],-abs(pair[1]-middle)))
+    delta=max(-(height//4),min(height//4,middle-target))
+    if abs(delta)<height//10:raise SystemExit(1)
+    print((left+right)//2,middle,middle+delta,'center')
+else:
+    print((left+right)//2,top+3*height//4,top+height//4,'scan')
 PY
     ) || break
-    read -r x start end <<< "$point"
+    read -r x start end gesture <<< "$point"
+    if [[ "$gesture" == center ]];then
+      [[ "$corrections" -ge 2 ]] && break
+      corrections=$((corrections+1))
+    else
+      [[ "$scans" -ge 3 ]] && break
+      scans=$((scans+1))
+    fi
+    echo "CHECK VGuard: native metadata $gesture gesture from fresh viewport; scans=$scans corrections=$corrections."
     "$adb" shell input swipe "$x" "$start" "$x" "$end" 300 >/dev/null || return 1
   done
   return 1
+}
+
+vguard_card_flow() {
+  return_to_guard || return 1
+  tap nav 'Overview tab' || return 1
+  assert_profile_active Normal || return 1
+  probe blocked NO_CONNECTION tcp || return 1
+  probe allowed CONNECTED tcp || return 1
+  return_to_guard || return 1
+  tap nav 'Overview tab' || return 1
+  tap text 'Stop blocking' || return 1
+  assert_off || return 1
+  tap nav 'Activity tab' || return 1
+  if ! activity_assert_metadata_card;then
+    echo 'FAIL VGuard: retained controlled TCP history card was not fully observed after Stop.' >&2
+    qa_ui_diagnostics
+    return 1
+  fi
+  echo 'PASS VGuard: real Stop retains a complete native controlled TCP history card with generic app label and dropped status.'
 }
 
 activity_network_diagnostics() {
