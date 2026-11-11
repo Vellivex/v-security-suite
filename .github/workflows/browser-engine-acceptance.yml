@@ -1,0 +1,33 @@
+name: Vellivex WebKit and Firefox acceptance
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/browser-engine-acceptance.yml'
+      - 'scripts/browser-engine-acceptance.mjs'
+permissions: {}
+concurrency:
+  group: vellivex-browser-engine-qa-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch public source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned official browser test library
+        run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
+      - name: Install official free Linux Firefox and WebKit browsers
+        run: npx playwright install --with-deps firefox webkit
+      - name: Test Firefox production encryption and offline recovery
+        run: node scripts/browser-engine-acceptance.mjs firefox
+      - name: Test WebKit production encryption and offline recovery
+        if: ${{ !cancelled() }}
+        run: node scripts/browser-engine-acceptance.mjs webkit
