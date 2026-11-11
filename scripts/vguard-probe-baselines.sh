@@ -45,6 +45,10 @@ keytool -genkeypair -noprompt -alias vguard -keyalg RSA -keysize 2048 \
 unset password
 
 cd "$root/VGuard"
+if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
+  cp "${GITHUB_WORKSPACE:?}/apps/vguard/device-qa/Probe.java" device-qa/Probe.java
+  echo 'NOTICE VGuard: using reviewed branch test instrumentation with bounded failure diagnostics; production APK is unchanged.'
+fi
 python3 device-qa/build-probes.py --sdk "$sdk" \
   --keystore "$root/qa-probe-only.p12" \
   --password-file "$password_file" > "$root/probes-build.log"
@@ -115,5 +119,9 @@ for attempt in range(30):
         time.sleep(.2)
 CHECK_PROTOCOL_SERVER
   echo 'Running one-off selective VPN protocol/lifecycle test before removing fictional probes and local servers.'
-  bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk"
+  outcome=0
+  bash "${GITHUB_WORKSPACE:?}/scripts/vguard-selective-emulator-smoke.sh" "$sdk" || outcome=$?
+  echo 'Controlled protocol server receipts (last 20 entries, fictional test tokens only):'
+  tail -n 20 "$root/protocol-server.log"
+  exit "$outcome"
 fi

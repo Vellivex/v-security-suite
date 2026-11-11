@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   two-app-baselines:
+    # The one-off protocol job already performs these baselines.
+    if: ${{ github.ref_name != 'vellivex/vguard-selective-acceptance' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

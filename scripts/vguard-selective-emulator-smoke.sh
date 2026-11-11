@@ -84,7 +84,7 @@ probe() {
   outcome=$(printf '%s\n' "$result" | sed -nE 's/^INSTRUMENTATION_RESULT: outcome=([A-Z_]+)\r?$/\1/p' | tail -1)
   if [[ "$outcome" != "$expected" ]]; then
     echo "FAIL VGuard: fictional $role $mode outcome ${outcome:-unknown}, expected $expected." >&2
-    printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (failure|networks_tried|network_results)=' >&2 || true
+    printf '%s\n' "$result" | grep -E '^INSTRUMENTATION_RESULT: (failure|failure_detail|failure_cause|udp_stage|networks_tried|network_results)=' >&2 || true
     return 1
   fi
   echo "PASS VGuard: fictional $role $mode probe outcome=$expected."

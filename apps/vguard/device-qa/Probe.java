@@ -80,6 +80,10 @@ public final class Probe extends Instrumentation {
                 } catch (Exception failure) {
                     result.putString("outcome", "NO_CONNECTION");
                     result.putString("failure", failure.getClass().getSimpleName());
+                    String detail = failure.getMessage();
+                    if (detail != null) result.putString("failure_detail", detail.replace('\n', ' ').replace('\r', ' ').substring(0, Math.min(detail.length(), 180)));
+                    Throwable cause = failure.getCause();
+                    if (cause != null) result.putString("failure_cause", cause.getClass().getSimpleName());
                 }
                 String outcome = result.getString("outcome", "PROBE_ERROR");
                 if ("CONNECTED".equals(outcome)) connected++;
@@ -212,11 +216,16 @@ public final class Probe extends Instrumentation {
     private void udp(String host, int port, int timeout, Bundle result) throws Exception {
         String token = getTargetContext().getPackageName() + ":" + UUID.randomUUID().toString();
         byte[] request = token.getBytes(StandardCharsets.US_ASCII);
+        result.putString("udp_stage", "create");
         try (DatagramSocket socket = new DatagramSocket()) {
+            result.putString("udp_stage", "connect");
             socket.connect(InetAddress.getByName(host), port); socket.setSoTimeout(timeout);
+            result.putString("udp_stage", "send");
             socket.send(new DatagramPacket(request, request.length));
             byte[] bytes = new byte[256]; DatagramPacket packet = new DatagramPacket(bytes, bytes.length);
+            result.putString("udp_stage", "receive");
             socket.receive(packet);
+            result.putString("udp_stage", "received");
             String response = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.US_ASCII);
             result.putString("outcome", ("VGUARD_QA_OK " + token).equals(response) ? "CONNECTED" : "UNEXPECTED_RESPONSE");
         }
