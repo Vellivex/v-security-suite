@@ -1,6 +1,7 @@
 [
   ".github/ISSUE_TEMPLATE/bug_report.md",
   ".github/workflows/browser-chat-acceptance.yml",
+  ".github/workflows/browser-engine-acceptance.yml",
   ".github/workflows/call-browser-readiness.yml",
   ".github/workflows/production-availability.yml",
   ".github/workflows/public-identity.yml",
@@ -127,6 +128,7 @@
   "releases/VGuard-Test-Report.txt",
   "scripts/artifact-binding.mjs",
   "scripts/assemble.mjs",
+  "scripts/browser-engine-acceptance.mjs",
   "scripts/build.sh",
   "scripts/call-browser-readiness.mjs",
   "scripts/git-hooks/pre-commit",
