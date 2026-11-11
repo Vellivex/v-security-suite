@@ -1,4 +1,4 @@
-name: Vellivex VMail read-only browser readiness
+name: Vellivex VMail sign-in gate availability
 on:
   schedule:
     - cron: '53 8 * * 4'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/vmail-readiness.yml'
       - 'scripts/vmail-browser-readiness.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-vmail-readonly-qa
@@ -36,5 +38,5 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Check public mail service readiness without creating inbox
+      - name: Check VMail sign-in gate; inbox readiness requires sign-in
         run: node scripts/vmail-browser-readiness.mjs

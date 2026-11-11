@@ -1,4 +1,4 @@
-name: Vellivex Call public audio readiness
+name: Vellivex Call sign-in gate availability
 on:
   schedule:
     - cron: '19 9 * * 6'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/call-browser-readiness.yml'
       - 'scripts/call-browser-readiness.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-call-public-readiness
@@ -36,5 +38,5 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Check free calling readiness without signing in or connecting
+      - name: Check Call sign-in gate; deeper browser checks require sign-in
         run: node scripts/call-browser-readiness.mjs

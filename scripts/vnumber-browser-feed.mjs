@@ -2,6 +2,12 @@
 // Read-only checks of VNumber free-country feeds: no number selected or SMS viewed.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import {publicBrowserPreflight} from './live-browser-gate.mjs';
+
+// These unattended contexts have no email-verified app session. A healthy gate
+// is availability evidence only; preserve the deeper checks below for an
+// explicitly verified browser context, never an authentication bypass.
+if ((await publicBrowserPreflight("VNumber", ["https://www.vellivex.com/apps/sms"])).deepChecks === 'not-run') process.exit(0);
 
 const SITE='https://www.vellivex.com/apps/sms';
 const browser=await chromium.launch({

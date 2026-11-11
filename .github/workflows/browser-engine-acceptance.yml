@@ -1,10 +1,12 @@
-name: Vellivex WebKit and Firefox acceptance
+name: Vellivex app gates and local Cipher interoperability
 on:
   workflow_dispatch:
   push:
     paths:
       - '.github/workflows/browser-engine-acceptance.yml'
       - 'scripts/browser-engine-acceptance.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
       - 'scripts/cipher-engine-interoperability.mjs'
       - 'apps/cipher/protocol.js'
 permissions: {}
@@ -28,9 +30,9 @@ jobs:
         run: npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.65.0
       - name: Install official free Linux Firefox and WebKit browsers
         run: npx playwright install --with-deps firefox webkit
-      - name: Test Firefox production encryption and offline recovery
+      - name: Check Firefox app sign-in gates; encryption checks require sign-in
         run: node scripts/browser-engine-acceptance.mjs firefox
-      - name: Test WebKit production encryption and offline recovery
+      - name: Check WebKit app sign-in gates; encryption checks require sign-in
         if: ${{ !cancelled() }}
         run: node scripts/browser-engine-acceptance.mjs webkit
       - name: Test local-source Cipher interoperability in both native engines

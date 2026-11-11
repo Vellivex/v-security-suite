@@ -1,4 +1,4 @@
-name: Vellivex VDecoy synthetic browser acceptance
+name: Vellivex VDecoy sign-in gate availability
 on:
   schedule:
     - cron: '29 8 * * 2'
@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/vdecoy-browser-acceptance.yml'
       - 'scripts/vdecoy-browser-capture.mjs'
+      - 'scripts/live-browser-gate.mjs'
+      - 'scripts/live-availability.mjs'
 permissions: {}
 concurrency:
   group: vellivex-vdecoy-browser-qa
@@ -38,5 +40,5 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Check VDecoy synthetic WAV import and virtual microphone
+      - name: Check VDecoy sign-in gate; audio checks require sign-in
         run: node scripts/vdecoy-browser-capture.mjs

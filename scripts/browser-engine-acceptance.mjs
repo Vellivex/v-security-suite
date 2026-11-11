@@ -4,6 +4,12 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {firefox,webkit} from 'playwright';
+import {publicBrowserPreflight} from './live-browser-gate.mjs';
+
+// These unattended contexts have no email-verified app session. A healthy gate
+// is availability evidence only; preserve the deeper checks below for an
+// explicitly verified browser context, never an authentication bypass.
+if ((await publicBrowserPreflight("Firefox and WebKit", ["https://www.vellivex.com/apps/vault", "https://www.vellivex.com/apps/relay", "https://www.vellivex.com/apps/cipher"])).deepChecks === 'not-run') process.exit(0);
 
 const engines={firefox,webkit};
 const name=process.argv[2];

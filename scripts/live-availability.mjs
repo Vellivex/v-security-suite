@@ -13,8 +13,10 @@ const PAGES = Object.freeze([
   ['Private', 'https://private.vellivex.com/'],
   ['VDecoy', 'https://vdecoy.vellivex.com/'],
   ['VPhone', 'https://vphone.vellivex.com/'],
-  ['Vellivex Call', 'https://call.vellivex.com/'],
+  ['Vellivex Call', 'https://call.vellivex.com/call.html'],
 ]);
+const FIXED_PAGE_URLS = new Set(PAGES.map(([, url]) => url));
+const SIGN_IN_PAGES = new Set(PAGES.slice(2).map(([, url]) => url));
 
 const BRAND_ICONS = Object.freeze([
   ['Vellivex Call icon', 'https://www.vellivex.com/brand/apps/call.svg'],
@@ -36,7 +38,7 @@ const FIXED_PUBLIC_ICON_URLS = new Set([...BRAND_ICONS, ...APP_FAVICONS].map(([,
 export { PAGES, BRAND_ICONS, APP_FAVICONS };
 export async function checkPage(name, target, { fetcher = fetch, timeoutMs = 10000 } = {}) {
   const url = new URL(target);
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !FIXED_PAGE_URLS.has(url.href))
     throw new TypeError('Only fixed public HTTPS page URLs are permitted.');
   try {
     const response = await fetcher(url.href, {
@@ -48,16 +50,24 @@ export async function checkPage(name, target, { fetcher = fetch, timeoutMs = 100
       headers: { Accept: 'text/html' },
     });
     // Deliberately do not download or print page bodies or use any auth tokens.
-    try { await response.body?.cancel(); } catch {}
-    const finalUrl = new URL(response.url || url.href);
+    try { void response.body?.cancel().catch(() => {}); } catch {}
+    const finalUrl = response.url || url.href;
     const type = response.headers.get('content-type') || '';
-    const ok = response.status === 200 && finalUrl.origin === url.origin &&
-      type.toLowerCase().includes('text/html');
+    const needsSignIn = SIGN_IN_PAGES.has(url.href);
+    const marker = response.headers.get('X-Vellivex-App-Access');
+    const validGate = marker === 'required' &&
+      /(?:^|,)\s*no-store\s*(?:,|$)/i.test(response.headers.get('Cache-Control') || '') &&
+      response.headers.get('Referrer-Policy') === 'no-referrer';
+    const ok = response.status === 200 && finalUrl === url.href &&
+      type.split(';')[0].trim().toLowerCase() === 'text/html' &&
+      (needsSignIn ? validGate : marker === null);
     return {
       name,
       ok,
       status: response.status,
-      problem: ok ? null : 'Unexpected HTTP status, origin or content type',
+      availability: ok ? needsSignIn ? 'sign-in-required' : 'public-page' : 'unavailable',
+      appTested: false,
+      problem: ok ? null : needsSignIn ? 'Expected the private, uncached email sign-in gate' : 'Unexpected public page status, URL, content type or access marker',
     };
   } catch (error) {
     return { name, ok: false, status: null, problem: error?.name === 'TimeoutError' ? 'Timeout' : 'Network error' };
@@ -115,9 +125,9 @@ async function main() {
   const icons = await checkBrandIcons();
   const favicons = await checkAppFavicons();
   for (const result of [...pages, ...icons, ...favicons])
-    console.log(`${result.ok ? 'PASS' : 'FAIL'} ${result.name}: ${result.status ?? 'no response'}${result.problem ? ' - ' + result.problem : ''}`);
+    console.log(`${result.ok ? result.availability === 'sign-in-required' ? 'SIGN-IN REQUIRED' : 'AVAILABLE' : 'FAIL'} ${result.name}: ${result.status ?? 'no response'}${result.problem ? ' - ' + result.problem : ''}`);
   const failures = [...pages, ...icons, ...favicons].filter(result => !result.ok);
-  console.log(`Checked ${pages.length} public pages, ${icons.length} cards and ${favicons.length} app favicons; ${failures.length} failed. No logins, messages, phone calls or large media downloaded.`);
+  console.log(`Checked ${pages.length} public pages and sign-in gates, ${icons.length} cards and ${favicons.length} app favicons; ${failures.length} failed. Signed-in application functionality NOT TESTED. No logins, emails, messages, phone calls or large media downloaded.`);
   if (failures.length) process.exitCode = 1;
 }
 

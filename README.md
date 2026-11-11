@@ -15,7 +15,7 @@ Vellivex is the main brand, with `vellivex.com` selected by the owner. VGuard, V
 
 ## Start with one small test
 
-Use the [tester start page](https://www.vellivex.com/testing) with fictional text and a fresh test passphrase. No account is needed for the VVault/VRelay browser workflow.
+Use the [tester start page](https://www.vellivex.com/testing) with fictional text and a fresh test passphrase. Shared app access uses an email address and a verification code before hosted app entry. Local encryption passphrases and invitation fragments remain separate from that sign-in.
 
 1. **VVault:** [encrypt and unlock a fictional message](https://www.vellivex.com/blog/test-local-message-encryption). Compare the recovered text, then check that a wrong passphrase fails without revealing plaintext.
 2. **VRelay:** [check and transfer the encrypted package](https://www.vellivex.com/blog/transfer-ciphertext-without-sharing-the-passphrase). Copy or save it and unlock the copy in VVault. Never enter a passphrase in VRelay; a format check does not authenticate the sender.
@@ -68,7 +68,9 @@ See `docs/ACCEPTANCE.md`, `docs/TEST-RESULTS.md` and SECURITY.md. Automated succ
 
 ## Security hardening 0.2.3 / VGuard 0.1.3
 
-See `docs/ADVERSARIAL-REVIEW-2026-10-23.md`. The native candidate was rebuilt and signature-verified with the existing update identity; device runtime remains unverified. Browser sessions now clear on hide/exit/history restoration and idle expiry. Pending operations cannot repopulate a cleared/edited session. Crypto pages block app-initiated network connections; installed offline assets use release hashes and no network fallback. Signing files, native build output, feedback and runtime secrets are excluded from public source bundles.
+See `docs/ADVERSARIAL-REVIEW-2026-10-23.md`. The native candidate was rebuilt and signature-verified with the existing update identity; device runtime remains unverified. Browser sessions now clear on hide/exit/history restoration and idle expiry. Pending operations cannot repopulate a cleared/edited session. Crypto pages block app-initiated network connections; installed offline assets use release hashes and never substitute unverified network code. Signing files, native build output, feedback and runtime secrets are excluded from public source bundles.
+
+New offline installations require verified app access. The service worker checks hosted sign-in before online tool navigation and never caches the sign-in screen. An online denial or failed check leaves saved files intact but does not open the cached tool. When the browser reports offline, a previously verified installation can still open its locally reverified files. Server revocation cannot be enforced offline, and older downloaded releases cannot be retroactively gated.
 
 ## Recovered two-phone QR project
 

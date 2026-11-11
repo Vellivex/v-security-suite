@@ -10,6 +10,7 @@ const assets={};
 for(const file of ['protocol.js','qr.js','vendor/qrcodegen.js','vendor/jsqr.js'])assets['/apps/cipher/'+file]={body:await readFile(resolve(root,'apps/cipher',file),'utf8'),type:'text/javascript; charset=utf-8'};
 assets['/cipher-ui.js']={body:await readFile(resolve(root,'web/cipher-ui.js'),'utf8'),type:'text/javascript; charset=utf-8'};
 for(const [path,file,type] of [
+ ['/mail-ui.js','web/mail-ui.js','text/javascript; charset=utf-8'],['/sms-ui.js','web/sms-ui.js','text/javascript; charset=utf-8'],
  ['/style.css','web/style.css','text/css; charset=utf-8'],['/site.js','web/site.js','text/javascript; charset=utf-8'],['/app.js','web/app.js','text/javascript; charset=utf-8'],['/session.js','web/session.js','text/javascript; charset=utf-8'],['/offline.js','web/offline.js','text/javascript; charset=utf-8'],['/apps/crypto.js','apps/vault/crypto.js','text/javascript; charset=utf-8']
 ])assets[path]={body:await readFile(resolve(root,file),'utf8'),type};
 assets['/apps/vault/crypto.js']={body:await readFile(resolve(root,'apps/vault/crypto.js'),'utf8'),type:'text/javascript; charset=utf-8'};
