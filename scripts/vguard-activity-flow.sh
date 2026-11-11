@@ -11,12 +11,21 @@ activity_picker_point() {
 import re,sys,xml.etree.ElementTree as ET
 path,kind,label=sys.argv[1:]
 root=ET.parse(path).getroot()
+parents={child:parent for parent in root.iter() for child in parent}
 nodes=[]
 for node in root.iter('node'):
     a=node.attrib
     if a.get('package') not in ('com.android.documentsui','com.google.android.documentsui') or a.get('enabled')!='true': continue
     if kind=='filename':
         match=a.get('class')=='android.widget.EditText' and (a.get('text','').startswith('VGuard-') or a.get('resource-id','').endswith(':id/title'))
+    elif kind=='root':
+        match=a.get('text','').casefold()==label.casefold()
+        ancestor=parents.get(node);in_roots=False
+        while ancestor is not None:
+            aa=ancestor.attrib
+            if aa.get('resource-id','').endswith('/roots_list') or aa.get('class')=='android.widget.ListView':in_roots=True
+            ancestor=parents.get(ancestor)
+        match=match and in_roots
     else: match=a.get('content-desc' if kind=='desc' else 'text','').casefold()==label.casefold()
     if not match: continue
     b=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',a.get('bounds',''))
@@ -41,6 +50,7 @@ activity_picker_tap() {
     sleep 1
   done
   echo "FAIL VGuard: missing unambiguous Android document control ($kind:$label)." >&2
+  qa_ui_diagnostics
   return 1
 }
 
@@ -62,7 +72,7 @@ activity_picker_prepare() {
       break
     fi
   done
-  activity_picker_tap text Downloads || return 1
+  activity_picker_tap root Downloads || return 1
   activity_picker_tap filename || return 1
   "$adb" shell input keyevent 123 >/dev/null || return 1
   for ((attempt=0;attempt<4;attempt++)); do
@@ -99,7 +109,7 @@ PY
 vguard_activity_flow() {
   local baseline_ok=true tcp_token udp_token udp_stage activity_start_epoch cancel_name save_name remote_csv local_csv attempt
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   assert_profile_active Normal || return 1
   # A reachable UDP baseline makes the payload omission test meaningful: a
   # blocked TCP SYN cannot carry the application token, but a UDP datagram can.
@@ -108,7 +118,7 @@ vguard_activity_flow() {
   if ! probe blocked CONNECTED udp; then baseline_ok=false; fi
   if ! probe allowed CONNECTED udp; then baseline_ok=false; fi
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   tap text 'Start blocking' || return 1
   assert_profile_active Normal || return 1
   if [[ "$baseline_ok" != true ]]; then
@@ -133,7 +143,7 @@ vguard_activity_flow() {
     echo 'FAIL VGuard: Activity probes lack distinct tokens.' >&2; return 1
   fi
   return_to_guard || return 1
-  tap contains 'Activity tab' || return 1
+  tap nav 'Activity tab' || return 1
   activity_assert_metadata_card || return 1
   cancel_name="VGuard-QA-cancel-$(date +%s%N).csv"
   save_name="VGuard-QA-activity-$(date +%s%N).csv"
@@ -185,7 +195,7 @@ print('PASS VGuard: Android-saved CSV has exact five-column metadata schema, '+s
 PY
   if [[ "$?" != 0 ]]; then return 1;fi
   return_to_guard || return 1
-  tap contains 'Activity tab' || return 1
+  tap nav 'Activity tab' || return 1
   tap text 'Clear activity' || return 1
   tap text Clear || return 1
   dump_ui || return 1
@@ -200,12 +210,12 @@ for label in ('Export CSV','Clear activity'):
 print('PASS VGuard: actual Clear action empties Activity and disables empty export/clear controls.')
 PY
   if [[ "$?" != 0 ]]; then return 1;fi
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   assert_profile_active Normal || return 1
   probe blocked NO_CONNECTION tcp || return 1
   probe allowed CONNECTED tcp || return 1
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   assert_profile_active Normal || return 1
   echo 'PASS VGuard: export/cancel/clear leave Normal blocking and independent allowed control intact.'
 }

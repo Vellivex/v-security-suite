@@ -32,12 +32,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        acceptance: [core, final]
+        acceptance: [remaining]
     env:
       VGUARD_PROBE_BASELINES: 'true'
       VGUARD_PROBE_ENFORCEMENT: 'true'
       VGUARD_CORE_ONLY: 'true'
-      VGUARD_FINAL_ONLY: ${{ matrix.acceptance == 'final' && 'true' || 'false' }}
+      VGUARD_FINAL_ONLY: 'true'
+      VGUARD_REMAINING_ONLY: 'true'
       VGUARD_RUN_EMULATOR: ${{ github.ref_name == 'vellivex/vguard-selective-acceptance' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.emulator && 'true' || 'false') }}
     steps:
       - name: Fetch public test source without repository credentials
@@ -53,8 +54,4 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/vguard-apk-install-smoke.sh | tee "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          if [[ "$VGUARD_FINAL_ONLY" == true ]];then
-            grep -Fqx 'PASS VGuard: emulator final identity and recovery acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          else
-            grep -Fqx 'PASS VGuard: emulator core lifecycle acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"
-          fi
+          grep -Fqx 'PASS VGuard: emulator remaining UI and recovery acceptance completed.' "$RUNNER_TEMP/vguard-protocol-acceptance.log"

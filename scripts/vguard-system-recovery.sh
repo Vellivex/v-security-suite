@@ -135,6 +135,7 @@ vguard_recovery_tap() {
     sleep 1
   done
   echo "FAIL VGuard: recovery target not found ($mode)." >&2
+  qa_ui_diagnostics
   return 1
 }
 
@@ -154,7 +155,7 @@ vguard_recovery_saved_rule() {
     allowed) label='VGuard QA Allowed';query='VGuard%sQA%sAllowed' ;;
     *) return 1 ;;
   esac
-  tap contains 'Apps tab' || return 1
+  tap nav 'Apps tab' || return 1
   tap desc 'Search apps or package names' || return 1
   "$adb" shell input keyevent 123 >/dev/null || return 1
   "$adb" shell input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 >/dev/null || return 1
@@ -202,7 +203,7 @@ vguard_system_recovery() {
   # Caller must select Normal with only the ordinary Blocked probe before this
   # batch. Never silently repair the entry state and conceal an earlier failure.
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   vguard_recovery_ui normal_active || return 1
   vguard_recovery_pair NO_CONNECTION
 
@@ -213,11 +214,11 @@ vguard_system_recovery() {
   fi
   vguard_recovery_tap gear || return 1
   # These switches are inspection-only; never force unsupported lockdown on.
-  if ! vguard_recovery_ui policies;then failures=$((failures+1));fi
+  if ! vguard_recovery_ui policies;then failures=$((failures+1));qa_ui_diagnostics;fi
   vguard_recovery_tap text com.android.settings 'Forget VPN' || return 1
   vguard_recovery_tap text com.android.settings Forget || return 1
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   for ((attempt=0;attempt<8;attempt++));do
     if vguard_recovery_ui inactive;then inactive=true;break;fi
     sleep 1
@@ -233,7 +234,7 @@ vguard_system_recovery() {
   echo 'CHECK VGuard: system Forget/revoke and explicit re-consent comparisons completed.'
 
   return_to_guard || return 1
-  tap contains 'Activity tab' || return 1
+  tap nav 'Activity tab' || return 1
   vguard_recovery_ui history_nonempty || return 1
   boot_before=$(timeout 8 "$adb" shell cat /proc/sys/kernel/random/boot_id | tr -d '\r') || return 1
   if [[ ! "$boot_before" =~ ^[0-9a-f-]{36}$ ]];then
@@ -272,18 +273,18 @@ vguard_system_recovery() {
   # independent probes. They test actual reboot/no-autostart behavior.
   vguard_recovery_pair CONNECTED
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   assert_off || return 1
   vguard_recovery_ui normal_off || return 1
   vguard_recovery_saved_rule blocked true || return 1
   vguard_recovery_saved_rule allowed false || return 1
-  tap contains 'Activity tab' || return 1
+  tap nav 'Activity tab' || return 1
   vguard_recovery_ui history_empty || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   vguard_recovery_explicit_start false || return 1
   vguard_recovery_pair NO_CONNECTION
   return_to_guard || return 1
-  tap contains 'Overview tab' || return 1
+  tap nav 'Overview tab' || return 1
   vguard_recovery_ui normal_active || return 1
   echo 'CHECK VGuard: reboot restored connectivity, retained rules, cleared process history and required explicit restart; individual results above.'
 }

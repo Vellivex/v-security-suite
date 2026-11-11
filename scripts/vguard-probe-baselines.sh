@@ -51,7 +51,7 @@ if [[ "${VGUARD_PROBE_ENFORCEMENT:-false}" == 'true' ]]; then
   echo 'NOTICE VGuard: using reviewed branch probes/endpoints with bounded diagnostics and arrival receipts; production APK is unchanged.'
 fi
 probe_build_options=()
-if [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then probe_build_options+=(--shared-uid);fi
+if [[ "${VGUARD_FINAL_ONLY:-false}" == true && "${VGUARD_REMAINING_ONLY:-false}" != true ]];then probe_build_options+=(--shared-uid);fi
 python3 device-qa/build-probes.py --sdk "$sdk" "${probe_build_options[@]}" \
   --keystore "$root/qa-probe-only.p12" \
   --password-file "$password_file" > "$root/probes-build.log"

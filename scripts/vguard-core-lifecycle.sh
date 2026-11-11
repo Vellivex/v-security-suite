@@ -12,7 +12,7 @@ set_probe_rule() {
     shared_two) label='VGuard QA Shared Two'; query='VGuard%sQA%sShared%sTwo' ;;
     *) echo 'FAIL VGuard: unknown fictional probe role.' >&2; return 1 ;;
   esac
-  tap contains 'Apps tab'
+  tap nav 'Apps tab'
   tap desc 'Search apps or package names'
   "$adb" shell input keyevent 123 >/dev/null
   "$adb" shell input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 >/dev/null
@@ -87,15 +87,15 @@ wait_persistent_baseline() {
 if [[ "${VGUARD_CORE_FUNCTIONS_ONLY:-false}" == true ]]; then return 0;fi
 
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Normal profile'
+tap nav 'Apps tab'
+tap text 'Normal'
 set_probe_rule blocked true
 set_probe_rule allowed false
-tap contains 'Journey profile'
+tap text 'Journey'
 set_probe_rule allowed true
 set_probe_rule blocked false
-tap contains 'Normal profile'
-tap contains 'Overview tab'
+tap text 'Normal'
+tap nav 'Overview tab'
 assert_off
 
 # Switching the active profile must exchange which independent UID is blocked.
@@ -105,16 +105,16 @@ assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Journey profile'
-tap contains 'Overview tab'
+tap nav 'Apps tab'
+tap text 'Journey'
+tap nav 'Overview tab'
 assert_profile_active Journey
 if ! probe blocked CONNECTED tcp; then failures=$((failures+1));fi
 if ! probe allowed NO_CONNECTION tcp; then failures=$((failures+1));fi
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Normal profile'
-tap contains 'Overview tab'
+tap nav 'Apps tab'
+tap text 'Normal'
+tap nav 'Overview tab'
 assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp; then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp; then failures=$((failures+1));fi

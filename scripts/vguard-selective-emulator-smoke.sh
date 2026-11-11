@@ -24,6 +24,23 @@ dump_ui() {
   timeout 8 "$adb" exec-out cat "$target" > "$xml"
   test -s "$xml"
 }
+qa_ui_diagnostics() {
+  # Only our disposable emulator and the relevant test/system UI are logged.
+  [[ "$("$adb" shell getprop ro.kernel.qemu | tr -d '\r')" == 1 ]] || return 0
+  dump_ui || return 0
+  python3 - "$xml" <<'PY'
+import json,sys,xml.etree.ElementTree as ET
+allowed={'app.vguard.firewall','com.android.settings','com.android.vpndialogs',
+         'com.android.documentsui','com.google.android.documentsui'}
+rows=[]
+for n in ET.parse(sys.argv[1]).getroot().iter('node'):
+    a=n.attrib
+    if a.get('package') not in allowed:continue
+    if not any(a.get(k) for k in ('text','content-desc','resource-id')):continue
+    rows.append({k:a.get(k,'')[:180] for k in ('package','text','content-desc','resource-id','class','enabled','checked','bounds')})
+print('EMULATOR_UI_DIAGNOSTICS '+json.dumps(rows[:120],sort_keys=True),file=sys.stderr)
+PY
+}
 # Find an element by exact or substring text/description, returning centre coordinates.
 find_xy() {
   local selector="$1" needle="$2"
@@ -44,15 +61,23 @@ except ET.ParseError:
     print('QA XML hierarchy was malformed; bytes='+str(len(raw))+
           '; first20_hex='+raw[:20].hex(),file=sys.stderr)
     sys.exit(2)
+nav_points=[]
 for el in root.iter('node'):
+    if kind=='nav' and el.attrib.get('package')!='app.vguard.firewall': continue
     if kind=='vpn_text' and el.attrib.get('package')!='com.android.vpndialogs': continue
-    s=el.attrib.get('content-desc' if kind=='desc' else 'text','')
-    if s.casefold()==needle.casefold() or (kind=='contains' and needle.casefold() in (s+' '+el.attrib.get('content-desc','')).casefold()):
+    s=el.attrib.get('content-desc' if kind in ('desc','nav') else 'text','')
+    matched=(s.casefold() in (needle.casefold(),needle.casefold()+', selected')) if kind=='nav' else (s.casefold()==needle.casefold() or (kind=='contains' and needle.casefold() in (s+' '+el.attrib.get('content-desc','')).casefold()))
+    if matched:
         if el.attrib.get('enabled')!='true': continue
         m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',el.attrib.get('bounds',''))
         if m:
             a,b,c,d=map(int,m.groups())
-            if c>a and d>b: print((a+c)//2,(b+d)//2);sys.exit(0)
+            if c>a and d>b:
+                point=((a+c)//2,(b+d)//2)
+                if kind=='nav': nav_points.append(point)
+                else: print(*point);sys.exit(0)
+if kind=='nav' and len(nav_points)==1:
+    print(*nav_points[0]);sys.exit(0)
 sys.exit(1)
 PY
 }
@@ -73,6 +98,7 @@ tap() {
     sleep 1
   done
   echo "FAIL VGuard: cannot find expected emulator control ($kind:$label)." >&2
+  qa_ui_diagnostics
   return 1
 }
 failures=0
@@ -231,7 +257,7 @@ if ! probe allowed PERMISSION_DENIED service_access; then failures=$((failures+1
 fi
 "$adb" shell monkey -p app.vguard.firewall -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 1
-tap desc 'Apps tab'
+tap nav 'Apps tab'
 tap desc 'Search apps or package names'
 # Clear any restored fictional query before entering the expected app name.
 "$adb" shell input keyevent 123 >/dev/null
@@ -241,7 +267,7 @@ tap desc 'Search apps or package names'
 sleep 2
 tap desc 'Block internet for VGuard QA Blocked'
 echo 'PASS VGuard: fictional Blocked app toggle interacted with via real native UI.'
-tap desc 'Overview tab'
+tap nav 'Overview tab'
 dump_ui
 if ! grep -q '1 app selected' "$xml"; then
   echo 'FAIL VGuard: blocked-app selection did not persist in Overview. No VPN started.' >&2
@@ -343,7 +369,7 @@ else
   echo 'BLOCKED VGuard: final TCP selection check lacks a matching OFF baseline.'
 fi
 return_to_guard
-tap desc 'Apps tab'
+tap nav 'Apps tab'
 tap desc 'Search apps or package names'
 # Clear any restored fictional query before entering the expected app name.
 "$adb" shell input keyevent 123 >/dev/null
@@ -352,7 +378,7 @@ tap desc 'Search apps or package names'
 "$adb" shell input keyevent 4 >/dev/null
 sleep 2
 tap desc 'Block internet for VGuard QA Blocked'
-tap desc 'Overview tab'
+tap nav 'Overview tab'
 assert_off
 probe_pair CONNECTED final-rule-removed
 echo 'CHECK VGuard: final-rule removal completed; per-protocol results recorded above.'
@@ -372,7 +398,9 @@ if [[ "$blockers" -gt 0 ]]; then
   echo "BLOCKED VGuard: available checks completed, but $blockers protocol baseline remains unavailable; no full acceptance pass."
   exit 1
 fi
-if [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then
+if [[ "${VGUARD_REMAINING_ONLY:-false}" == true ]];then
+  echo 'PASS VGuard: emulator remaining UI and recovery acceptance completed.'
+elif [[ "${VGUARD_FINAL_ONLY:-false}" == true ]];then
   echo 'PASS VGuard: emulator final identity and recovery acceptance completed.'
 elif [[ "${VGUARD_CORE_ONLY:-false}" == true ]]; then
   echo 'PASS VGuard: emulator core lifecycle acceptance completed.'

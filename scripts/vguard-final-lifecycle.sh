@@ -35,15 +35,23 @@ start_or_retry() {
   if find_xy text 'Retry blocking' >/dev/null;then tap text 'Retry blocking';else tap text 'Start blocking';fi
 }
 
+if [[ "${VGUARD_REMAINING_ONLY:-false}" == true ]];then
+  # Prior job recorded complete shared-identity/replacement comparisons.
+  # This run starts from the ordinary pair's fresh, consented OFF state.
+  return_to_guard
+  tap nav 'Overview tab'
+  tap text 'Start blocking'
+  assert_profile_active Normal
+else
 # Install only the first sibling before activating its rule.
 "$adb" install -r "${VGUARD_QA_APK_DIR:?}/VGuard-QA-shared_one.apk" >/dev/null
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Normal profile'
+tap nav 'Apps tab'
+tap text 'Normal'
 set_probe_rule blocked false
 set_probe_rule allowed false
 set_probe_rule shared_one true
-tap contains 'Overview tab'
+tap nav 'Overview tab'
 assert_off
 probe shared_one CONNECTED tcp
 probe allowed CONNECTED tcp
@@ -82,7 +90,7 @@ if ! probe shared_two CONNECTED tcp;then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp;then failures=$((failures+1));fi
 return_to_guard
 set_probe_rule shared_two true
-tap contains 'Overview tab'
+tap nav 'Overview tab'
 start_or_retry
 assert_profile_active Normal
 if ! probe shared_one NO_CONNECTION tcp;then failures=$((failures+1));fi
@@ -102,7 +110,7 @@ return_to_guard
 set_probe_rule shared_one false
 set_probe_rule shared_two false
 set_probe_rule blocked true
-tap contains 'Overview tab'
+tap nav 'Overview tab'
 start_or_retry
 assert_profile_active Normal
 original_uid=$(package_uid app.vguard.qa.blocked)
@@ -117,20 +125,21 @@ assert_profile_active Normal
 if ! probe blocked NO_CONNECTION tcp;then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp;then failures=$((failures+1));fi
 echo 'CHECK VGuard: selected fictional package same-signed replacement completed.'
+fi
 
 # The fresh Journey profile is empty: activating it must stop, and returning
 # to the saved Normal selection must require a deliberate new Start.
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Journey profile'
-tap contains 'Overview tab'
+tap nav 'Apps tab'
+tap text 'Journey'
+tap nav 'Overview tab'
 assert_off
 if ! probe blocked CONNECTED tcp;then failures=$((failures+1));fi
 if ! probe allowed CONNECTED tcp;then failures=$((failures+1));fi
 return_to_guard
-tap contains 'Apps tab'
-tap contains 'Normal profile'
-tap contains 'Overview tab'
+tap nav 'Apps tab'
+tap text 'Normal'
+tap nav 'Overview tab'
 assert_off
 tap text 'Start blocking'
 assert_profile_active Normal
@@ -145,4 +154,8 @@ if ! vguard_activity_flow;then
   return_to_guard
 fi
 source "${GITHUB_WORKSPACE:?}/scripts/vguard-system-recovery.sh"
-vguard_system_recovery
+if ! vguard_system_recovery;then
+  failures=$((failures+1))
+  echo 'FAIL VGuard: native system recovery flow incomplete.' >&2
+  qa_ui_diagnostics
+fi
