@@ -3,6 +3,10 @@
 const PAGES = Object.freeze([
   ['Website', 'https://www.vellivex.com/'],
   ['Beta testing', 'https://www.vellivex.com/testing'],
+  ['VGuard', 'https://www.vellivex.com/apps/guard'],
+  ['VVault', 'https://www.vellivex.com/apps/vault'],
+  ['VRelay', 'https://www.vellivex.com/apps/relay'],
+  ['V Cipher', 'https://www.vellivex.com/apps/cipher'],
   ['Disposable inbox landing', 'https://www.vellivex.com/apps/mail'],
   ['Public SMS landing', 'https://www.vellivex.com/apps/sms'],
   ['VKey', 'https://vkey.vellivex.com/'],
