@@ -75,6 +75,17 @@ try{
   await appStatus(/Offline files installed|No new offline release/);
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+  // Remove automation network interception before testing the browser's native
+  // offline service-worker path. Requests during this phase are offline.
+  await context.unrouteAll({behavior:'wait'});
+  const installed=await page.evaluate(async()=>{
+    const registration=await navigator.serviceWorker.getRegistration();
+    const keys=await caches.keys();
+    return {active:registration?.active?.state,controller:Boolean(navigator.serviceWorker.controller),cacheCount:keys.filter(k=>k.startsWith('v-tools-')).length};
+  });
+  assert.equal(installed.active,'activated');
+  assert.equal(installed.cacheCount,1);
+  console.log('Offline readiness '+name+' '+JSON.stringify(installed));
   await context.setOffline(true);
   await page.reload({waitUntil:'domcontentloaded'});
   assert.equal(await page.evaluate(()=>navigator.onLine),false);
