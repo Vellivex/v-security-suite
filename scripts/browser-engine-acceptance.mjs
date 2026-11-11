@@ -152,6 +152,17 @@ try{
   console.log('Engine '+name+': 5/5 production workflow groups PASS. Linux engine; physical phone, camera, native share and iOS Safari remain separate.');
 }catch(error){
   console.error('FAIL '+name+' at '+stage+' ('+(error?.name||'unknown')+')');
+  if(stage==='offline V Cipher backup creation'){
+    // Report schema only. Never print generated public/private key material.
+    const schema=await page.evaluate(async()=>{
+      const c=crypto.subtle;
+      const rsa=await c.generateKey({name:'RSA-OAEP',modulusLength:3072,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']);
+      const ec=await c.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+      const summary=async key=>{const j=await c.exportKey('jwk',key);return {fields:Object.keys(j).sort(),kty:j.kty,alg:j.alg??null,crv:j.crv??null,ext:j.ext,key_ops:j.key_ops};};
+      return {rsaPublic:await summary(rsa.publicKey),rsaPrivate:await summary(rsa.privateKey),ecPublic:await summary(ec.publicKey),ecPrivate:await summary(ec.privateKey)};
+    }).catch(()=>({unavailable:true}));
+    console.error('Native generated JWK schema '+JSON.stringify(schema));
+  }
   for(const id of ['app-status','cipher-status']){
     try{console.error('Visible '+id+': '+(await page.locator('#'+id).textContent({timeout:500})).slice(0,300));}catch{}
   }
