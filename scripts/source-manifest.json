@@ -180,6 +180,7 @@
   "server/handler.js",
   "server/pages.js",
   "server/phone-shop-config.mjs",
+  "server/phone-shop-media.mjs",
   "server/phone-shop.mjs",
   "tests/app-access-call-scope.test.mjs",
   "tests/app-access-chat-patch.test.mjs",
