@@ -6,8 +6,8 @@ existing mark from `web/brand/vellivex-logo.svg`, the navy/baby-blue brand colou
 and DejaVu Sans. The illustrated handset is explicitly labelled; it is not a
 photograph of a finished or customer-owned device.
 
-The artwork presents Pixel 9a 128GB prepared with GrapheneOS, the new £429 and
-refurbished £349 options, paid preorders, and UK delivery within two weeks
+The artwork presents Pixel 9a 128GB prepared with GrapheneOS, the new £479 and
+refurbished £375 options, paid preorders, and UK delivery within two weeks
 included. Claims and prices must be reviewed whenever the storefront changes.
 Pixel and GrapheneOS names describe the offered hardware and software; this
 artwork does not imply sponsorship, affiliation or endorsement by Google or

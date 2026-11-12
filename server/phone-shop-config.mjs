@@ -2,7 +2,7 @@
 // Public checkout destinations; no credentials or customer records.
 export default {
   "links": {
-    "new": "https://buy.stripe.com/5kQ9ASfuTarE3uwavTb3q00",
-    "refurb": "https://buy.stripe.com/3cIbJ02I70R4aWYbzXb3q01"
+    "new": "https://buy.stripe.com/6oUaEW82r2Zc5CE33rb3q02",
+    "refurb": "https://buy.stripe.com/00w28qgyX6bo8OQfQdb3q03"
   }
 };

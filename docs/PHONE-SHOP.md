@@ -5,8 +5,8 @@ The physical-phone catalogue is separate from the experimental app services.
 order privacy notice, styles, public navigation and sitemap additions.
 `server/phone-shop-config.mjs` contains only public Stripe payment URLs.
 
-The initial products are Pixel 9a 128GB Obsidian, new at GBP 429 and refurbished
-at GBP 349. These are full paid preorders with tracked UK delivery included
+The initial products are Pixel 9a 128GB Obsidian, new at GBP 479 and refurbished
+at GBP 375. These are full paid preorders with tracked UK delivery included
 within 14 calendar days of payment. International orders require a separate
 quote. One handset is available per checkout. No subscription or VAT is added.
 The refurbished specification permits cosmetic wear and requires at least

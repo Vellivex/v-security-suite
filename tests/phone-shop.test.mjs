@@ -34,12 +34,12 @@ function assertNoInventedReviews(value){
 }
 
 test('phone purchase options match the advertised condition, total price and paid preorder contract',async()=>{
-  assert.deepEqual(PHONE_PRODUCTS.map(({id,price})=>({id,price})),[{id:'new',price:429},{id:'refurb',price:349}]);
+  assert.deepEqual(PHONE_PRODUCTS.map(({id,price})=>({id,price})),[{id:'new',price:479},{id:'refurb',price:375}]);
   const catalogue=await html();
   assert.deepEqual(checkoutHrefs(catalogue),[links.new,links.refurb]);
   assert.match(catalogue,/128GB · Obsidian · GrapheneOS/);
-  assert.match(catalogue,/Preorder new Pixel 9a for £429/);
-  assert.match(catalogue,/Preorder refurbished Pixel 9a for £349/);
+  assert.match(catalogue,/Preorder new Pixel 9a for £479/);
+  assert.match(catalogue,/Preorder refurbished Pixel 9a for £375/);
   assert.match(catalogue,/opened only to install and configure/);
   assert.match(catalogue,/Cosmetic wear is possible; battery health is at least 80%/);
   assert.match(catalogue,/UK tracked delivery included/);
@@ -190,7 +190,7 @@ test('catalogue and buying guide publish canonical social previews without copyi
     assert.match(text,/<meta name="twitter:card" content="summary_large_image">/);
     assert.match(text,/<meta property="og:image:width" content="1200">/);
     assert.match(text,/<meta property="og:image:height" content="630">/);
-    assert.match(text,/<meta name="description" content="[^"]*(?:£349|£429)/);
+    assert.match(text,/<meta name="description" content="[^"]*(?:£375|£479)/);
     assert.match(text,/<title>[^<]*GrapheneOS[^<]*UK/i);
     assert.doesNotMatch(text,/untrusted-tracking/);
   }
@@ -204,7 +204,7 @@ test('product structured data describes the two preorder conditions and suppress
   assert.equal(PHONE_PRODUCT_IMAGE,'/media/pixel-9a-obsidian.jpg');
   assert.equal(group.image,origin+PHONE_PRODUCT_IMAGE);
   assert.equal(group.hasVariant.length,2);
-  for(const [index,[id,price,condition]] of [['new',429,'NewCondition'],['refurb',349,'RefurbishedCondition']].entries()){
+  for(const [index,[id,price,condition]] of [['new',479,'NewCondition'],['refurb',375,'RefurbishedCondition']].entries()){
     const variant=group.hasVariant[index],offer=variant.offers;
     assert.equal(variant['@type'],'Product');
     assert.equal(variant.url,origin+'/phones#'+id);
