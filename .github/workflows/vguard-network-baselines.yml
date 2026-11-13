@@ -1,4 +1,4 @@
-name: VGuard Android network baseline probes
+name: VGuard Android network probes (verified APK required)
 on:
   workflow_dispatch:
   push:
@@ -26,6 +26,6 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
-      - name: Install test APK and run two independent Android app network baselines
+      - name: Require a verified APK before Android network probes (otherwise BLOCKED)
         shell: bash
         run: bash scripts/vguard-apk-install-smoke.sh

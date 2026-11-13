@@ -1,26 +1,46 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Read-only APK/package smoke check; does not activate firewall or access device data.
+# Verify an explicitly supplied APK obtained through normal email sign-in.
+# Without a file, check only anonymous download admission; never hash gate HTML.
 set -euo pipefail
 
-URL='https://www.vellivex.com/downloads/VGuard-0.1.4-candidate.apk'
 EXPECTED_SHA='5cc966d7819550974b4e9427a912c9587f2a1f4f30e45c7a6b29f27f2a41a786'
-APK="${RUNNER_TEMP:-/tmp}/vellivex-vguard-candidate.apk"
-trap 'rm -f "$APK"' EXIT
+script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ "$#" -gt 1 ]]; then
+  echo 'Usage: bash scripts/vguard-apk-install-smoke.sh [VERIFIED_DOWNLOAD.apk]' >&2
+  exit 2
+fi
+if [[ "$#" == 0 ]]; then
+  node "$script_root/vguard-download-access.mjs"
+  if [[ "${VGUARD_RUN_EMULATOR:-false}" == 'true' || "${VGUARD_PROBE_BASELINES:-false}" == 'true' ]]; then
+    echo 'BLOCKED VGuard: requested Android checks need an APK file obtained through normal email sign-in. No device or network test ran.' >&2
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+      printf '\nVGuard Android/network checks: **BLOCKED**. A local APK obtained through normal email sign-in is required. No device or network test ran.\n' >> "$GITHUB_STEP_SUMMARY"
+    fi
+    exit 2
+  fi
+  exit 0
+fi
+if [[ ! -f "$1" || -L "$1" ]]; then
+  echo 'FAIL VGuard: supply a regular local APK file downloaded after normal email verification.' >&2
+  exit 2
+fi
+apk_temp=$(mktemp -d "${RUNNER_TEMP:-/tmp}/vellivex-vguard-qa.XXXXXX")
+APK="$apk_temp/candidate.apk"
+trap 'rm -rf "$apk_temp"' EXIT
+cp -- "$1" "$APK"
 
-curl --fail --silent --show-error --proto '=https' --max-redirs 0 \
-  --connect-timeout 15 --max-time 90 --retry 2 --output "$APK" "$URL"
 size=$(stat -c%s "$APK")
 actual=$(sha256sum "$APK" | cut -d' ' -f1)
 mime=$(file --brief --mime-type "$APK")
-echo "VGuard public APK: bytes=${size}; sha256=${actual}; type=${mime}"
+echo "VGuard supplied APK: bytes=${size}; sha256=${actual}; type=${mime}"
 if [[ "$actual" != "$EXPECTED_SHA" ]]; then
   echo "FAIL VGuard: downloaded APK does not match the published candidate SHA-256." >&2
   exit 1
 fi
 test "$size" -ge 30000
 test "$size" -le 50000000
-echo "PASS VGuard: public candidate APK downloaded over HTTPS; exact published SHA-256 matched; size ${size} bytes."
+echo "PASS VGuard: supplied candidate APK exactly matches the pinned published SHA-256; size ${size} bytes."
 
 unzip -tqq "$APK" >/dev/null
 unzip -Z1 "$APK" | grep -Fxq 'AndroidManifest.xml'
@@ -148,7 +168,7 @@ fi
 echo 'PASS VGuard: temporary runner can access hardware virtualisation without broadening KVM permissions.'
 "$emulator" -avd "$avd" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" 2>&1 &
 pid=$!
-trap 'kill "$pid" 2>/dev/null || true; rm -f "$APK"' EXIT
+trap 'kill "$pid" 2>/dev/null || true; rm -rf "$apk_temp"' EXIT
 if ! timeout 135 "$sdk/platform-tools/adb" wait-for-device; then
   echo 'FAIL VGuard: Android emulator did not appear over ADB. Emulator boot diagnostics:' >&2
   tail -n 45 "${RUNNER_TEMP:-/tmp}/vellivex-emulator.log" | sed -E 's/[[:cntrl:]]//g' >&2 || true
