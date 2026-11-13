@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {createHash, webcrypto} from 'node:crypto';
 import {CHAT_INVITATION_BASELINES, createChatInvitationOverride, CALL_INVITATION_BASELINE, patchCallInvitationModule, patchCallInvitationFixture} from '../server/app-access/patch-chat-invitations.mjs';
+import {CLEANUP_RELEASE_BEFORE, CLEANUP_RELEASE_AFTER} from '../server/app-access/patch-chat-cleanup.mjs';
 import {createChatSessionOverride} from '../server/app-access/patch-chat.mjs';
 import {readInvitation, encode64} from './fixtures/app-access/chat-crypto-baseline.mjs';
 
@@ -112,9 +113,11 @@ test('Private preserves malformed-link rejection on Join and valid text/voice pr
   assert.deepEqual(voice.starts, []);
 });
 
-test('existing authenticated session transport remains byte-identical and shared access marker stays', () => {
+test('authenticated session changes only the reviewed cleanup retry and shared access marker stays', () => {
   const session = createChatSessionOverride(read('public-session-baseline.mjs'));
-  assert.equal(digest('export default ' + JSON.stringify(session) + ';\n'), '2f02c953a2c57fbc097a94f83aa7f80183b0c7683f47379585390eec3af53634');
+  assert.equal(digest('export default ' + JSON.stringify(session) + ';\n'), '48e0b728219d92968fc1d34bea10874b7b626a49a5c00f9b450fd40269f301d2');
+  const restored = {'/public-session.mjs': {...session['/public-session.mjs'], body: session['/public-session.mjs'].body.replace(CLEANUP_RELEASE_AFTER, CLEANUP_RELEASE_BEFORE)}};
+  assert.equal(digest('export default ' + JSON.stringify(restored) + ';\n'), '2f02c953a2c57fbc097a94f83aa7f80183b0c7683f47379585390eec3af53634');
   for (const family of ['vkey', 'private']) {
     const combined = {...session, ...createChatInvitationOverride(family, sources[family])};
     assert.equal(combined['/public-session.mjs'], session['/public-session.mjs']);
