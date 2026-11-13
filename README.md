@@ -54,7 +54,7 @@ bash scripts/build.sh
 node scripts/validate-artifact.mjs
 ```
 
-Build packaging expects the original `releases/VGuard-0.1.3-candidate.apk`. To run host tests or inspect browser code, the APK is unnecessary. No private key is needed to inspect or test source; building a separately signed Android APK requires your own key.
+Build packaging expects three exact [retained release inputs](docs/RETAINED-RELEASE-INPUTS.md), including the original `releases/VGuard-0.1.3-candidate.apk`. The build checks their pinned bytes before generating output. To run host tests or inspect browser code, these retained inputs are unnecessary. No private key is needed to inspect or test source; building a separately signed Android APK requires your own key.
 
 The deployment identity lives in a checkout-local `.openai/hosting.json` and is excluded from the public source archive. To self-host, configure a Worker with its generated `dist/server/index.js`, D1 binding `DB`, and apply the migration. Future deployment tooling can replace the beta-specific packaging.
 
