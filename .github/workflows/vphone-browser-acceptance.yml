@@ -1,7 +1,5 @@
 name: Vellivex VPhone sign-in gate availability
 on:
-  schedule:
-    - cron: '41 8 * * 3'
   workflow_dispatch:
   push:
     paths:

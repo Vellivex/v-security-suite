@@ -1,7 +1,5 @@
 name: Vellivex VNumber sign-in gate availability
 on:
-  schedule:
-    - cron: '07 9 * * 5'
   workflow_dispatch:
   push:
     paths:

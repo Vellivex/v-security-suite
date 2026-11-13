@@ -1,7 +1,5 @@
 name: Vellivex public availability
 on:
-  schedule:
-    - cron: '43 7 * * *'
   workflow_dispatch:
   push:
     paths:

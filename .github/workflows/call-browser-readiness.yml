@@ -1,7 +1,5 @@
 name: Vellivex Call sign-in gate availability
 on:
-  schedule:
-    - cron: '19 9 * * 6'
   workflow_dispatch:
   push:
     paths:
