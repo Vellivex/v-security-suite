@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS va_email_state (
   last_requested_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS va_email_state_expiry ON va_email_state(expires_at);
 CREATE TABLE IF NOT EXISTS va_email_challenges (
   id TEXT PRIMARY KEY,
   flow_id TEXT NOT NULL,
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS va_handoffs (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS va_handoff_expiry ON va_handoffs(expires_at);
+CREATE INDEX IF NOT EXISTS va_handoff_parent ON va_handoffs(sso_hash);
 CREATE TABLE IF NOT EXISTS va_app_sessions (
   token_hash TEXT PRIMARY KEY,
   sso_hash TEXT NOT NULL REFERENCES va_sso_sessions(token_hash) ON DELETE CASCADE,
