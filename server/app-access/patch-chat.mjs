@@ -4,6 +4,7 @@
 import {createHash} from 'node:crypto';
 import {readFile, writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+import {CHAT_INVITATION_BASELINES, createChatInvitationOverride} from './patch-chat-invitations.mjs';
 
 export const CHAT_ASSET_BASELINES = Object.freeze({
   vkey: '7ec5d53419278b1223f33b45551c0c1c6bf2f38641b326b3dc54bbf9f9de7482',
@@ -36,7 +37,12 @@ export function createChatOverrides(family, source) {
       typeof client.body !== 'string' || client.type !== 'text/javascript; charset=utf-8') {
     throw new Error('Chat session asset is missing or has unexpected metadata.');
   }
-  return createChatSessionOverride(client.body);
+  const invitation = assets[CHAT_INVITATION_BASELINES[family].path];
+  if (!invitation || Object.keys(invitation).sort().join(',') !== 'body,type' ||
+      typeof invitation.body !== 'string' || invitation.type !== 'text/javascript; charset=utf-8') {
+    throw new Error('Chat invitation asset is missing or has unexpected metadata.');
+  }
+  return Object.freeze({...createChatSessionOverride(client.body), ...createChatInvitationOverride(family, invitation.body)});
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
