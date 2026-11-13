@@ -48,6 +48,13 @@ network test. The separate network-baseline workflow currently has no
 authenticated artifact source and therefore remains blocked at this boundary.
 Do not weaken access controls or add an unreviewed credential to unblock it.
 
+That device-only workflow is manual-only. It does not run automatically on
+source changes, because its hosted runner cannot obtain the gated APK. A manual
+invocation without the required APK still fails as **BLOCKED**; removing an
+automatic trigger does not turn an unperformed test into a pass. The normal
+access and source checks continue on their existing code-change triggers, and
+the daily health sweep must keep APK/device coverage explicitly separate.
+
 The ordinary public workflow no longer offers an emulator input that its
 unauthenticated runner cannot fulfill. Device testing uses the supplied-file
 commands above until an approved authenticated artifact pipeline is available.

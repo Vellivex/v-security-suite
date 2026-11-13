@@ -2,10 +2,18 @@ name: Public identity check
 on: [push, pull_request, workflow_dispatch]
 permissions: {}
 jobs:
+  security-regressions:
+    uses: ./.github/workflows/security-checks.yml
   public-identity:
+    needs: security-regressions
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Require every security regression check to succeed
+        env:
+          REGRESSION_RESULT: ${{ needs.security-regressions.result }}
+        run: test "$REGRESSION_RESULT" = success
       - name: Fetch full public history without a credential
         shell: bash
         env:
@@ -19,6 +27,6 @@ jobs:
           git fetch origin "$AUDIT_HEAD_SHA"
           git checkout --detach FETCH_HEAD
       - name: Check known public identity exposures and reachable history
-        run: python3 scripts/public_identity_check.py --history all --history-content
+        run: python3 scripts/public_identity_check.py --history all --history-content --require-head-identity
       - name: Test identity protection
         run: python3 -m unittest discover -s tests -p 'test_public_identity_*.py'
