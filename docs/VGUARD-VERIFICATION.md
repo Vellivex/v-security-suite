@@ -51,3 +51,33 @@ Do not weaken access controls or add an unreviewed credential to unblock it.
 The ordinary public workflow no longer offers an emulator input that its
 unauthenticated runner cannot fulfill. Device testing uses the supplied-file
 commands above until an approved authenticated artifact pipeline is available.
+
+## Verify publishing identity after merging
+
+The actual publishing HEAD must identify `Vellivex <v@vellivex.com>` as both
+author and committer. A compliant pull-request commit does not prove that a
+hosting-generated merge has the same identities: merge or squash commits can
+use GitHub's platform identity. Inspect the resulting main commit before
+publishing, even when the pull request's identity checks passed.
+
+Use the protected pull-request process and rebase-and-merge through the
+dedicated Vellivex account, then read back the actual author, committer and tree.
+GitHub [describes rebase merges as using the current user's committer identity](https://github.blog/developer-skills/github/rebase-and-merge-pull-requests/),
+but this must still be verified on the resulting commit. Its
+[current merge documentation](https://docs.github.com/en/pull-requests/reference/pull-request-merges#rebase-and-merge-your-commits)
+also explains that rebase changes commit SHAs and drops originally empty
+commits; an empty identity-only commit cannot be relied on as a rebase repair.
+
+Fetch and check out the actual publishing commit, confirm both identities, and
+run the strict check plus the required build:
+
+```sh
+git show -s --format=fuller HEAD
+python3 scripts/public_identity_check.py --history all --history-content --require-head-identity
+bash scripts/build.sh
+```
+
+Passing CI without `--require-head-identity` does not establish this stricter
+publishing requirement. If the resulting metadata is wrong, stop publication
+and resolve it through the protected process. Never disable branch protection
+or broaden an identity allowlist to force a pass.
