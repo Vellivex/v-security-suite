@@ -4,6 +4,7 @@
 import {createHash} from 'node:crypto';
 import {readFile, writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+import {createCleanupRetry} from './patch-chat-cleanup.mjs';
 import {CHAT_INVITATION_BASELINES, createChatInvitationOverride} from './patch-chat-invitations.mjs';
 
 export const CHAT_ASSET_BASELINES = Object.freeze({
@@ -22,7 +23,7 @@ export function createChatSessionOverride(source) {
   if (source.split(before).length !== 3 || source.includes(after)) {
     throw new Error('Chat session credential anchors differ from the audited client.');
   }
-  return Object.freeze({[CLIENT_PATH]: Object.freeze({body: source.replaceAll(before, after), type: 'text/javascript; charset=utf-8'})});
+  return Object.freeze({[CLIENT_PATH]: Object.freeze({body: createCleanupRetry(source.replaceAll(before, after)), type: 'text/javascript; charset=utf-8'})});
 }
 
 export function createChatOverrides(family, source) {
