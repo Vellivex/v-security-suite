@@ -1,7 +1,5 @@
 name: Vellivex VDecoy sign-in gate availability
 on:
-  schedule:
-    - cron: '29 8 * * 2'
   workflow_dispatch:
   push:
     paths:

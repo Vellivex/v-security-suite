@@ -1,7 +1,5 @@
 name: Vellivex chat sign-in gate availability
 on:
-  schedule:
-    - cron: '17 8 * * 1'
   workflow_dispatch:
   push:
     paths:

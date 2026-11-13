@@ -1,7 +1,5 @@
 name: Vellivex VMail sign-in gate availability
 on:
-  schedule:
-    - cron: '53 8 * * 4'
   workflow_dispatch:
   push:
     paths:
