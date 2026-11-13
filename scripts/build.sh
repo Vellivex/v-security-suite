@@ -4,6 +4,7 @@ set -euo pipefail
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 dist_root="$project_root/dist"
 
+python3 "$project_root/scripts/retained_release_inputs.py" --root "$project_root"
 python3 "$project_root/scripts/public_identity_check.py" --root "$project_root" --history all --history-content --require-head-identity
 node "$project_root/scripts/verify-vendor.mjs"
 python3 "$project_root/scripts/verify-vguard-release.py" --require-apk
