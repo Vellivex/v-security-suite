@@ -1,11 +1,9 @@
 name: VGuard Android network probes (verified APK required)
 on:
+  # Device probes require a legitimately downloaded APK. Keep this explicit
+  # invocation BLOCKED until an authenticated artifact source is available;
+  # ordinary code pushes retain the separate access and source checks.
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/vguard-network-baselines.yml'
-      - 'scripts/vguard-apk-install-smoke.sh'
-      - 'scripts/vguard-probe-baselines.sh'
 permissions: {}
 concurrency:
   group: vellivex-vguard-network-qa

@@ -183,14 +183,87 @@ export async function packLiveWorkers({ baselineDirs, expectedModules, outputDir
   } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
 }
 
+const canonical = value => {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+};
+
+// Current-worker repairs only: release migrations and binding changes need their
+// own separately reviewed process. Inputs must come from a fresh independent
+// capture; this local validator cannot obtain or lock Cloudflare's live state.
+export function validatePreservedDeployment({ service, expectedVersion, currentVersion, baselineMetadata, candidateMetadata, baselineModules, candidateModules, reviewedChanges = {} } = {}) {
+  if (!/^[a-z0-9][a-z0-9-]+$/.test(service ?? '') || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(expectedVersion ?? '') || currentVersion !== expectedVersion) throw new Error('Fresh expected live version is required and must match.');
+  const validateMetadata = metadata => {
+    if (!metadata || !validModuleName(metadata.main_module) || !/^\d{4}-\d{2}-\d{2}$/.test(metadata.compatibility_date ?? '') || !Array.isArray(metadata.compatibility_flags) || metadata.compatibility_flags.some(flag => typeof flag !== 'string') || !Array.isArray(metadata.bindings)) throw new Error('Complete main module, compatibility date/flags and binding metadata are required.');
+    const names = new Set();
+    for (const binding of metadata.bindings) {
+      if (!binding || typeof binding.name !== 'string' || !binding.name || typeof binding.type !== 'string' || !binding.type || names.has(binding.name)) throw new Error('Binding metadata must have unique names and types.');
+      names.add(binding.name);
+    }
+  };
+  validateMetadata(baselineMetadata); validateMetadata(candidateMetadata);
+  if (baselineMetadata.main_module !== candidateMetadata.main_module) throw new Error('Current main module must be preserved; refusing an access-wrapper bypass.');
+  if (canonical(baselineMetadata) !== canonical(candidateMetadata)) throw new Error('Bindings and complete deployment metadata must be preserved exactly.');
+  const validateInventory = inventory => {
+    if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory) || !Object.keys(inventory).length) throw new Error('Complete module inventory is required.');
+    for (const [name, item] of Object.entries(inventory)) if (!validModuleName(name) || !item || !/^[a-f0-9]{64}$/.test(item.sha256 ?? '') || typeof item.type !== 'string' || !item.type) throw new Error('Complete module names, hashes and MIME types are required.');
+  };
+  validateInventory(baselineModules); validateInventory(candidateModules);
+  const names = Object.keys(baselineModules).sort();
+  if (names.join('\n') !== Object.keys(candidateModules).sort().join('\n') || !Object.hasOwn(baselineModules, baselineMetadata.main_module)) throw new Error('Every original module, including the current main, must be preserved.');
+  if (!reviewedChanges || typeof reviewedChanges !== 'object' || Array.isArray(reviewedChanges)) throw new Error('An exact reviewed change inventory is required.');
+  const changed = [];
+  for (const name of names) {
+    const before = baselineModules[name], after = candidateModules[name];
+    if (before.type !== after.type) throw new Error(`Module MIME type changed: ${name}`);
+    if (before.sha256 === after.sha256) continue;
+    const reviewed = reviewedChanges[name];
+    if (!reviewed || reviewed.beforeSha256 !== before.sha256 || reviewed.afterSha256 !== after.sha256) throw new Error(`Unreviewed module bytes: ${name}`);
+    // Repair packaging must not replace released APKs, archives or other binary
+    // assets, even if someone accidentally adds their hashes to the edit list.
+    if (/\.(apk|zip|wasm|png|jpe?g|webp|ico|woff2?)$/i.test(name) || !/^(application\/(javascript|ecmascript)(\+module)?|text\/(javascript|plain))$/.test(before.type.split(';')[0].trim())) throw new Error(`Binary release module cannot change in repair mode: ${name}`);
+    changed.push(name);
+  }
+  if (changed.sort().join('\n') !== Object.keys(reviewedChanges).sort().join('\n')) throw new Error('Reviewed changes must match exactly the changed modules.');
+  return { service, expectedVersion, mainModule: baselineMetadata.main_module, moduleCount: names.length, bindingCount: baselineMetadata.bindings.length, changedModules: changed, metadataSha256: hash(canonical(candidateMetadata)) };
+}
+
+export async function packPreservedWorker({ baselineDir, candidateDir, outputDir, ...capture } = {}) {
+  if (!baselineDir || !candidateDir || !outputDir) throw new Error('Complete baseline and candidate directories and a new output directory are required.');
+  const evidence = validatePreservedDeployment(capture);
+  const hashInventory = inventory => Object.fromEntries(Object.entries(inventory).map(([name, item]) => [name, item.sha256]));
+  await readVerifiedModules(baselineDir, hashInventory(capture.baselineModules));
+  const modules = await readVerifiedModules(candidateDir, hashInventory(capture.candidateModules));
+  const destination = resolve(outputDir);
+  try { await lstat(destination); throw new Error('Output directory already exists.'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const temporary = await mkdtemp(join(dirname(destination), '.vellivex-preserved-package-'));
+  try {
+    for (const [name, bytes] of Object.entries(modules)) {
+      const path = join(temporary, 'modules', name);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, bytes, { flag: 'wx' });
+    }
+    await writeFile(join(temporary, 'upload-metadata.json'), JSON.stringify(capture.candidateMetadata, null, 2) + '\n', { flag: 'wx' });
+    const manifest = { protocol: 'vellivex.preserved-repair.v1', ...evidence, modules: capture.candidateModules, reviewedChanges: capture.reviewedChanges ?? {} };
+    await writeFile(join(temporary, 'package-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+    await rename(temporary, destination);
+    return manifest;
+  } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [mode, configPath, output] = process.argv.slice(2);
-  if (!['payload', 'pack'].includes(mode) || !configPath || !output) throw new Error('Usage: node package-live.mjs payload|pack CONFIG.json OUTPUT');
+  if (!['payload', 'pack', 'preserve'].includes(mode) || !configPath || !output) throw new Error('Usage: node package-live.mjs payload|pack|preserve CONFIG.json OUTPUT');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   if (mode === 'payload') {
     const payload = await buildPayload(config);
     await writeFile(output, JSON.stringify(payload), { flag: 'wx' });
     console.log(JSON.stringify({ workers: Object.keys(payload.workerPlans), payloadSha256: hash(JSON.stringify(payload)), evidence: payload.evidence }));
+  } else if (mode === 'preserve') {
+    const manifest = await packPreservedWorker({ ...config, outputDir: output });
+    console.log(JSON.stringify({ service: manifest.service, expectedVersion: manifest.expectedVersion, moduleCount: manifest.moduleCount, bindingCount: manifest.bindingCount, changedModules: manifest.changedModules, output }));
   } else {
     const manifest = await packLiveWorkers({ ...config, outputDir: output });
     console.log(JSON.stringify({ workers: Object.keys(manifest.workers), output }));

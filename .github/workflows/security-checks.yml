@@ -1,5 +1,7 @@
 name: Security regression checks
-on: [push, pull_request]
+# Invoked by the required public-identity workflow. That required job explicitly
+# fails if this reusable workflow fails, is skipped, or is cancelled.
+on: [workflow_call]
 permissions: {}
 jobs:
   host-checks:
@@ -8,11 +10,14 @@ jobs:
     steps:
       - name: Fetch public source without a persistent credential
         shell: bash
+        env:
+          AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          [[ "$AUDIT_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init .
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "$GITHUB_SHA"
+          git fetch --depth=1 origin "$AUDIT_HEAD_SHA"
           git checkout --detach FETCH_HEAD
       - name: Select Node 24 for SQLite-backed authentication regressions
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

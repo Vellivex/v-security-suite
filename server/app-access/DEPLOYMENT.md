@@ -111,3 +111,53 @@ Verification commands include:
 node --test tests/app-access-package.test.mjs tests/app-access-call-scope.test.mjs tests/app-access-mail-proxy.test.mjs
 node server/app-access/verify-call-integration.mjs /path/to/audited/accounts/modules
 ```
+
+## Preserving an already deployed Worker during a repair
+
+Use the existing packager's `preserve` mode for every daily automatic repair and
+other one-module production repair. A generic `scripts/build.sh` output is not
+an input to this path: it contains historical release inputs, not the current
+production module tree. The packager never calls a provider or changes service.
+
+```sh
+node server/app-access/package-live.mjs preserve CAPTURE.json NEW_DIRECTORY
+```
+
+The capture must contain these independently obtained fields:
+
+- `service`, `expectedVersion` and the freshly read `currentVersion`;
+- `baselineMetadata` and `candidateMetadata`: complete reviewed upload metadata,
+  including `main_module`, compatibility settings and bindings. Preserve any
+  existing provider-supported secret-preservation fields; do not export secret
+  values merely to use this check;
+- `baselineModules` and `candidateModules`: complete name-to-`{sha256,type}` maps,
+  where `type` is the exact module MIME type;
+- `reviewedChanges`: only changed module names, each with independently reviewed
+  `beforeSha256` and `afterSha256` values;
+- `baselineDir` and `candidateDir`: the complete corresponding module trees.
+
+The validator requires the same captured main module, every original module,
+unchanged module MIME types, exact bindings and all other metadata. Any changed
+source bytes require the precise reviewed before/after hashes. Missing, extra,
+symlinked or mismatched files stop packaging. Binary release replacements are
+rejected in repair mode. It therefore rejects the historical accidental switch
+from `app-access-entry.mjs` to `index.mjs`, a lost access wrapper or binding, and
+an unreviewed substitution of the generic older APK-bearing module. Ungated
+services retain their actual captured main; this path does not invent wrappers.
+
+The result contains all module bytes, `upload-metadata.json` and a
+`package-manifest.json` containing the module and metadata hashes. Upload the exact emitted metadata and bytes, then
+re-read versions, module hashes and settings. Immediately before upload compare
+the expected version again, and stop if another change has been deployed. Keep
+the captured version for rollback. Only promote after the affected public
+routes and gates pass. Never disable a gate to make a health check pass.
+
+`validatePreservedDeployment(capture)` is also exported for preservation tools
+that obtain complete inventories remotely without downloading module bytes.
+This form checks inventory evidence only; `packPreservedWorker` additionally
+hashes both local trees and writes the package atomically. Neither form can
+prove a supplied capture is fresh, lock a deployment against concurrent changes,
+or prevent an administrator from bypassing it through a direct provider API.
+This is enforced in this packaging path, not an account-level deployment policy.
+Binding changes, added/removed modules and native releases require their own
+separately reviewed release procedure and are deliberately outside repair mode.

@@ -211,6 +211,7 @@
   "tests/crypto-cleanup.test.mjs",
   "tests/crypto-interoperability.py",
   "tests/crypto.test.mjs",
+  "tests/deployment-preservation.test.mjs",
   "tests/feedback-adversarial.test.mjs",
   "tests/feedback-ui.test.mjs",
   "tests/fixtures/app-access/call-crypto-baseline.mjs",

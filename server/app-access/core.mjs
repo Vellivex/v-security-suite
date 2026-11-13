@@ -4,6 +4,7 @@ import { createVerificationMailer } from './mail.mjs';
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 const FLOW_MS = 10 * MINUTE, SESSION_MS = 30 * DAY, HANDOFF_MS = MINUTE;
+const CLEANUP_MS = 10 * MINUTE;
 const INTERNAL_ORIGIN = 'https://app-access.internal';
 const SSO_COOKIE = '__Host-vellivex_apps_sso';
 const BROWSER_COOKIE = '__Host-vellivex_apps_browser';
@@ -144,13 +145,26 @@ class AppAccess {
   }
   stmt(sql, ...args) { return this.db.prepare(sql).bind(...args); }
   async clean() {
-    const now = this.now();
-    // Explicit dependency order also supports D1 databases with foreign keys disabled.
-    await this.db.batch([
-      this.stmt('DELETE FROM va_app_sessions WHERE expires_at<=? OR sso_hash IN (SELECT token_hash FROM va_sso_sessions WHERE expires_at<=?)', now, now),
-      this.stmt('DELETE FROM va_handoffs WHERE expires_at<=? OR sso_hash IN (SELECT token_hash FROM va_sso_sessions WHERE expires_at<=?)', now, now),
-      ...['va_sso_sessions', 'va_email_challenges', 'va_email_state', 'va_flows', 'va_logout_flows', 'va_limits', 'va_mail_budget'].map(table => this.stmt(`DELETE FROM ${table} WHERE expires_at<=?`, now))
-    ]);
+    const now = this.now(), key = await this.crypto.mac('expiry-cleanup', 'global');
+    // A database claim bounds cleanup across requests and Worker instances. Keep the
+    // claim outside the purge transaction so a failed purge cannot create a retry storm.
+    try {
+      const claimed = await this.stmt('INSERT INTO va_limits(key,hits,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<=? RETURNING hits', key, now + CLEANUP_MS, now).first();
+      if (!claimed) return;
+      // Explicit dependency order also supports D1 databases with foreign keys disabled.
+      await this.db.batch([
+        this.stmt('DELETE FROM va_app_sessions WHERE expires_at<=? OR sso_hash IN (SELECT token_hash FROM va_sso_sessions WHERE expires_at<=?)', now, now),
+        this.stmt('DELETE FROM va_handoffs WHERE expires_at<=? OR sso_hash IN (SELECT token_hash FROM va_sso_sessions WHERE expires_at<=?)', now, now),
+        ...['va_sso_sessions', 'va_email_challenges', 'va_email_state', 'va_flows', 'va_logout_flows', 'va_mail_budget'].map(table => this.stmt(`DELETE FROM ${table} WHERE expires_at<=?`, now)),
+        // Retain the maintenance lease so delayed requests cannot recreate an old claim.
+        this.stmt('DELETE FROM va_limits WHERE expires_at<=? AND key<>?', now, key)
+      ]);
+    } catch {
+      // Every authorization query enforces expiry independently. Defer physical
+      // cleanup without admitting expired credentials or failing a valid sign-in.
+      // A failed/ambiguous claim never falls back to running an unclaimed purge.
+      console.warn('App-access expiry cleanup deferred');
+    }
   }
   async limit(scope, value, max, windowMs) {
     const now = this.now(), bucket = Math.floor(now / windowMs);
@@ -161,12 +175,12 @@ class AppAccess {
   async prepare(body, request) {
     exactKeys(body, ['audience', 'returnPath', 'state', 'verifierHash']);
     if (!allowedAudience(body.audience) || !validReturnPath(body.audience, body.returnPath) || !validToken(body.state) || !validToken(body.verifierHash)) fail(400, 'invalid_request');
-    await this.clean();
     const ip = trustedIP(request);
     await this.limit('prepare-ip-minute', ip, 20, MINUTE);
     await this.limit('prepare-ip-hour', ip, 60, HOUR);
     await this.limit('prepare-global-minute', 'all', 300, MINUTE);
     await this.limit('prepare-global-day', 'all', 5000, DAY);
+    await this.clean();
     const flowId = random(), now = this.now();
     await this.stmt('INSERT INTO va_flows(id,audience,return_path,state,verifier_hash,created_at,expires_at) VALUES(?,?,?,?,?,?,?)',
       await digest(flowId), body.audience, body.returnPath, body.state, body.verifierHash, now, now + FLOW_MS).run();
@@ -192,10 +206,10 @@ class AppAccess {
     let browser = readCookie(request, BROWSER_COOKIE, false); if (!browser) browser = random();
     const browserHash = await digest(browser), now = this.now();
     if (flowId === null) {
-      await this.clean();
       await this.limit('management-ip-hour', trustedIP(request), 120, HOUR);
       await this.limit('management-global-minute', 'all', 200, MINUTE);
       await this.limit('management-global-day', 'all', 5000, DAY);
+      await this.clean();
       const session = await this.sso(request, false), currentToken = readCookie(request, SSO_COOKIE, false);
       const id = random(), idHash = await digest(id), ssoHash = currentToken ? await digest(currentToken) : '';
       await this.stmt('INSERT INTO va_logout_flows(id,browser_hash,sso_hash,expires_at) VALUES(?,?,?,?)', idHash, browserHash, ssoHash, now + FLOW_MS).run();

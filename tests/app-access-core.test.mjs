@@ -12,18 +12,38 @@ const INTERNAL = 'https://app-access.internal';
 const token = () => Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
 const hash = async value => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))).toString('base64url');
 class D1 {
-  constructor() { this.sql = new DatabaseSync(':memory:'); this.sql.exec(readFileSync(new URL('../server/app-access/schema.sql', import.meta.url), 'utf8')); }
+  constructor() {
+    this.sql = new DatabaseSync(':memory:'); this.sql.exec(readFileSync(new URL('../server/app-access/schema.sql', import.meta.url), 'utf8'));
+    this.cleanupAttempts = 0; this.cleanupClaims = 0; this.admissionAttempts = 0;
+  }
   prepare(sql) {
     const db = this;
     return { sql, args: [], bind(...args) { return { ...this, args }; },
-      async first() { return db.sql.prepare(this.sql).get(...this.args) ?? null; },
+      async first() {
+        if (this.sql.startsWith('INSERT INTO va_limits')) {
+          if (this.sql.includes('SET expires_at=excluded.expires_at')) {
+            db.cleanupClaims++;
+            if (db.beforeCleanupClaim) await db.beforeCleanupClaim();
+            if (db.failCleanupClaim) throw Error('fixture cleanup claim unavailable');
+          } else if (++db.admissionAttempts === db.denyAdmissionAt) return null;
+        }
+        return db.sql.prepare(this.sql).get(...this.args) ?? null;
+      },
       async all() { return { results: db.sql.prepare(this.sql).all(...this.args) }; },
       async run() { return { meta: db.sql.prepare(this.sql).run(...this.args) }; }
     };
   }
   async batch(statements) {
+    const cleanup = statements[0]?.sql.startsWith('DELETE FROM va_app_sessions');
+    if (cleanup) this.cleanupAttempts++;
     this.sql.exec('BEGIN');
-    try { const result = statements.map(s => ({ results: this.sql.prepare(s.sql).all(...s.args) })); this.sql.exec('COMMIT'); return result; }
+    try {
+      const result = statements.map((s, index) => {
+        if (cleanup && this.failCleanup && index === 1) throw Error('fixture cleanup unavailable');
+        return { results: this.sql.prepare(s.sql).all(...s.args) };
+      });
+      this.sql.exec('COMMIT'); return result;
+    }
     catch (error) { this.sql.exec('ROLLBACK'); throw error; }
   }
   count(table) { return this.sql.prepare(`SELECT count(*) AS n FROM ${table}`).get().n; }
@@ -37,7 +57,7 @@ function fixture(options = {}) {
     const internal = path.startsWith('/__app_access/'), headers = { 'CF-Connecting-IP': '192.0.2.20', ...extra.headers };
     if (!internal) { headers.Origin ??= CENTRAL; headers['Sec-Fetch-Site'] ??= 'same-origin'; headers.Cookie ??= [...jar].map(([k,v]) => `${k}=${v}`).join('; '); }
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const response = await app.fetch(new Request((internal ? INTERNAL : CENTRAL) + path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), env);
+    const response = await (extra.app ?? app).fetch(new Request((internal ? INTERNAL : CENTRAL) + path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), env);
     if (!internal && extra.updateCookies !== false) for (const value of response.headers.getSetCookie()) {
       const [name, content] = value.split(';')[0].split('='); if (content) jar.set(name, content); else jar.delete(name);
     }
@@ -263,6 +283,112 @@ test('prepare limits are persisted and expired rows are cleaned without removing
   t.clock.now += 11 * 60000;
   assert.equal((await t.call('/__app_access/prepare', { audience: CENTRAL, returnPath: '/call.html', state: token(), verifierHash: token() })).status, 200);
   assert.equal(t.db.count('va_flows'), 1);
+});
+
+test('every admission limit rejects before claiming or executing expiry cleanup', async () => {
+  for (const path of ['/__app_access/prepare', '/api/app-access/bootstrap']) {
+    for (let denied = 1; denied <= 4; denied++) {
+      const t = fixture(); t.db.denyAdmissionAt = denied;
+      const body = path.includes('/prepare') ? { audience: CENTRAL, returnPath: '/call.html', state: token(), verifierHash: token() } : undefined;
+      assert.equal((await t.call(path, body)).status, 429, `${path} admission ${denied}`);
+      assert.equal(t.db.cleanupClaims, 0); assert.equal(t.db.cleanupAttempts, 0);
+      assert.equal(t.db.count('va_flows'), 0); assert.equal(t.db.count('va_logout_flows'), 0);
+    }
+  }
+});
+
+test('concurrent prepare and management requests share one rolling cleanup lease across Worker instances', async () => {
+  const t = fixture(); t.clock.now = Math.floor(t.clock.now / 600000) * 600000 + 1000;
+  const calls = Array.from({ length: 12 }, (_, index) => {
+    const app = createAppAccess({ now: () => t.clock.now, sendMail: async () => { throw Error('unexpected mail'); } });
+    return index % 2
+      ? t.call('/api/app-access/bootstrap', undefined, { app })
+      : t.call('/__app_access/prepare', { audience: CENTRAL, returnPath: '/call.html', state: token(), verifierHash: token() }, { app });
+  });
+  assert((await Promise.all(calls)).every(response => response.status === 200));
+  assert.equal(t.db.cleanupAttempts, 1); assert.equal(t.db.cleanupClaims, 12);
+  t.clock.now += 599999;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 1);
+  t.clock.now += 1;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 2);
+});
+
+test('a request delayed across a cleanup boundary cannot recreate an older maintenance claim', async () => {
+  const t = fixture(); t.clock.now = Math.floor(t.clock.now / 600000) * 600000 + 599999;
+  let release, reached;
+  const waiting = new Promise(resolve => { release = resolve; }), paused = new Promise(resolve => { reached = resolve; });
+  t.db.beforeCleanupClaim = async () => {
+    t.db.beforeCleanupClaim = null;
+    reached(); await waiting;
+  };
+  const old = t.call('/__app_access/prepare', { audience: CENTRAL, returnPath: '/call.html', state: token(), verifierHash: token() });
+  await paused;
+  t.clock.now += 2;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 1);
+  release(); assert.equal((await old).status, 200);
+  assert.equal(t.db.cleanupAttempts, 1);
+  t.clock.now += 599999;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 1);
+  t.clock.now += 1;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 2);
+});
+
+test('a failed cleanup keeps its claim while valid sign-in and expiry checks remain independent', async () => {
+  const t = fixture(); t.clock.now = Math.floor(t.clock.now / 600000) * 600000 + 1000;
+  t.db.failCleanup = true;
+  const registered = await t.register();
+  assert.equal(t.db.cleanupAttempts, 1); assert.equal(t.db.count('va_users'), 1);
+  assert.equal((await t.call('/api/app-access/bootstrap')).value.signedIn, true);
+  assert.equal(t.db.cleanupAttempts, 1);
+  assert.equal((await t.call('/__app_access/validate', { audience: registered.f.audience, sessionToken: registered.redeemed.value.sessionToken })).status, 200);
+
+  const challengeFlow = await t.flow(), pending = await t.request(challengeFlow, 'pending@example.test'), pendingCode = t.messages.at(-1).code;
+  assert.equal(pending.status, 202);
+  const handoffFlow = await t.flow(), handoff = await t.call('/api/app-access/continue', { flowId: handoffFlow.flowId, csrf: handoffFlow.csrf });
+  assert.equal(handoff.status, 200);
+  t.clock.now += 31 * 86400000;
+  const expired = await t.call('/api/app-access/bootstrap');
+  assert.equal(expired.status, 200); assert.equal(expired.value.signedIn, false); assert.equal(expired.value.email, undefined);
+  assert.equal(t.db.cleanupAttempts, 2);
+  assert.equal(t.db.count('va_sso_sessions'), 1); assert.equal(t.db.count('va_app_sessions'), 1);
+  assert.equal((await t.call('/__app_access/validate', { audience: registered.f.audience, sessionToken: registered.redeemed.value.sessionToken })).status, 401);
+  assert.equal((await t.verify(challengeFlow, pending.value.challengeId, pendingCode)).status, 401);
+  assert.equal((await t.redeem(handoffFlow, handoff.value.redirectTo)).status, 401);
+  assert.equal((await t.call('/api/app-access/continue', { flowId: handoffFlow.flowId, csrf: handoffFlow.csrf })).status, 401);
+
+  t.db.failCleanup = false;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 2);
+  t.clock.now += 600000;
+  assert.equal((await t.call('/api/app-access/bootstrap')).status, 200);
+  assert.equal(t.db.cleanupAttempts, 3);
+  assert.equal(t.db.count('va_sso_sessions'), 0); assert.equal(t.db.count('va_app_sessions'), 0);
+  assert.equal(t.db.count('va_users'), 1);
+});
+
+test('an unavailable cleanup claim skips all purge work without bypassing normal authentication', async () => {
+  for (const path of ['/__app_access/prepare', '/api/app-access/bootstrap']) {
+    const t = fixture(); t.db.failCleanupClaim = true;
+    const body = path.includes('/prepare') ? { audience: CENTRAL, returnPath: '/call.html', state: token(), verifierHash: token() } : undefined;
+    const response = await t.call(path, body);
+    assert.equal(response.status, 200);
+    assert.equal(t.db.cleanupAttempts, 0);
+    assert.equal(t.db.count(path.includes('/prepare') ? 'va_flows' : 'va_logout_flows'), 1);
+    assert.equal(t.db.count('va_users'), 0);
+    if (path.includes('/bootstrap')) assert.equal(response.value.signedIn, false);
+  }
+  const t = fixture(); t.db.failCleanupClaim = true;
+  const registered = await t.register();
+  assert.equal((await t.call('/api/app-access/bootstrap')).value.signedIn, true);
+  t.clock.now += 31 * 86400000;
+  assert.equal((await t.call('/api/app-access/bootstrap')).value.signedIn, false);
+  assert.equal((await t.call('/__app_access/validate', { audience: registered.f.audience, sessionToken: registered.redeemed.value.sessionToken })).status, 401);
+  assert.equal(t.db.cleanupAttempts, 0); assert.equal(t.db.count('va_sso_sessions'), 1);
 });
 
 test('mail transport requires a bounded successful receipt and rejects redirects, errors and stalled streams', async () => {
