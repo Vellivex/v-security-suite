@@ -167,8 +167,8 @@ test('sitemap adds only public phone pages and thanks cannot assert payment succ
   const worker=shop({links},{fetch:()=>new Response(original,{headers:{'Content-Type':'application/xml','ETag':'old'}})});
   const wrapped=shop({links},worker);
   const sitemap=await (await wrapped.fetch(request('/sitemap.xml'),sellerEnv)).text();
-  for(const path of ['/phones','/phones/terms','/phones/privacy',PHONE_LAUNCH_PATH]) assert.equal(sitemap.split('<loc>'+origin+path+'</loc>').length-1,1,path);
-  assert.doesNotMatch(sitemap,/phones\/thanks/);
+  for(const path of ['/phones',PHONE_LAUNCH_PATH]) assert.equal(sitemap.split('<loc>'+origin+path+'</loc>').length-1,1,path);
+  assert.doesNotMatch(sitemap,/phones\/(?:thanks|terms|privacy)/);
   const response=await worker.fetch(request('/phones/thanks?payment_status=paid&session_id=pretend'),sellerEnv);
   assert.equal(response.headers.get('X-Robots-Tag'),'noindex, nofollow');
   const text=await response.text();
@@ -366,4 +366,28 @@ test('the product photograph is the original JPEG and its public route matches p
   assert.equal((await head.arrayBuffer()).byteLength,0);
   const catalogue=await html();
   assert.equal((catalogue.match(new RegExp('src="'+PHONE_PRODUCT_IMAGE+'"','g'))||[]).length,2);
+});
+
+
+test('phone legal disclosures remain available but carry noindex for GET and HEAD', async()=>{
+  for(const path of ['/phones/terms','/phones/privacy']) {
+    const response=await shop().fetch(request(path),sellerEnv);
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('X-Robots-Tag'),'noindex, follow');
+    const body=await response.text();
+    assert.match(body,/<meta name="robots" content="noindex,follow">/);
+    assert.match(body,/Vellivex Test Supplier/);
+    assert.match(body,/1 Example Street/);
+    const head=await shop().fetch(request(path+'/', 'HEAD'),sellerEnv);
+    assert.equal(head.headers.get('X-Robots-Tag'),'noindex, follow');
+    assert.equal(await head.text(),'');
+  }
+});
+
+test('sitemap removes existing legal entries while preserving unrelated metadata', async()=>{
+  const original='<urlset><url><loc>https://www.vellivex.com/phones/terms</loc></url><url><loc>https://www.vellivex.com/phones/privacy/</loc></url><url><loc>https://www.vellivex.com/blog/keep</loc><lastmod>2026-11-12</lastmod></url></urlset>';
+  const response=await shop({links},{fetch:async()=>new Response(original,{headers:{'Content-Type':'application/xml'}})}).fetch(request('/sitemap.xml'),sellerEnv);
+  const body=await response.text();
+  assert.doesNotMatch(body,/phones\/(?:terms|privacy)/);
+  assert.match(body,/<loc>https:\/\/www\.vellivex\.com\/blog\/keep<\/loc><lastmod>2026-11-12<\/lastmod>/);
 });

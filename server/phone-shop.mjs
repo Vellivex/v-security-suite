@@ -13,6 +13,7 @@ export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
 const PUBLIC_PAGES = new Set(['/','/beta','/source','/trust','/blog','/testing','/feedback','/security','/brand','/roadmap','/privacy','/terms']);
+const PHONE_NOINDEX_LEGAL_PATHS = new Set(['/phones/terms','/phones/privacy']);
 const SHOP_PATHS = new Set(['/phones','/phones/terms','/phones/privacy','/phones/thanks','/phones.css','/phones-promotion.css',PHONE_LAUNCH_PATH]);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function paymentLink(value) {
@@ -95,7 +96,7 @@ function seoMarkup(title, description, path, schema) {
 }
 
 function layout(title, body, path = '/phones', description = 'Google Pixel 9a privacy phones configured with official GrapheneOS, Signal and access to Vellivex apps. New or refurbished. UK delivery within two weeks.', schema = []) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0a101b"><meta name="description" content="${escape(description)}"><meta name="robots" content="${path === '/phones/thanks' ? 'noindex,nofollow' : 'index,follow'}"><link rel="canonical" href="https://www.vellivex.com${path}"><title>${escape(title)} | Vellivex</title>${seoMarkup(title,description,path,schema)}<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/phones.css"></head><body class="ps-body"><a href="#main" class="ps-skip">Skip to content</a><header class="ps-header"><div class="ps-wrap ps-header-inner"><a class="ps-brand" href="/" aria-label="Vellivex home"><img src="/brand/vellivex-logo.svg" alt="Vellivex" width="180" height="50"></a><nav class="ps-nav" aria-label="Main navigation"><a href="/#products">The apps</a><a href="/source">Open source</a><a href="/phones" aria-current="${path === '/phones' ? 'page' : 'false'}">Privacy phones</a><a class="ps-nav-contact" href="mailto:v@vellivex.com">Contact ${arrow}</a></nav></div></header><main id="main">${body}</main><footer class="ps-footer"><div class="ps-wrap"><div class="ps-footer-top"><a class="ps-brand" href="/" aria-label="Vellivex home"><img src="/brand/vellivex-logo.svg" alt="Vellivex" width="156" height="43"></a><div class="ps-footer-links"><a href="/phones/terms">Delivery & returns</a><a href="/phones/privacy">Order privacy</a><a href="/source">Source code</a><a href="mailto:v@vellivex.com">v@vellivex.com</a></div></div><p class="ps-fine">Vellivex supplies and configures Google Pixel devices. We are independent of Google, GrapheneOS and Signal; no affiliation or endorsement is implied. Vellivex apps remain beta.</p><div class="ps-footer-base"><span>© 2026 Vellivex</span><span>Your phone. Your choices.</span></div></div></footer></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0a101b"><meta name="description" content="${escape(description)}"><meta name="robots" content="${path === '/phones/thanks' ? 'noindex,nofollow' : PHONE_NOINDEX_LEGAL_PATHS.has(path) ? 'noindex,follow' : 'index,follow'}"><link rel="canonical" href="https://www.vellivex.com${path}"><title>${escape(title)} | Vellivex</title>${seoMarkup(title,description,path,schema)}<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/phones.css"></head><body class="ps-body"><a href="#main" class="ps-skip">Skip to content</a><header class="ps-header"><div class="ps-wrap ps-header-inner"><a class="ps-brand" href="/" aria-label="Vellivex home"><img src="/brand/vellivex-logo.svg" alt="Vellivex" width="180" height="50"></a><nav class="ps-nav" aria-label="Main navigation"><a href="/#products">The apps</a><a href="/source">Open source</a><a href="/phones" aria-current="${path === '/phones' ? 'page' : 'false'}">Privacy phones</a><a class="ps-nav-contact" href="mailto:v@vellivex.com">Contact ${arrow}</a></nav></div></header><main id="main">${body}</main><footer class="ps-footer"><div class="ps-wrap"><div class="ps-footer-top"><a class="ps-brand" href="/" aria-label="Vellivex home"><img src="/brand/vellivex-logo.svg" alt="Vellivex" width="156" height="43"></a><div class="ps-footer-links"><a href="/phones/terms">Delivery & returns</a><a href="/phones/privacy">Order privacy</a><a href="/source">Source code</a><a href="mailto:v@vellivex.com">v@vellivex.com</a></div></div><p class="ps-fine">Vellivex supplies and configures Google Pixel devices. We are independent of Google, GrapheneOS and Signal; no affiliation or endorsement is implied. Vellivex apps remain beta.</p><div class="ps-footer-base"><span>© 2026 Vellivex</span><span>Your phone. Your choices.</span></div></div></footer></body></html>`;
 }
 
 function illustration() {
@@ -160,7 +161,9 @@ export const PHONE_PROMOTION_CSS = '#vellivex-phone-promotion{display:flex;align
 
 async function shopResponse(body, request, type = 'text/html; charset=utf-8', status = 200) {
   const headers = {...envelope, 'Content-Type':type, 'X-Vellivex-Phone-Shop':'2026-11-12'};
-  if (new URL(request.url).pathname.replace(/\/$/,'') === '/phones/thanks') headers['X-Robots-Tag'] = 'noindex, nofollow';
+  const pathname = new URL(request.url).pathname.replace(/\/$/,'');
+  if (pathname === '/phones/thanks') headers['X-Robots-Tag'] = 'noindex, nofollow';
+  else if (PHONE_NOINDEX_LEGAL_PATHS.has(pathname)) headers['X-Robots-Tag'] = 'noindex, follow';
   if (type.startsWith('text/html')) {
     const jsonLd = body.match(/<script id="vellivex-phone-schema" type="application\/ld\+json">([^]*?)<\/script>/)?.[1];
     if (jsonLd) {
@@ -217,7 +220,10 @@ export function withPhoneShop(worker, config = {}) {
     }
     if (request.method === 'GET' && path === '/sitemap.xml' && response.status === 200 && response.headers.get('Content-Type')?.includes('xml')) {
       let body = await response.text();
-      if (body.includes('</urlset>')) for (const route of ['/phones','/phones/terms','/phones/privacy',PHONE_LAUNCH_PATH]) {
+      // Keep supplier disclosures available to buyers without promoting them in search.
+      body = body.replace(/<url\b[^>]*>[^]*?<\/url>/g, block =>
+        /<loc>\s*https:\/\/www\.vellivex\.com\/phones\/(?:terms|privacy)\/?\s*<\/loc>/.test(block) ? '' : block);
+      if (body.includes('</urlset>')) for (const route of ['/phones',PHONE_LAUNCH_PATH]) {
         const loc = 'https://www.vellivex.com' + route;
         if (!body.includes('<loc>' + loc + '</loc>')) body = body.replace('</urlset>', '<url><loc>' + loc + '</loc></url></urlset>');
       }

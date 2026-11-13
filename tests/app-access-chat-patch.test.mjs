@@ -6,10 +6,12 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {CHAT_ASSET_BASELINES, CHAT_SESSION_BASELINE_SHA256, createChatOverrides, createChatSessionOverride} from '../server/app-access/patch-chat.mjs';
 
+import {CLEANUP_RELEASE_BEFORE, CLEANUP_RELEASE_AFTER} from '../server/app-access/patch-chat-cleanup.mjs';
+
 const baseline = readFileSync(new URL('./fixtures/app-access/public-session-baseline.mjs', import.meta.url), 'utf8');
 const digest = source => createHash('sha256').update(source).digest('hex');
 
-test('chat override changes exactly the two credentials options in the verified current client', () => {
+test('chat override adds bounded cleanup retry and two same-origin credential options', () => {
   assert.equal(digest(baseline), CHAT_SESSION_BASELINE_SHA256);
   assert.equal(baseline.length, 15416);
   const override = createChatSessionOverride(baseline);
@@ -18,7 +20,7 @@ test('chat override changes exactly the two credentials options in the verified 
   assert.equal(asset.type, 'text/javascript; charset=utf-8');
   assert.equal(asset.body.split("credentials:'same-origin'").length - 1, 2);
   assert.equal(asset.body.includes("credentials:'omit'"), false);
-  assert.equal(asset.body.replaceAll("credentials:'same-origin'", "credentials:'omit'"), baseline);
+  assert.equal(asset.body.replace(CLEANUP_RELEASE_AFTER, CLEANUP_RELEASE_BEFORE).replaceAll("credentials:'same-origin'", "credentials:'omit'"), baseline);
   assert.equal(Object.isFrozen(override), true); assert.equal(Object.isFrozen(asset), true);
   const otherAssets = {'/': {body: 'original HTML', type: 'text/html'}, '/crypto.mjs': {body: 'unchanged cryptography'}, '/chat-core.mjs': {body: 'unchanged core'}};
   const assets = {...otherAssets, '/public-session.mjs': {body: baseline, type: asset.type}}, combined = {...assets, ...override};
