@@ -154,6 +154,12 @@ test('public homepage promotion is idempotent and preserves existing content and
   assert.equal(await second.text(),text);
   assert.equal((text.match(/data-phone-shop-link/g)||[]).length,1);
   assert.equal((text.match(/id="vellivex-phone-promotion"/g)||[]).length,1);
+  assert.match(text,/<h2 id="vellivex-phone-promotion-title">Vellivex Privacy Phones<\/h2>/);
+  assert.match(text,/Paid preorders with tracked UK delivery included within 14 days of payment/);
+  assert.match(text,/<img class="phone-promo-image" src="\/media\/pixel-9a-obsidian\.jpg"/);
+  assert.match(text,/href="\/phones#new">\s*<span>New Pixel 9a<\/span>\s*<strong>£479<\/strong>/);
+  assert.match(text,/href="\/phones#refurb">\s*<span>Refurbished Pixel 9a<\/span>\s*<strong>£375<\/strong>/);
+  assert.doesNotMatch(text,/buy\.stripe\.com/);
   assert.match(text,/<h1>Existing homepage<\/h1>/);
   assert.match(text,/href="\/apps\/vault"/);
   assert.equal(first.headers.get('Content-Security-Policy'),csp);
