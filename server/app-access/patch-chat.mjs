@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {readFile, writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {createCleanupRetry} from './patch-chat-cleanup.mjs';
+import {createPrivateCleanupDiagnostics} from './patch-private-cleanup-diagnostics.mjs';
 import {CHAT_INVITATION_BASELINES, createChatInvitationOverride} from './patch-chat-invitations.mjs';
 
 export const CHAT_ASSET_BASELINES = Object.freeze({
@@ -43,7 +44,8 @@ export function createChatOverrides(family, source) {
       typeof invitation.body !== 'string' || invitation.type !== 'text/javascript; charset=utf-8') {
     throw new Error('Chat invitation asset is missing or has unexpected metadata.');
   }
-  return Object.freeze({...createChatSessionOverride(client.body), ...createChatInvitationOverride(family, invitation.body)});
+  const overrides = {...createChatSessionOverride(client.body), ...createChatInvitationOverride(family, invitation.body)};
+  return family === 'private' ? createPrivateCleanupDiagnostics(overrides) : Object.freeze(overrides);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
