@@ -19,6 +19,14 @@ python apps/messenger/server/tests/smoke.py \
   --port 8008 --mailbox-port 8025 --mailbox-key-file "$messenger_state/mailbox-key"
 ```
 
+On an isolated Linux runner with Docker Compose v2, Python 3.12 and `age` installed, run the deployment check as an unprivileged user with Docker access. Port 8080 must be free.
+
+```sh
+python3 apps/messenger/server/tests/deploy_smoke.py
+```
+
+This check creates disposable private deployments and removes their containers and database volumes on exit. It exercises the invite gate, restricted routes, proxy headers, database permissions and restart persistence. It then encrypts a backup, removes the original volumes and restores the database, media and server identity into a fresh deployment. The destination retains its own mail and database credentials and starts with an empty verification-code store. SMTP is confined to loopback; no real verification emails are sent. This does not replace a restore drill on the eventual production host.
+
 Run the instrumented integration test with a fresh fixture and one connected Android emulator. The arguments below use the default test ports. Pass only the disposable fixture token, and keep it out of retained command logs or evidence.
 
 ```sh

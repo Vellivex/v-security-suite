@@ -266,7 +266,13 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
-      - name: Exercise the private deployment with disposable Docker volumes
+      - name: Install encrypted backup tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age
+      - name: Exercise private deployment and encrypted restore with disposable Docker volumes
         shell: bash
         run: python3 apps/messenger/server/tests/deploy_smoke.py
 

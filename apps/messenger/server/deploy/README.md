@@ -53,11 +53,13 @@ Install age on the host to encrypt backups. Keep the age identity separately. A 
     python3 "$messenger_tool" --state-dir "$messenger_state" backup /path/to/new-backup.age \
       --recipient <age-public-recipient>
 
-To restore, initialize a fresh state directory on an unpublished host with the same Matrix name and its current SMTP credentials. Run restore before start. The command checks the archive, server name, empty target database and fresh OTP state. The SQL import is transactional.
+To restore, initialize a fresh state directory on an unpublished host with the same Matrix name and its current SMTP credentials. Run restore before start. The command checks the archive, server name, empty target database and fresh OTP state. Running, restarting or paused services block restore. The SQL import is transactional; the staged files and interruption guard are flushed to disk before import, and the installed directories are flushed before the guard is cleared.
 
     python3 "$messenger_tool" --state-dir "$messenger_state" restore /path/to/backup.age \
       --identity /path/to/private-age-identity
     python3 "$messenger_tool" --state-dir "$messenger_state" check
+
+If restore is interrupted, `restore-in-progress` blocks startup. The original destination files may be retained in `synapse-before-restore`. Keep both while checking the database, restored server keys and destination credentials; do not remove the guard just to start the service. Resolve the interrupted state on the unpublished host before exposing it.
 
 Use trusted backups made by this deployment. A snapshot may predate Matrix session revocations. Verify session state and restore results before reopening the public endpoint. The server backup does not recover client encryption keys. This beta does not offer client key recovery. Run backups on the owner's chosen schedule.
 

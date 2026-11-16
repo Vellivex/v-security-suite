@@ -2,16 +2,23 @@
 import argparse
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tarfile
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest.mock import call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy"))
 
-from manage import OWNER_EMAIL, STABLE_FILES, Stack, initialize, pack, private_read, proxy_config, unpack
+from manage import (
+    FORMAT, OWNER_EMAIL, STABLE_FILES, Stack, backup, fsync_path, initialize, pack,
+    private_read, proxy_config, restore, unpack,
+)
 
 
 class DeploymentTests(unittest.TestCase):
@@ -20,7 +27,7 @@ class DeploymentTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
 
-    def test_initialization_stays_private_and_invites_the_owner_only(self):
+    def initialize_state(self):
         password = self.root / "smtp"
         password.write_text("synthetic-deploy-token\n")
         password.chmod(0o600)
@@ -30,6 +37,10 @@ class DeploymentTests(unittest.TestCase):
             smtp_port=465, smtp_sender=OWNER_EMAIL, smtp_username="synthetic", smtp_password_file=password,
         )
         initialize(state, options)
+        return state, options
+
+    def test_initialization_stays_private_and_invites_the_owner_only(self):
+        state, options = self.initialize_state()
         self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
         private_names = ("smtp-password", "identity-secret", "otp-secret", "invited-emails", "homeserver.yaml")
         for name in private_names:
@@ -96,3 +107,109 @@ class DeploymentTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid path"):
                     unpack(archive, self.root / "target")
                 self.assertFalse((self.root / "target").exists())
+
+    def test_restarting_synapse_must_be_quiescent_before_dump(self):
+        state, _ = self.initialize_state()
+        stack = Stack(state)
+        output = self.root / "backup.age"
+        check_state = ("ps", "--all", "--format", "{{.State}}")
+
+        def compose(*args, **_):
+            if args == (*check_state, "database"):
+                return SimpleNamespace(stdout="running\n")
+            if args == (*check_state, "synapse"):
+                return SimpleNamespace(stdout="restarting\n")
+            self.assertIn(args, (("stop", "-t", "30", "synapse"), ("up", "-d", "--wait", "synapse")))
+            return SimpleNamespace()
+
+        with patch.object(stack, "compose", side_effect=compose) as command:
+            with self.assertRaisesRegex(ValueError, "Could not confirm that Synapse stopped"):
+                backup(stack, output, "age1synthetic")
+        self.assertIn(call("stop", "-t", "30", "synapse"), command.call_args_list)
+        self.assertIn(call("up", "-d", "--wait", "synapse"), command.call_args_list)
+        self.assertFalse(output.exists())
+
+    def test_restore_refuses_active_or_transitional_services(self):
+        state, _ = self.initialize_state()
+        stack = Stack(state)
+        for service in ("proxy", "synapse"):
+            for status in ("running", "restarting", "paused", "removing"):
+                with self.subTest(service=service, status=status):
+                    def compose(*args, **_):
+                        self.assertEqual(args[:4], ("ps", "--all", "--format", "{{.State}}"))
+                        return SimpleNamespace(stdout=f"{status}\n" if args[-1] == service else "exited\n")
+
+                    with patch.object(stack, "compose", side_effect=compose):
+                        with self.assertRaisesRegex(ValueError, "unpublished deployment"):
+                            restore(stack, self.root / "unread-backup", self.root / "unused-identity")
+        self.assertFalse((state / "restore-in-progress").exists())
+
+    def restore_fixture(self):
+        state, options = self.initialize_state()
+        stack = Stack(state)
+        source = self.root / "source"
+        synapse = source / "synapse"
+        (synapse / "media").mkdir(parents=True)
+        (source / "metadata.json").write_text(json.dumps({"format": FORMAT, "domain": options.domain}))
+        (source / "messenger.dump").write_bytes(b"synthetic-db")
+        for name in STABLE_FILES:
+            (synapse / name).write_text("restored " + name + "\n")
+        (synapse / "media" / "fixture").write_text("encrypted media fixture")
+        archive = self.root / "fixture.tar"
+        pack(source, archive)
+
+        def compose(*args, **kwargs):
+            if args[:4] == ("ps", "--all", "--format", "{{.State}}"):
+                return SimpleNamespace(stdout="")
+            if "psql" in args:
+                return SimpleNamespace(stdout=b"0\n")
+            self.assertIn("pg_restore", args)
+            self.assertTrue((state / "restore-in-progress").is_file())
+            self.assertEqual(kwargs["stdin"].read(), b"synthetic-db")
+            return SimpleNamespace()
+
+        def decrypt(command, *, check):
+            self.assertEqual(command[:2], ["age", "-d"])
+            self.assertTrue(check)
+            shutil.copyfile(archive, command[command.index("-o") + 1])
+
+        self.enterContext(patch.object(stack, "database"))
+        command = self.enterContext(patch.object(stack, "compose", side_effect=compose))
+        self.enterContext(patch("manage.subprocess.run", side_effect=decrypt))
+        return stack, archive, command
+
+    def test_failed_install_and_rollback_keep_previous_identity_and_block_start(self):
+        stack, archive, command = self.restore_fixture()
+        data = stack.state / "synapse"
+        identity = private_read(data / "identity-secret")
+        rename = os.rename
+
+        def fail_install(source, target):
+            if Path(source).name in {"replacement", "synapse-before-restore"}:
+                raise OSError("injected directory installation failure")
+            rename(source, target)
+
+        with patch("manage.os.rename", side_effect=fail_install):
+            with self.assertRaisesRegex(OSError, "directory installation failure"):
+                restore(stack, archive, self.root / "unused-identity")
+        self.assertTrue(any("pg_restore" in invocation.args for invocation in command.call_args_list))
+        self.assertEqual(private_read(stack.state / "synapse-before-restore/identity-secret"), identity)
+        self.assertTrue((stack.state / "restore-in-progress").is_file())
+        with self.assertRaisesRegex(ValueError, "interrupted restore"):
+            stack.start()
+        stack.database.assert_called_once()
+
+    def test_marker_fsync_failure_prevents_postgres_import(self):
+        stack, archive, command = self.restore_fixture()
+        marker = stack.state / "restore-in-progress"
+
+        def fail_marker_sync(path, flags=0):
+            if path == stack.state and marker.exists():
+                raise OSError("injected restore marker fsync failure")
+            fsync_path(path, flags)
+
+        with patch("manage.fsync_path", side_effect=fail_marker_sync):
+            with self.assertRaisesRegex(OSError, "marker fsync failure"):
+                restore(stack, archive, self.root / "unused-identity")
+        self.assertFalse(any("pg_restore" in invocation.args for invocation in command.call_args_list))
+        self.assertTrue((stack.state / "synapse/identity-secret").is_file())
