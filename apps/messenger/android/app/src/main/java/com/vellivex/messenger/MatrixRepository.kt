@@ -101,7 +101,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         val stored = sessionStore.newSession(session)
         try {
             sessionStore.write(stored)
-            connect(stored)
+            connect(stored, freshSignIn = true)
         } finally {
             stored.storeKey.fill(0)
         }
@@ -317,7 +317,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
     }
 
-    private suspend fun connect(saved: StoredMessengerSession) {
+    private suspend fun connect(saved: StoredMessengerSession, freshSignIn: Boolean = false) {
         val base = auth.checkedBaseUrl(saved.session.homeserverUrl)
         val directory = sessionStore.sdkDirectory(saved)
         val client = SqliteStoreBuilder(directory.absolutePath, directory.absolutePath).use { plain ->
@@ -338,13 +338,31 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
         try {
             client.restoreSession(saved.session)
+            val userId = client.userId()
+            val identityReady = withTimeoutOrNull(E2EE_SETUP_TIMEOUT_MS) {
+                client.encryption().use { encryption ->
+                    // The SDK creates a fresh account's cross-signing identity in the
+                    // background. An existing device can restore its cached identity offline.
+                    val hasCachedIdentity = !freshSignIn &&
+                        encryption.userIdentity(userId, false)?.use { true } == true
+                    if (hasCachedIdentity) {
+                        true
+                    } else {
+                        encryption.waitForE2eeInitializationTasks()
+                        encryption.userIdentity(userId, false)?.use { true } ?: false
+                    }
+                }
+            }
+            if (identityReady != true) {
+                fail("Could not finish encryption setup. Your session is saved. Reconnect and restore it.")
+            }
             client.syncService().use { builder ->
                 val sync = builder.withOfflineMode().withRoomListTimelineLimit(40u).use { it.finish() }
                 try {
                     val c = Connection(client, sync, client.getSessionVerificationController())
                     connection = c
                     mutableState.update {
-                        it.copy(userId = client.userId(), connection = MessengerConnection.Syncing, codeRequested = false)
+                        it.copy(userId = userId, connection = MessengerConnection.Syncing, codeRequested = false)
                     }
                     c.verification.setDelegate(verificationDelegate(c))
                     c.syncObserver = sync.state(object : SyncServiceStateObserver {
@@ -681,6 +699,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     }
 
     private companion object {
+        const val E2EE_SETUP_TIMEOUT_MS = 20_000L
         const val MAX_TEXT_BYTES = 4_096
         const val MAX_VISIBLE_MESSAGES = 200
     }

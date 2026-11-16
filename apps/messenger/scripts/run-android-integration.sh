@@ -113,14 +113,19 @@ run_instrumentation() {
   fi
 }
 
-run_instrumentation MessengerOnboardingSmokeTest
+overall_status=0
+run_instrumentation MessengerOnboardingSmokeTest || overall_status=1
 mailbox_key=$(<"$server_state/mailbox-key")
 test -n "$mailbox_key"
-run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key"
+run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key" || overall_status=1
+unset mailbox_key
 
 screenshot=vellivex-alpha-onboarding.png
 screenshot_source="/sdcard/Android/data/$test_app/files/$screenshot"
 if ! "${adb[@]}" pull "$screenshot_source" "$evidence_dir/$screenshot"; then
-  "${adb[@]}" exec-out run-as "$test_app" cat "$screenshot_source" >"$evidence_dir/$screenshot"
+  "${adb[@]}" exec-out run-as "$test_app" cat "$screenshot_source" >"$evidence_dir/$screenshot" || overall_status=1
 fi
-test "$(file -b --mime-type "$evidence_dir/$screenshot")" = image/png
+if [[ "$(file -b --mime-type "$evidence_dir/$screenshot")" != image/png ]]; then
+  overall_status=1
+fi
+exit "$overall_status"

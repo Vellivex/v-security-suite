@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,12 +28,12 @@ class MessengerOnboardingSmokeTest {
     @Test
     fun onboardingAcceptsFictionalEmailAndRequiresServer() {
         compose.onNodeWithText("A little more", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Email address").assertIsDisplayed()
-        compose.onNodeWithText("Continue with email").assertIsNotEnabled()
-        compose.onNodeWithText("Test server settings").assertIsDisplayed()
         captureBlankOnboarding()
+        compose.onNodeWithText("Test server settings").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Continue with email").performScrollTo().assertIsNotEnabled()
 
-        val email = compose.onNode(hasSetTextAction())
+        val email = compose.onNode(hasSetTextAction()).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Email address").assertIsDisplayed()
         email.performTextInput("tester@example.test")
         email.assertTextContains("tester@example.test")
         compose.onNodeWithText("Continue with email").assertIsNotEnabled()
@@ -50,21 +51,21 @@ class MessengerOnboardingSmokeTest {
                 activity.window.decorView.postOnAnimation { firstFrame.countDown() }
             }
         }
-        try {
+        val screenshot = try {
             assertTrue("Onboarding surface did not render", firstFrame.await(10, TimeUnit.SECONDS))
             compose.waitForIdle()
-            val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-            val out = File(
-                checkNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
-                "vellivex-alpha-onboarding.png",
-            )
-            try {
-                out.outputStream().use { assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-            } finally {
-                screenshot.recycle()
-            }
+            checkNotNull(instrumentation.uiAutomation.takeScreenshot())
         } finally {
             scenario.onActivity { it.window.addFlags(flag) }
+        }
+        val out = File(
+            checkNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
+            "vellivex-alpha-onboarding.png",
+        )
+        try {
+            out.outputStream().use { assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally {
+            screenshot.recycle()
         }
     }
 }
