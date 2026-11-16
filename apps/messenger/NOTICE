@@ -1,0 +1,33 @@
+Vellivex Messenger alpha
+Copyright 2026 Vellivex. Original code is licensed under GPL-3.0-or-later,
+as described in the repository LICENSE. Contact: v@vellivex.com.
+
+This application uses maintained third-party components. Their original
+copyright and licence notices remain applicable and are not replaced by
+Vellivex attribution. Dependencies are fetched from their published artifacts.
+
+Matrix Rust SDK and generated Android bindings (26.11.05): Apache-2.0
+https://github.com/matrix-org/matrix-rust-sdk
+https://github.com/matrix-org/matrix-rust-components-kotlin
+
+AndroidX, Jetpack Compose, Kotlin and kotlinx.coroutines: Apache-2.0
+https://developer.android.com/jetpack/androidx
+https://github.com/JetBrains/kotlin
+https://github.com/Kotlin/kotlinx.coroutines
+
+ZXing core (3.5.3): Apache-2.0
+https://github.com/zxing/zxing
+
+Java Native Access (transitive Matrix dependency): Apache-2.0 option
+https://github.com/java-native-access/jna
+
+The separately installed development server uses Matrix Synapse (1.165.0),
+distributed by its upstream under AGPL-3.0-or-later. See its licence for
+available alternatives. Synapse is not bundled into the Android APK.
+https://github.com/element-hq/synapse
+
+Build-time Gradle wrapper is supplied under the Apache-2.0 licence by Gradle.
+https://github.com/gradle/gradle
+
+The alpha is not independently audited and is not an official Matrix,
+Element, Signal or Android product. No affiliation is implied.

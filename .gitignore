@@ -10,3 +10,9 @@ apps/vguard/build/
 *.pass
 .env
 .env.*
+apps/messenger/**/.gradle/
+apps/messenger/**/build/
+apps/messenger/**/local.properties
+apps/messenger/**/.runtime/
+apps/messenger/**/.venv/
+apps/messenger/**/.kotlin/
