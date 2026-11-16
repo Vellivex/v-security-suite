@@ -49,6 +49,9 @@ def configure(state: Path, port: int) -> Path:
         "enable_registration": False,
         "allow_guest_access": False,
         "password_config": {"enabled": False},
+        # The isolated suite signs several synthetic users in from one loopback address.
+        # Keep this extra burst capacity out of the private deployment configuration.
+        "rc_login": {"address": {"per_second": 0.003, "burst_count": 20}},
         "trusted_key_servers": [],
         "federation_domain_whitelist": [],
         "modules": [{
