@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -75,7 +76,10 @@ class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
@@ -130,6 +134,7 @@ private fun MessengerApp(model: MessengerViewModel) {
     state.verification?.let { v -> VerificationDialog(v, state.busy,
         accept = { model.run { acceptVerification() } },
         confirm = { model.run { confirmVerification() } },
+        reject = { model.run { rejectVerification() } },
         cancel = { model.run { cancelVerification() } }) }
 }
 
@@ -342,7 +347,7 @@ private fun ProfileDialog(userId: String, close: () -> Unit, signOut: () -> Unit
 }
 
 @Composable
-private fun VerificationDialog(v: MessengerVerification, busy: Boolean, accept: () -> Unit, confirm: () -> Unit, cancel: () -> Unit) {
+private fun VerificationDialog(v: MessengerVerification, busy: Boolean, accept: () -> Unit, confirm: () -> Unit, reject: () -> Unit, cancel: () -> Unit) {
     AlertDialog(onDismissRequest = cancel, title = { Text("Verify your contact") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(v.userId, color = Muted, fontSize = 12.sp)
@@ -366,7 +371,10 @@ private fun VerificationDialog(v: MessengerVerification, busy: Boolean, accept: 
                 MessengerVerificationStage.Done, MessengerVerificationStage.Failed -> TextButton(onClick = cancel) { Text("Done") }
                 else -> Unit
             }
-        }, dismissButton = { if (v.stage != MessengerVerificationStage.Done) TextButton(onClick = cancel) {
+        }, dismissButton = { if (v.stage != MessengerVerificationStage.Done) TextButton(
+            onClick = if (v.stage == MessengerVerificationStage.Compare) reject else cancel,
+            enabled = !busy,
+        ) {
             Text(if (v.stage == MessengerVerificationStage.Compare) "They don't match" else "Cancel")
         } })
 }

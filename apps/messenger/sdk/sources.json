@@ -1,0 +1,23 @@
+{
+  "version": "26.11.05-vellivex.1",
+  "rust_toolchain": "1.96.0",
+  "cargo_ndk": "4.1.2",
+  "ndk": "29.0.14206865",
+  "profile": "small-release-stripped",
+  "targets": {"aarch64-linux-android": "arm64-v8a", "x86_64-linux-android": "x86_64"},
+  "rust_sdk": {
+    "commit": "3ff03638028fd9abf58203153722b94b4293a87a",
+    "url": "https://codeload.github.com/matrix-org/matrix-rust-sdk/tar.gz/3ff03638028fd9abf58203153722b94b4293a87a",
+    "sha256": "f2604cad13e2d35dea1f28fea1709ff6efabd36c03b2987af5548c27db3b892b"
+  },
+  "distribution": {
+    "commit": "c1664f712bed33488b10f33232fb424faf257d49",
+    "url": "https://codeload.github.com/matrix-org/matrix-rust-components-kotlin/tar.gz/c1664f712bed33488b10f33232fb424faf257d49",
+    "sha256": "7ae46bb964e327efbe5c5be198d20f28cb36d3cc91f3b887a540a7e693b159e5"
+  },
+  "protoc": {
+    "version": "29.3",
+    "url": "https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip",
+    "sha256": "3e866620c5be27664f3d2fa2d656b5f3e09b5152b42f1bedbf427b333e90021a"
+  }
+}

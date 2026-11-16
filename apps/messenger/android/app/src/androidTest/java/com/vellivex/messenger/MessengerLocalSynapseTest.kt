@@ -78,28 +78,27 @@ class MessengerLocalSynapseTest {
             val refusedMessage = "refused sample $runId"
             assertFalse("An unverified peer must not unlock sending", alice.sendMessage(refusedMessage))
 
-            alice.beginVerification()
-            awaitState(bob, "Bob's verification request") {
-                it.verification?.stage == MessengerVerificationStage.Incoming
+            compareSas(alice, bob, "first attempt")
+            // Model one participant reporting a mismatch after reaching the actual SDK comparison state.
+            bob.rejectVerification()
+            awaitState(alice, "Alice's rejected comparison") {
+                it.verification?.stage == MessengerVerificationStage.Failed
             }
-            bob.acceptVerification()
-            val aliceSas = checkNotNull(awaitState(alice, "Alice's verification challenge") {
-                it.verification?.stage == MessengerVerificationStage.Compare
-            }.verification)
-            val bobSas = checkNotNull(awaitState(bob, "Bob's verification challenge") {
-                it.verification?.stage == MessengerVerificationStage.Compare
-            }.verification)
-            assertTrue("SAS must contain a challenge", aliceSas.symbols.isNotEmpty() || aliceSas.numbers.isNotEmpty())
-            assertEquals(aliceSas.symbols, bobSas.symbols)
-            assertEquals(aliceSas.numbers, bobSas.numbers)
+            assertFalse("Alice still trusts Bob after a rejected SAS", alice.state.value.selectedRoom?.peerVerified == true)
+            assertFalse("Bob still trusts Alice after a rejected SAS", bob.state.value.selectedRoom?.peerVerified == true)
+            val refusedAfterMismatch = "refused after rejected comparison $runId"
+            assertFalse("Alice can send after a rejected SAS", alice.sendMessage(refusedAfterMismatch))
+            assertFalse("Bob can send after a rejected SAS", bob.sendMessage(refusedAfterMismatch))
+
+            compareSas(bob, alice, "fresh reverse-direction attempt after rejection")
             coroutineScope {
                 val aliceConfirm = async { alice.confirmVerification() }
                 val bobConfirm = async { bob.confirmVerification() }
                 aliceConfirm.await()
                 bobConfirm.await()
             }
-            awaitState(alice, "Alice's verified room") { it.canSend }
-            awaitState(bob, "Bob's verified room") { it.canSend }
+            awaitState(alice, "Alice's verified room") { it.canSend && it.selectedRoom?.peerVerified == true }
+            awaitState(bob, "Bob's verified room") { it.canSend && it.selectedRoom?.peerVerified == true }
 
             bob.close()
             bob = MatrixRepository(context, sessionNamespace = bobNamespace)
@@ -128,6 +127,7 @@ class MessengerLocalSynapseTest {
             }
             assertEquals(listOf(received.id), reopened.messages.filter { it.text == offlineMessage }.map { it.id })
             assertFalse("A rejected pre-verification message was delivered", reopened.messages.any { it.text == refusedMessage })
+            assertFalse("A message rejected after SAS mismatch was delivered", reopened.messages.any { it.text == refusedAfterMismatch })
 
             // A separate Matrix user creates a real plaintext invite through Synapse.
             fixture.withRawDevice("plain-$runId@example.test") { plainToken ->
@@ -171,6 +171,25 @@ class MessengerLocalSynapseTest {
                 cleanUp(bob)
             }
         }
+    }
+
+    private suspend fun compareSas(alice: MatrixRepository, bob: MatrixRepository, attempt: String) {
+        alice.beginVerification()
+        awaitState(bob, "Bob's verification request ($attempt)") {
+            it.verification?.stage == MessengerVerificationStage.Incoming
+        }
+        bob.acceptVerification()
+        val aliceSas = checkNotNull(awaitState(alice, "Alice's comparison ($attempt)") {
+            it.verification?.stage == MessengerVerificationStage.Compare
+        }.verification)
+        val bobSas = checkNotNull(awaitState(bob, "Bob's comparison ($attempt)") {
+            it.verification?.stage == MessengerVerificationStage.Compare
+        }.verification)
+        assertEquals(bob.state.value.userId, aliceSas.userId)
+        assertEquals(alice.state.value.userId, bobSas.userId)
+        assertTrue("SAS must contain a challenge", aliceSas.symbols.isNotEmpty() || aliceSas.numbers.isNotEmpty())
+        assertTrue("SAS symbols differ", aliceSas.symbols == bobSas.symbols)
+        assertTrue("SAS numbers differ", aliceSas.numbers == bobSas.numbers)
     }
 
     private suspend fun awaitState(

@@ -20,9 +20,155 @@ concurrency:
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  MATRIX_RUST_VERSION: '1.96.0'
+  MATRIX_CARGO_NDK_VERSION: '4.1.2'
+  MATRIX_ANDROID_NDK_VERSION: '29.0.14206865'
 
 jobs:
+  matrix-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-linux-android, x86_64-linux-android]
+    env:
+      NATIVE_TARGET: ${{ matrix.target }}
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Restore matching Matrix native output
+        id: native-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/messenger-native
+          key: messenger-matrix-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ hashFiles('apps/messenger/sdk/build.sh', 'apps/messenger/sdk/sources.json', 'apps/messenger/sdk/peer-device-verification.patch') }}
+      - name: Compile the pinned Matrix SDK for ${{ matrix.target }}
+        id: native
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$MATRIX_ANDROID_NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$MATRIX_ANDROID_NDK_VERSION"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          rustup toolchain install "$MATRIX_RUST_VERSION" --profile minimal --no-self-update
+          rustup target add --toolchain "$MATRIX_RUST_VERSION" "$NATIVE_TARGET"
+          cargo "+$MATRIX_RUST_VERSION" install --locked --version "$MATRIX_CARGO_NDK_VERSION" cargo-ndk
+          export RUSTUP_TOOLCHAIN="$MATRIX_RUST_VERSION"
+          export VELLIVEX_SDK_BUILD_DIR="$RUNNER_TEMP/messenger-sdk-work"
+          rm -rf -- "$RUNNER_TEMP/messenger-native"
+          mkdir -p "$RUNNER_TEMP/messenger-native" "$RUNNER_TEMP/messenger-sdk-logs"
+          bash apps/messenger/sdk/build.sh --native-only --target "$NATIVE_TARGET" \
+            --output-dir "$RUNNER_TEMP/messenger-native" \
+            2>&1 | tee "$RUNNER_TEMP/messenger-sdk-logs/$NATIVE_TARGET.log"
+      - name: Share the native SDK build output with packaging
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-native-${{ matrix.target }}-${{ env.CHECK_SHA }}
+          path: ${{ runner.temp }}/messenger-native/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+      - name: Cache the successful Matrix native output
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/messenger-native
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Retain the native SDK build log
+        if: ${{ !cancelled() && steps.native.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-native-log-${{ matrix.target }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/messenger-sdk-logs/${{ matrix.target }}.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  matrix-sdk:
+    needs: matrix-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      aar_id: ${{ steps.upload-sdk.outputs.artifact-id }}
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Download the arm64 native SDK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: messenger-native-aarch64-linux-android-${{ env.CHECK_SHA }}
+          path: ${{ runner.temp }}/messenger-native/aarch64-linux-android
+          digest-mismatch: error
+      - name: Download the x86-64 native SDK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: messenger-native-x86_64-linux-android-${{ env.CHECK_SHA }}
+          path: ${{ runner.temp }}/messenger-native/x86_64-linux-android
+          digest-mismatch: error
+      - name: Generate SDK bindings and package both native libraries
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            'platforms;android-34' "ndk;$MATRIX_ANDROID_NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$MATRIX_ANDROID_NDK_VERSION"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          export VELLIVEX_SDK_BUILD_DIR="$RUNNER_TEMP/messenger-sdk-work"
+          bundle="$RUNNER_TEMP/messenger-sdk"
+          mkdir -p "$bundle" "$RUNNER_TEMP/messenger-sdk-logs"
+          bash apps/messenger/sdk/build.sh --assemble-from "$RUNNER_TEMP/messenger-native" \
+            --output "$bundle/vellivex-matrix-sdk.aar" \
+            2>&1 | tee "$RUNNER_TEMP/messenger-sdk-logs/assemble.log"
+          cd -- "$bundle"
+          unzip -tq vellivex-matrix-sdk.aar
+          sha256sum --check --strict vellivex-matrix-sdk.aar.sha256
+          test -s vellivex-matrix-sdk.aar.provenance.json
+          printf '%s\n' "$CHECK_SHA" > source-commit.txt
+      - name: Upload the complete Matrix SDK AAR for reuse
+        id: upload-sdk
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-matrix-sdk-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/messenger-sdk/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Require the SDK artifact ID
+        shell: bash
+        env:
+          SDK_ARTIFACT_ID: ${{ steps.upload-sdk.outputs.artifact-id }}
+        run: '[[ "$SDK_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]'
+      - name: Retain the SDK packaging log
+        if: ${{ !cancelled() && steps.package.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-matrix-sdk-assembly-log-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/messenger-sdk-logs/assemble.log
+          if-no-files-found: warn
+          retention-days: 7
+
   android-build:
+    needs: matrix-sdk
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -35,6 +181,13 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
+      - name: Download the SDK AAR from this workflow
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.matrix-sdk.outputs.aar_id }}
+          path: ${{ runner.temp }}/messenger-sdk
+          merge-multiple: true
+          digest-mismatch: error
       - name: Install Android platform and build tools
         shell: bash
         run: |
@@ -48,7 +201,14 @@ jobs:
           echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
       - name: Run JVM tests and lint and build both debug APKs
         working-directory: apps/messenger/android
-        run: ./gradlew --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_bundle="$RUNNER_TEMP/messenger-sdk"
+          test "$(<"$sdk_bundle/source-commit.txt")" = "$CHECK_SHA"
+          (cd -- "$sdk_bundle" && sha256sum --check --strict vellivex-matrix-sdk.aar.sha256)
+          ./gradlew --no-daemon --console=plain "-PmatrixSdkAar=$sdk_bundle/vellivex-matrix-sdk.aar" \
+            testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 
   backend-test:
     runs-on: ubuntu-24.04
@@ -93,6 +253,7 @@ jobs:
             --mailbox-key-file "$state_dir/mailbox-key"
 
   android-integration:
+    needs: matrix-sdk
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -105,6 +266,13 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
+      - name: Download the SDK AAR from this workflow
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.matrix-sdk.outputs.aar_id }}
+          path: ${{ runner.temp }}/messenger-sdk
+          merge-multiple: true
+          digest-mismatch: error
       - name: Enable hardware acceleration on the hosted runner
         shell: bash
         run: |
@@ -124,6 +292,10 @@ jobs:
           set -euo pipefail
           export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
           export PATH="$JAVA_HOME/bin:$PATH"
+          sdk_bundle="$RUNNER_TEMP/messenger-sdk"
+          test "$(<"$sdk_bundle/source-commit.txt")" = "$CHECK_SHA"
+          (cd -- "$sdk_bundle" && sha256sum --check --strict vellivex-matrix-sdk.aar.sha256)
+          export ORG_GRADLE_PROJECT_matrixSdkAar="$sdk_bundle/vellivex-matrix-sdk.aar"
           bash apps/messenger/scripts/run-android-integration.sh "$RUNNER_TEMP/messenger-evidence"
       - name: Upload Android test reports and the empty-onboarding screenshot
         if: ${{ !cancelled() && steps.instrumentation.outcome != 'skipped' }}

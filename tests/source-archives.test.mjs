@@ -9,6 +9,7 @@ const top=['AGENTS.md','LICENSE','NOTICE','README.md','SECURITY.md','CONTRIBUTIN
 const release=['VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt'];
 const other=['VGuard-0.1.3-candidate.apk','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip'];
 const android = 'apps/messenger/android';
+const sdk = 'apps/messenger/sdk';
 const gradleWrapper = `${android}/gradle/wrapper/gradle-wrapper.jar`;
 const gradleWrapperFile = new URL(`../${gradleWrapper}`, import.meta.url);
 
@@ -61,12 +62,17 @@ test('source archive packages reviewed Messenger source and omits local runtime 
   'apps/messenger/NOTICE', `${android}/.gitattributes`, `${android}/gradle.properties`,
   `${android}/gradle/wrapper/gradle-wrapper.properties`, `${android}/gradlew`, `${android}/gradlew.bat`,
   `${android}/app/build.gradle.kts`, `${android}/app/src/main/Example.kt`,
+  `${sdk}/README.md`, `${sdk}/build.sh`, `${sdk}/peer-device-verification.patch`, `${sdk}/sources.json`,
  ];
  for (const path of reviewed) await addReviewedFile(t.root, path, 'synthetic public source');
  await addReviewedFile(t.root, gradleWrapper, await readFile(gradleWrapperFile));
- const runtimeFiles = ['.gradle/cache.bin', '.kotlin/session', '.venv/bin/python', '.runtime/auth.db'];
+ const runtimeFiles = [
+  `${android}/.gradle/cache.bin`, `${android}/.kotlin/session`, `${android}/.venv/bin/python`,
+  `${android}/.runtime/auth.db`, `${sdk}/build/vellivex-matrix-sdk-26.11.05-vellivex.1.aar`,
+  `${sdk}/build/upstream/Cargo.toml`, `${sdk}/build/jni/arm64-v8a/libmatrix_sdk_ffi.so`,
+ ];
  for (const path of runtimeFiles) {
-  const local = join(t.root, android, path);
+  const local = join(t.root, path);
   await mkdir(dirname(local), {recursive: true});
   await writeFile(local, 'synthetic ignored runtime bytes');
  }
@@ -80,10 +86,11 @@ test('source archive packages reviewed Messenger source and omits local runtime 
  ].join('\n'), join(t.root, 'releases/V-Security-Source.zip')], {encoding: 'utf8'});
  assert.equal(archive.status, 0, archive.stderr);
  const entries = JSON.parse(archive.stdout);
+ const executables = new Set([`${android}/gradlew`, `${sdk}/build.sh`]);
  for (const path of [...reviewed, gradleWrapper]) {
-  assert.equal(entries[`v-security-suite/${path}`], path === `${android}/gradlew` ? 0o755 : 0o644, path);
+  assert.equal(entries[`v-security-suite/${path}`], executables.has(path) ? 0o755 : 0o644, path);
  }
- for (const path of runtimeFiles) assert.ok(!(`v-security-suite/${android}/${path}` in entries), path);
+ for (const path of runtimeFiles) assert.ok(!(`v-security-suite/${path}` in entries), path);
 }));
 
 test('source archive refuses a modified wrapper and other JARs even when reviewed', async () => {
@@ -101,6 +108,15 @@ test('source archive refuses a modified wrapper and other JARs even when reviewe
   await addReviewedFile(t.root, `${android}/gradle-wrapper.jar`, wrapper);
   const result = t.run();
   assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unapproved source file type/);
+ });
+});
+
+test('source archive refuses extra SDK patches and native artifacts even if listed in the manifest', async () => {
+ for (const file of ['extra.patch', 'matrix-sdk.aar', 'libmatrix_sdk_ffi.so']) await checked(async t => {
+  await addReviewedFile(t.root, `${sdk}/${file}`, 'synthetic unapproved input');
+  const result = t.run();
+  assert.notEqual(result.status, 0, file);
   assert.match(result.stderr, /Unapproved source file type/);
  });
 });

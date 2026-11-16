@@ -153,12 +153,16 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
             id
         }
 
-    suspend fun joinRoom(roomId: String): Boolean = operation(false, "Could not accept the encrypted invitation.") {
+    suspend fun joinRoom(roomId: String): Boolean = operation(
+        false,
+        "Could not accept the encrypted invitation. Check your connection and try again.",
+    ) {
         val c = requireConnection()
         val invite = requireRoom(c, roomId).use { roomSnapshot(c, it) }
         if (invite?.membership != MessengerMembership.Invited || invite.peerId == null || !invite.encrypted) {
             fail("An encrypted one-to-one invitation from this service is required.")
         }
+        preparePeerIdentity(c, invite.peerId)
         requireRoom(c, roomId).use { it.join() }
         closeTimeline()
         mutableState.update { it.copy(selectedRoomId = roomId) }
@@ -172,6 +176,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         room.use {
             val info = roomSnapshot(c, it) ?: fail("This is not a one-to-one conversation on this service.")
             if (!info.encrypted) fail("This conversation is not confirmed encrypted.")
+            if (info.membership == MessengerMembership.Joined) preparePeerIdentity(c, requireNotNull(info.peerId))
             closeTimeline()
             mutableState.update { s -> s.copy(selectedRoomId = roomId, messages = emptyList()) }
             if (info.membership == MessengerMembership.Joined) attachTimeline(c, it, info)
@@ -218,7 +223,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         c.verificationPeer = peer
         mutableState.update { it.copy(verification = MessengerVerification(peer, MessengerVerificationStage.Waiting)) }
         try {
-            c.verification.requestUserVerification(peer)
+            c.verification.requestPeerDeviceVerification(peer)
         } catch (e: Exception) {
             finishVerification(c, MessengerVerificationStage.Failed)
             throw e
@@ -251,10 +256,25 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         if (verification?.stage != MessengerVerificationStage.Compare || c.verificationPeer != verification.userId) {
             fail("Compare the verification symbols on both devices first.")
         }
-        c.verification.approveVerification()
         mutableState.update {
             it.copy(verification = MessengerVerification(verification.userId, MessengerVerificationStage.Waiting))
         }
+        try {
+            c.verification.approveVerification()
+        } catch (e: Exception) {
+            finishVerification(c, MessengerVerificationStage.Failed)
+            throw e
+        }
+    }
+
+    suspend fun rejectVerification(): Unit = operation(Unit, "Could not reject the verification codes.") {
+        val c = requireConnection()
+        val verification = state.value.verification
+        if (verification?.stage != MessengerVerificationStage.Compare || c.verificationPeer != verification.userId) {
+            fail("There are no verification codes to compare.")
+        }
+        c.verification.declineVerification()
+        finishVerification(c, MessengerVerificationStage.Failed)
     }
 
     suspend fun cancelVerification(): Unit = operation(Unit, "Could not cancel verification.") {
@@ -464,6 +484,26 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
             encrypted = info.encryptionState == EncryptionState.ENCRYPTED,
             peerVerified = verified,
         )
+    }
+
+    private suspend fun preparePeerIdentity(c: Connection, peerId: String) {
+        // The first key query caches the device records needed to receive verification requests.
+        val identityReady = try {
+            withTimeoutOrNull(E2EE_SETUP_TIMEOUT_MS) {
+                c.client.encryption().use { encryption ->
+                    encryption.userIdentity(peerId, true)?.use { true } ?: false
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        when (identityReady) {
+            true -> Unit
+            false -> fail("This contact's encryption identity is unavailable. Ask them to finish signing in, then try again.")
+            null -> fail("Could not load this contact's encryption keys. Check your connection and try again.")
+        }
     }
 
     private suspend fun checkCanSend(c: Connection, selected: OpenTimeline) {

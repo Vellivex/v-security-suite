@@ -29,6 +29,7 @@ messenger_text_files = {
     messenger_android + 'gradle/wrapper/gradle-wrapper.properties',
     gradle_launcher,
     gradle_launcher + '.bat',
+    messenger_root + 'sdk/peer-device-verification.patch',
 }
 public_executables = public_hooks | {gradle_launcher}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}

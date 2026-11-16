@@ -4,11 +4,16 @@ as described in the repository LICENSE. Contact: v@vellivex.com.
 
 This application uses maintained third-party components. Their original
 copyright and licence notices remain applicable and are not replaced by
-Vellivex attribution. Dependencies are fetched from their published artifacts.
+Vellivex attribution. Dependencies use published artifacts except the Matrix
+SDK build described below, which is built from pinned upstream source.
 
 Matrix Rust SDK and generated Android bindings (26.11.05): Apache-2.0
 https://github.com/matrix-org/matrix-rust-sdk
 https://github.com/matrix-org/matrix-rust-components-kotlin
+The SDK is modified by Vellivex to expose its existing device-to-device SAS
+request through the Android interface. See sdk/peer-device-verification.patch
+and sdk/sources.json for the modification and exact source pins. Upstream
+licence and copyright notices remain applicable to the modified SDK.
 
 AndroidX, Jetpack Compose, Kotlin and kotlinx.coroutines: Apache-2.0
 https://developer.android.com/jetpack/androidx
