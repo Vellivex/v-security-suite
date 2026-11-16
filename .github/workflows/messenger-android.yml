@@ -7,7 +7,7 @@ on:
       - 'apps/messenger/**'
       - '.github/workflows/messenger-android.yml'
   push:
-    branches: [main]
+    branches: [main, feat/vellivex-messenger-alpha]
     paths:
       - 'apps/messenger/**'
       - '.github/workflows/messenger-android.yml'
@@ -15,8 +15,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: messenger-alpha-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: messenger-alpha-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

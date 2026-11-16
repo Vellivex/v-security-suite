@@ -1,10 +1,12 @@
 # Matrix SDK extension for Vellivex Messenger
 
 The alpha uses Matrix Rust SDK 0.19.1, from the source behind Android package
-26.11.05, with one additional FFI entry point. `requestPeerDeviceVerification`
+26.11.05, with two additional FFI entry points. `requestPeerDeviceVerification`
 starts the upstream SAS verification flow over to-device events. This permits
 contact verification before the app shares an encrypted room key. Encryption,
 SAS comparison, cross-signing and message delivery remain upstream SDK operations.
+`activeRequestIsCancelled` lets the app ignore cancellation callbacks from an
+earlier attempt.
 
 `peer-device-verification.patch` rejects self-verification, incomplete local
 cross-signing, already verified peers and peers without exactly one eligible
