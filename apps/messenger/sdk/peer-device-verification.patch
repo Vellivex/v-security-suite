@@ -1,0 +1,50 @@
+diff --git a/bindings/matrix-sdk-ffi/src/session_verification.rs b/bindings/matrix-sdk-ffi/src/session_verification.rs
+--- a/bindings/matrix-sdk-ffi/src/session_verification.rs
++++ b/bindings/matrix-sdk-ffi/src/session_verification.rs
+@@ -182,6 +182,46 @@
+         self.set_ongoing_verification_request(verification_request)
+     }
+ 
++    /// Begin SAS with the peer's single eligible device without sharing a room key.
++    pub async fn request_peer_device_verification(&self, user_id: String) -> Result<(), ClientError> {
++        let user_id = UserId::parse(user_id)?;
++        if user_id.as_str() == self.user_identity.user_id().as_str() {
++            return Err(ClientError::from_str("Select another user to verify.", None));
++        }
++        if !self.encryption.cross_signing_status().await.is_some_and(|status| status.is_complete()) {
++            return Err(ClientError::from_str("This device's cross-signing setup is incomplete.", None));
++        }
++
++        let identity = self
++            .encryption
++            .request_user_identity(&user_id)
++            .await?
++            .ok_or(ClientError::from_str("Unknown user identity", None))?;
++        if identity.is_verified() {
++            return Err(ClientError::from_str("User is already verified", None));
++        }
++
++        let device = {
++            let devices = self.encryption.get_user_devices(&user_id).await?;
++            let mut eligible = devices.devices().filter(|device| {
++                device.is_cross_signed_by_owner()
++                    && !device.is_dehydrated()
++                    && !device.is_deleted()
++                    && !device.is_blacklisted()
++            });
++            let device = eligible.next().ok_or(ClientError::from_str(
++                "The peer has no eligible cross-signed device.", None,
++            ))?;
++            if eligible.next().is_some() {
++                return Err(ClientError::from_str("Alpha verification requires one eligible peer device.", None));
++            }
++            device
++        };
++
++        let request = device.request_verification_with_methods(vec![VerificationMethod::SasV1]).await?;
++        self.set_ongoing_verification_request(request)
++    }
++
+     /// Transition the current verification request into a SAS verification
+     /// flow.
+     pub async fn start_sas_verification(&self) -> Result<(), ClientError> {

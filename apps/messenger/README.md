@@ -6,7 +6,9 @@ The app signs in with an email code, lets you share a Vellivex ID as a QR code o
 
 ## Build from source
 
-Use JDK 21, Android SDK command-line tools and Python 3.12. Set `JAVA_HOME` and `ANDROID_HOME`, and add `sdkmanager` and `adb` to `PATH`. Accept the Android SDK licenses locally before installing packages. The project uses the checked-in Gradle 8.14.3 wrapper with a SHA-256 distribution check, Android Gradle Plugin 8.13.2, Kotlin 2.2.21 and Matrix Rust SDK for Android `26.11.05`. The minimum Android API is 26 and the compile and target API is 36.
+Use JDK 21, Android SDK command-line tools and Python 3.12. Set `JAVA_HOME` and `ANDROID_HOME`, and add `sdkmanager` and `adb` to `PATH`. Accept the Android SDK licenses locally before installing packages. The project uses the checked-in Gradle 8.14.3 wrapper with a SHA-256 distribution check, Android Gradle Plugin 8.13.2 and Kotlin 2.2.21. The minimum Android API is 26 and the compile and target API is 36.
+
+The Matrix SDK is built from the source pinned for Android version `26.11.05`, with a small Vellivex interface extension exposing its existing device-to-device SAS verification. This keeps contact verification independent of encrypted room-key sharing. Follow the prerequisites and build instructions in [the SDK build README](sdk/README.md) before the Gradle command below. The build requires the generated complete SDK AAR; the unmodified published SDK does not support this app's verification call.
 
 Run these commands from the repository root.
 
@@ -17,6 +19,8 @@ cd apps/messenger/android
 ```
 
 The debug APKs are `apps/messenger/android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` for modern ARM phones and `app-x86_64-debug.apk` in the same directory for the emulator. They use the `com.vellivex.messenger.alpha` application ID and a local debug signer. The build commands recreate a debug APK from source. Release signing and binary reproducibility require separate verification.
+
+This alpha supports one active, cross-signed device per contact for starting verification. It refuses to choose silently between multiple devices. Multi-device setup and account-key recovery are not part of this build.
 
 ## Run the isolated test server
 

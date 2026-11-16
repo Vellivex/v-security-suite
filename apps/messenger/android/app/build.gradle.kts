@@ -37,8 +37,20 @@ android {
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 
+// The custom SDK is a complete AAR with matching generated Kotlin and native code.
+// Falling back to upstream's unextended AAR would omit peer-device verification.
+val matrixSdkAar = providers.gradleProperty("matrixSdkAar")
+    .map { rootProject.file(it) }
+    .getOrElse(rootProject.file("../sdk/build/vellivex-matrix-sdk-26.11.05-vellivex.1.aar"))
+require(matrixSdkAar.isFile) {
+    "Build ../sdk/build.sh first, or supply -PmatrixSdkAar=/absolute/path/vellivex-matrix-sdk.aar"
+}
+
 dependencies {
-    implementation("org.matrix.rustcomponents:sdk-android:26.11.05")
+    implementation(files(matrixSdkAar))
+    // File-based AARs do not carry Maven transitive dependency resolution.
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("androidx.annotation:annotation:1.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-compose:1.11.0")
