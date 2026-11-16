@@ -27,6 +27,9 @@ OWNER_EMAIL = "v@vellivex.com"
 STABLE_FILES = ("identity-secret", "synapse-signing.key", "macaroon-secret", "invited-emails")
 HOSTNAME = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z")
 FORMAT = 1
+STOPPED_STATES = {"created", "dead", "exited"}
+ACTIVE_STATES = {"paused", "restarting", "running"}
+COMPOSE_STATES = STOPPED_STATES | ACTIVE_STATES | {"removing"}
 
 
 def private_read(path: Path) -> str:
@@ -41,13 +44,36 @@ def check_private(info, is_kind, path):
         raise ValueError(f"Expected a private path owned by this user: {path}")
 
 
+def fsync_path(path: Path, flags: int = 0) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def fsync_tree(path: Path) -> None:
+    for entry in path.iterdir():
+        mode = entry.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            fsync_tree(entry)
+        elif stat.S_ISREG(mode):
+            fsync_path(entry)
+        else:
+            raise ValueError("Restore staging contains a nonregular entry")
+    fsync_path(path, os.O_DIRECTORY)
+
+
 def atomic_write(path: Path, content: str) -> None:
     temporary = path.with_name("." + path.name + "." + secrets.token_hex(8))
     try:
         fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        fsync_path(path.parent, os.O_DIRECTORY)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -250,8 +276,15 @@ class Stack:
         self.compose("stop", "-t", "30")
 
     def running(self, service: str) -> bool:
-        return bool(self.compose("ps", "--status", "running", "--quiet", service,
-                                 stdout=subprocess.PIPE).stdout.strip())
+        return "running" in self.service_states(service)
+
+    def service_states(self, service: str) -> set[str]:
+        result = self.compose("ps", "--all", "--format", "{{.State}}", service,
+                              stdout=subprocess.PIPE, text=True)
+        states = set(result.stdout.split())
+        if states - COMPOSE_STATES:
+            raise ValueError(f"Could not determine the Docker Compose state for {service}")
+        return states
 
     def invite(self, addresses: list[str]) -> None:
         path = self.state / "synapse" / "invited-emails"
@@ -323,10 +356,15 @@ def backup(stack: Stack, output: Path, recipient: str) -> None:
         raise ValueError("Provide an age public recipient")
     if not stack.running("database"):
         raise ValueError("Start the database before making a backup")
-    was_running = stack.running("synapse")
-    if was_running:
-        stack.compose("stop", "-t", "30", "synapse")
+    states = stack.service_states("synapse")
+    if states & {"paused", "removing"}:
+        raise ValueError("Unpause Synapse or let Docker finish removing it before creating a backup")
+    resume = bool(states & ACTIVE_STATES)
     try:
+        if states:
+            stack.compose("stop", "-t", "30", "synapse")
+        if stack.service_states("synapse") - STOPPED_STATES:
+            raise ValueError("Could not confirm that Synapse stopped before the backup")
         with TemporaryDirectory(dir=stack.state) as work:
             temporary = Path(work)
             write_config(temporary / "metadata.json", {"format": FORMAT, "domain": stack.meta["domain"]})
@@ -339,20 +377,26 @@ def backup(stack: Stack, output: Path, recipient: str) -> None:
                 encrypted = Path(outgoing) / "encrypted.age"
                 subprocess.run(["age", "-r", recipient, "-o", str(encrypted), str(temporary / "archive.tar")],
                                check=True)
+                encrypted.chmod(0o600)
+                fsync_path(encrypted)
                 os.link(encrypted, output, follow_symlinks=False)
+                fsync_path(output.parent, os.O_DIRECTORY)
     finally:
-        if was_running:
+        if resume:
             stack.compose("up", "-d", "--wait", "synapse")
     print(f"Encrypted Messenger backup saved to {output}")
 
 
 def restore(stack: Stack, source: Path, identity: Path) -> None:
-    if stack.running("synapse") or stack.running("proxy"):
+    if any(stack.service_states(service) - STOPPED_STATES for service in ("synapse", "proxy")):
         raise ValueError("Restore only into a freshly initialized and unpublished deployment")
     marker = stack.state / "restore-in-progress"
     if marker.exists():
         raise ValueError("Recover the interrupted restore before repeating it")
     prior_data = stack.state / "synapse"
+    previous_data = stack.state / "synapse-before-restore"
+    if previous_data.exists() or previous_data.is_symlink():
+        raise ValueError("Recover the previous Synapse directory before repeating restore")
     if any((prior_data / f"email.sqlite{suffix}").exists() for suffix in ("", "-wal", "-shm", "-journal")):
         raise ValueError("The target must never have issued a verification code")
     with TemporaryDirectory(dir=stack.state) as work:
@@ -373,6 +417,8 @@ def restore(stack: Stack, source: Path, identity: Path) -> None:
         homeserver = json.loads(private_read(restored_data / "homeserver.yaml"))
         homeserver["macaroon_secret_key"] = private_read(restored_data / "macaroon-secret")
         write_config(restored_data / "homeserver.yaml", homeserver)
+        fsync_tree(restored_data)
+        fsync_path(temporary, os.O_DIRECTORY)
         stack.database()
         tables = stack.compose(
             "exec", "-T", "database", "psql", "-U", "postgres", "-d", "messenger", "-Atc",
@@ -381,22 +427,30 @@ def restore(stack: Stack, source: Path, identity: Path) -> None:
         ).stdout.strip()
         if tables != b"0":
             raise ValueError("The target PostgreSQL database must be empty")
-        atomic_write(marker, "Verify PostgreSQL and Synapse data before starting.\n")
+        atomic_write(marker, "Verify PostgreSQL and Synapse data before starting.\n"
+                     "The prior directory may be at synapse-before-restore.\n")
         try:
             with (payload / "messenger.dump").open("rb") as dump:
                 stack.compose("exec", "-T", "database", "pg_restore", "-U", "postgres", "-d", "messenger",
                               "--role=messenger", "--no-owner", "--no-privileges", "--single-transaction",
                               "--exit-on-error", stdin=dump)
-            os.rename(prior_data, temporary / "previous")
+            os.rename(prior_data, previous_data)
+            fsync_path(stack.state, os.O_DIRECTORY)
             try:
                 os.rename(restored_data, prior_data)
             except OSError:
-                os.rename(temporary / "previous", prior_data)
+                os.rename(previous_data, prior_data)
+                fsync_path(stack.state, os.O_DIRECTORY)
                 raise
+            fsync_path(temporary, os.O_DIRECTORY)
+            fsync_path(stack.state, os.O_DIRECTORY)
         except BaseException:
             print("Restore interrupted. The public service remains stopped.", file=sys.stderr)
             raise
         marker.unlink()
+        fsync_path(stack.state, os.O_DIRECTORY)
+        shutil.rmtree(previous_data)
+        fsync_path(stack.state, os.O_DIRECTORY)
     print("Restored PostgreSQL, server identity and media. Verify this private stack before publishing.")
 
 
