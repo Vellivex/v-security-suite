@@ -1,6 +1,6 @@
 # Vellivex Messenger Android alpha
 
-Messenger is an Android source alpha for one-to-one text conversations. The core is free. This build has no payment flow, public service or push notifications. Use fictional conversations and the local test server described below.
+Messenger is an Android source alpha for one-to-one text conversations. The core is free. This build has no payment flow, public service or push gateway. Use fictional conversations and the local test server described below, or deploy the private service before testing remotely.
 
 The app signs in with an email code, lets you share a Vellivex ID as a QR code or Matrix link, and uses the ID to invite one contact. Accept the invitation, then compare the verification symbols or numbers over an independent channel before sending text. The verification dialog establishes trust separately from sharing an ID. Signing out removes the local session and keys. This alpha has no key recovery, and signing in again may leave earlier messages unreadable.
 
@@ -21,6 +21,14 @@ cd apps/messenger/android
 The debug APKs are `apps/messenger/android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` for modern ARM phones and `app-x86_64-debug.apk` in the same directory for the emulator. They use the `com.vellivex.messenger.alpha` application ID and a local debug signer. The build commands recreate a debug APK from source. Release signing and binary reproducibility require separate verification.
 
 This alpha supports one active, cross-signed device per contact for starting verification. It refuses to choose silently between multiple devices. Multi-device setup and account-key recovery are not part of this build.
+
+For a remote private test, follow [the server deployment instructions](server/deploy/README.md). Build the release APK with `assembleRelease -PmessengerProductionServerUrl=https://YOUR_SERVICE_HOST` and sign it with the retained private release key. Release builds require this HTTPS origin and hide development server settings; they fail configuration if the origin is missing or invalid. Do not distribute an unsigned or placeholder-server release as ready to use.
+
+## Background alerts
+
+After signing in, open **Your profile → Enable background alerts** and allow Android notifications. A quiet, ongoing notification shows the connection status and has a **Stop** action. Incoming alerts contain only a generic prompt to open Vellivex. They include neither messages nor contact names. Denying notification permission leaves ordinary in-app messaging available.
+
+The user-enabled foreground service uses the same SDK connection as the app and works without Google Play services. It does not restart after force stop, process eviction or a device restart. Android sleep and battery policy can delay delivery; reopen the app and re-enable alerts after a restart. Events that cannot be decrypted when sync receives them may appear in the conversation later without an alert. This sideload alpha declares the specific foreground activity as `specialUse`; store distribution and physical-device delivery require further review.
 
 ## Run the isolated test server
 

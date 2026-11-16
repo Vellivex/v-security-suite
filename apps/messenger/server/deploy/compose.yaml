@@ -1,0 +1,70 @@
+services:
+  database:
+    image: docker.io/library/postgres:17.12-bookworm@sha256:40865bc877a289da75963d97d72b59633f639fc5af7a4e856bfa3714cae5b536
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: messenger
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --locale=C --encoding=UTF8
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "messenger"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  synapse:
+    image: ghcr.io/element-hq/synapse:v1.165.0@sha256:673b4223c81a7634fd07d832b939a58f97081cfdaae7cdd2d1664cdcf7611b62
+    user: "${MESSENGER_UID:?Run manage.py init}:${MESSENGER_GID:?Run manage.py init}"
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      PYTHONPATH: /module
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - "${MESSENGER_STATE:?Run manage.py init}/synapse:/data"
+      - "..:/module:ro"
+    networks:
+      - database
+      - edge
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8008/_matrix/client/versions', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 24
+
+  proxy:
+    image: docker.io/library/caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    restart: unless-stopped
+    depends_on:
+      synapse:
+        condition: service_healthy
+    volumes:
+      - "${MESSENGER_STATE:?Run manage.py init}/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+
+secrets:
+  postgres_password:
+    file: "${MESSENGER_STATE:?Run manage.py init}/postgres-password"
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  database:
+    internal: true
+  edge:

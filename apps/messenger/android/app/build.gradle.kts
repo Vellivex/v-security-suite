@@ -1,3 +1,7 @@
+import com.android.build.api.variant.BuildConfigField
+import java.net.URI
+import java.net.URISyntaxException
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,12 +15,16 @@ android {
         applicationId = "com.vellivex.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-alpha01"
+        versionCode = 2
+        versionName = "0.1.0-alpha02"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
-        debug { applicationIdSuffix = ".alpha"; versionNameSuffix = "-test" }
+        debug {
+            applicationIdSuffix = ".alpha"
+            versionNameSuffix = "-test"
+            buildConfigField("String", "PRODUCTION_SERVER_URL", "\"\"")
+        }
         release { isMinifyEnabled = false }
     }
     compileOptions {
@@ -35,6 +43,30 @@ android {
     }
     packaging { resources.excludes += setOf("META-INF/AL2.0", "META-INF/LGPL2.1") }
     testOptions { unitTests.isReturnDefaultValues = true }
+}
+
+val releaseServerUrl = providers.gradleProperty("messengerProductionServerUrl").orElse("").map { value ->
+    val message = "Set -PmessengerProductionServerUrl to the HTTPS origin of the Vellivex messaging service for release builds."
+    val uri = try {
+        URI(value.trim())
+    } catch (_: URISyntaxException) {
+        throw GradleException(message)
+    }
+    val host = uri.host
+    require(
+        uri.scheme == "https" && host != null && uri.userInfo == null &&
+            uri.rawPath in listOf("", "/") && uri.rawQuery == null && uri.rawFragment == null &&
+            (uri.port == -1 || uri.port in 1..65_535),
+    ) { message }
+    URI("https", null, host, uri.port, null, null, null).toASCIIString()
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        checkNotNull(variant.buildConfigFields).put("PRODUCTION_SERVER_URL", releaseServerUrl.map { url ->
+            BuildConfigField("String", "\"$url\"", "HTTPS origin for the Vellivex messaging service")
+        })
+    }
 }
 
 // The custom SDK is a complete AAR with matching generated Kotlin and native code.
