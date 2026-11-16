@@ -13,9 +13,24 @@ root = Path(__file__).resolve().parent.parent
 source_dirs = ['apps', 'web', 'server', 'tests', 'scripts', 'docs', '.github', 'drizzle']
 top_files = ['AGENTS.md', 'LICENSE', 'NOTICE', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'package.json']
 release_files = ['VGuard-Setup.txt', 'VGuard-Test-Report.txt', 'RELEASE-NOTES.txt', 'VGuard-0.1.3-Build-Report.json', 'VGuard-0.1.3-Package-Verification.txt', 'VGuard-0.1.3-Security-Notes.txt']
-ignored_dirs = {'build', 'out', '.classes', '.local-signing', '__pycache__', '.git'}
+ignored_dirs = {'build', 'out', '.classes', '.local-signing', '__pycache__', '.git', '.gradle', '.kotlin', '.venv', '.runtime'}
 source_suffixes = {'.md', '.txt', '.json', '.js', '.mjs', '.cjs', '.ts', '.java', '.xml', '.py', '.sh', '.css', '.svg', '.sql', '.yml', '.yaml'}
 public_hooks = {'scripts/git-hooks/pre-commit', 'scripts/git-hooks/pre-push'}
+messenger_root = 'apps/messenger/'
+messenger_android = messenger_root + 'android/'
+gradle_launcher = messenger_android + 'gradlew'
+gradle_wrapper = messenger_android + 'gradle/wrapper/gradle-wrapper.jar'
+# Embedded gradle-wrapper.jar from the verified Gradle 8.14.3 binary distribution.
+gradle_wrapper_sha256 = '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172'
+messenger_text_files = {
+    messenger_root + 'NOTICE',
+    messenger_android + '.gitattributes',
+    messenger_android + 'gradle.properties',
+    messenger_android + 'gradle/wrapper/gradle-wrapper.properties',
+    gradle_launcher,
+    gradle_launcher + '.bat',
+}
+public_executables = public_hooks | {gradle_launcher}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}
 private_name = re.compile(r'(^|[._-])(credentials?|secrets?|passwords?|private[._-]?key|signing[._-]?key|access[._-]?token)([._-]|$)', re.I)
 
@@ -51,9 +66,14 @@ def source_candidate(path):
     if not path.is_file():
         raise RuntimeError(f'Not a regular source file: {name}')
     lower = path.name.lower()
-    if lower.startswith('.env') or path.suffix.lower() in private_suffixes or private_name.search(lower):
+    suffix = path.suffix.lower()
+    if lower.startswith('.env') or lower == 'local.properties' or suffix in private_suffixes or private_name.search(lower):
         raise RuntimeError(f'Private/runtime input is forbidden: {name}')
-    if path.suffix.lower() not in source_suffixes and name not in top_files and name not in public_hooks and path.name != '.gitignore':
+    kotlin = name.startswith(messenger_android) and suffix in {'.kt', '.kts'}
+    if not (
+        suffix in source_suffixes or kotlin or name in messenger_text_files or name == gradle_wrapper
+        or name in top_files or name in public_hooks or path.name == '.gitignore'
+    ):
         raise RuntimeError(f'Unapproved source file type: {name}')
     return name
 
@@ -83,6 +103,16 @@ if set(actual) != set(manifest):
     raise RuntimeError('Public source manifest mismatch; review new/missing paths: ' + ', '.join(sorted(set(actual) ^ set(manifest))))
 # Validate and snapshot every included byte before writing either archive.
 public = {name: read_regular(path) for name, path in actual.items()}
+if gradle_wrapper in public and hashlib.sha256(public[gradle_wrapper]).hexdigest() != gradle_wrapper_sha256:
+    raise RuntimeError(f'Gradle wrapper SHA-256 mismatch: {gradle_wrapper}')
+for name, data in public.items():
+    if name.startswith(messenger_root) and name != gradle_wrapper:
+        try:
+            data.decode('utf-8')
+        except UnicodeDecodeError:
+            raise RuntimeError(f'Expected UTF-8 Messenger source: {name}') from None
+        if b'\0' in data:
+            raise RuntimeError(f'Unexpected binary Messenger input: {name}')
 if sum(map(len, public.values())) > 16 * 1024 * 1024:
     raise RuntimeError('Public source exceeds the reviewed 16 MiB bound')
 checked_path(root / 'releases')
@@ -97,7 +127,7 @@ def write(archive, entries):
             for name, data in sorted(entries):
                 info = zipfile.ZipInfo(name, date_time=(2026, 10, 23, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
-                executable = name.endswith('.sh') or any(name == hook or name.endswith('/' + hook) for hook in public_hooks)
+                executable = name.endswith('.sh') or name.partition('/')[2] in public_executables
                 info.external_attr = (0o755 if executable else 0o644) << 16
                 bundle.writestr(info, data)
         os.replace(temporary, archive)

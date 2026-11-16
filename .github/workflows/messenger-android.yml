@@ -1,0 +1,137 @@
+name: Vellivex Messenger alpha checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/messenger/**'
+      - '.github/workflows/messenger-android.yml'
+  push:
+    paths:
+      - 'apps/messenger/**'
+      - '.github/workflows/messenger-android.yml'
+
+permissions: {}
+
+concurrency:
+  group: messenger-alpha-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  android-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install Android platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          javac -version
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
+      - name: Run JVM tests and lint and build both debug APKs
+        working-directory: apps/messenger/android
+        run: ./gradlew --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+
+  backend-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Install pinned Synapse dependency and run backend unit tests
+        shell: bash
+        working-directory: apps/messenger/server
+        run: |
+          set -euo pipefail
+          python3.12 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -r requirements.txt
+          python -m unittest discover -s tests -p 'test_*.py'
+      - name: Exercise email login through loopback Synapse
+        shell: bash
+        working-directory: apps/messenger/server
+        run: |
+          set -euo pipefail
+          state_dir=$(mktemp -d)
+          .venv/bin/python dev_server.py \
+            --state-dir "$state_dir" --port 8008 --mailbox-port 8025 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" || true
+            rm -rf -- "$state_dir"
+          }
+          trap cleanup EXIT
+          curl --noproxy '*' --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
+            --max-time 3 http://127.0.0.1:8008/_matrix/client/versions >/dev/null
+          .venv/bin/python tests/smoke.py --port 8008 --mailbox-port 8025 \
+            --mailbox-key-file "$state_dir/mailbox-key"
+
+  android-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Enable hardware acceleration on the hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -c /dev/kvm ]]; then
+            echo '::error::This runner has no KVM device for the Android integration test.'
+            exit 1
+          fi
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
+      - name: Run Android instrumentation against local Synapse
+        id: instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          bash apps/messenger/scripts/run-android-integration.sh "$RUNNER_TEMP/messenger-evidence"
+      - name: Upload Android test reports and the empty-onboarding screenshot
+        if: ${{ !cancelled() && steps.instrumentation.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-android-test-evidence-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/messenger-evidence/MessengerOnboardingSmokeTest.log
+            ${{ runner.temp }}/messenger-evidence/MessengerLocalSynapseTest.log
+            ${{ runner.temp }}/messenger-evidence/vellivex-alpha-onboarding.png
+          if-no-files-found: warn
+          retention-days: 7
