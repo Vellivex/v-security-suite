@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import secrets
 import smtplib
 import ssl
 import stat
@@ -124,6 +125,9 @@ class RequestCode(DirectServeJsonResource):
             raise SynapseError(400, "Enter a valid email address.", Codes.INVALID_PARAM) from None
 
         address = admit(request, self.module.requests)
+        if self.module.invited_emails is not None and email not in self.module.invited_emails:
+            # Keep the response shape consistent without touching SQL or SMTP.
+            return 200, {"challenge_id": secrets.token_urlsafe(32)}
         run = self.module.api.defer_to_thread
         try:
             challenge = await run(self.module.state.issue, email, address)
@@ -154,7 +158,8 @@ class VerifyCode(DirectServeJsonResource):
         localpart = await api.defer_to_thread(
             self.module.state.consume, values["challenge_id"], values["code"]
         )
-        if localpart is None:
+        invited = self.module.invited_localparts
+        if localpart is None or (invited is not None and localpart not in invited):
             raise SynapseError(403, "The code could not be verified. Request a fresh code.", Codes.FORBIDDEN)
         user_id = api.get_qualified_user_id(localpart)
         if not await api.check_user_exists(user_id):
@@ -198,9 +203,13 @@ class EmailCodeModule:
                 raise ConfigError("Messenger needs distinct private 32-byte OTP and identity secrets")
             if mode == "dev":
                 mailer = DevSpool(Path(config["mailbox"]))
+                invited = None
             else:
                 if "mailbox" in config:
                     raise ConfigError("Messenger SMTP configuration must not include a dev mailbox")
+                invited = frozenset(normalize_email(line) for line in private_text(config["invited_emails_file"]).splitlines() if line.strip())
+                if not invited:
+                    raise ConfigError("Messenger SMTP mode requires at least one invited address")
                 username = config.get("smtp_username")
                 password_path = config.get("smtp_password_file")
                 if bool(username) != bool(password_path):
@@ -215,6 +224,7 @@ class EmailCodeModule:
         return {
             "dev": mode == "dev",
             "mailer": mailer,
+            "invited_emails": invited,
             "state": EmailState(
                 database, otp_secret, identity_secret,
                 ip_hour_limit=bounded_int(config, "ip_hour_limit", 6, 200 if mode == "dev" else 40),
@@ -227,6 +237,9 @@ class EmailCodeModule:
         self.dev = config["dev"]
         self.mailer = config["mailer"]
         self.state = config["state"]
+        self.invited_emails = config["invited_emails"]
+        self.invited_localparts = (None if self.invited_emails is None else
+                                   frozenset(self.state.localpart_for(email) for email in self.invited_emails))
         self.requests = AddressBudget(per_address=6, total=24)
         self.verifications = AddressBudget()
         self.mail_slots = DeferredSemaphore(2)

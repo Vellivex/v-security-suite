@@ -133,8 +133,8 @@ class EmailState:
     def _digest(self, purpose: str, value: bytes) -> bytes:
         return hmac.digest(self.otp_secret, purpose.encode("ascii") + b"\0" + value, hashlib.sha256)
 
-    def _localpart(self, email: bytes) -> str:
-        identity = hmac.digest(self.identity_secret, b"matrix-localpart-v1\0" + email, hashlib.sha256)
+    def localpart_for(self, email: str) -> str:
+        identity = hmac.digest(self.identity_secret, b"matrix-localpart-v1\0" + email.encode("ascii"), hashlib.sha256)
         return "vx_" + identity.hex()[:32]
 
     def _code_digest(self, challenge: str, code: str) -> bytes:
@@ -169,7 +169,7 @@ class EmailState:
                 """INSERT INTO challenges
                 (id, email_hash, ip_hash, localpart, code_hash, created_at, expires_at, state)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
-                (challenge.id, email_hash, ip_hash, self._localpart(email_bytes),
+                (challenge.id, email_hash, ip_hash, self.localpart_for(email),
                  self._code_digest(challenge.id, challenge.code), now, challenge.expires_at),
             )
         return challenge

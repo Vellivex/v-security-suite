@@ -1,14 +1,19 @@
 package com.vellivex.messenger
 
 import android.app.Application
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
@@ -47,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
+import androidx.core.content.ContextCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
@@ -66,7 +72,7 @@ class MessengerApplication : Application() {
 class MessengerViewModel(application: Application) : AndroidViewModel(application) {
     val repository = (application as MessengerApplication).repository
     var signInEmail by mutableStateOf("")
-    var serverAddress by mutableStateOf("")
+    var serverAddress by mutableStateOf(BuildConfig.PRODUCTION_SERVER_URL)
     init { viewModelScope.launch { repository.restore() } }
     fun run(action: suspend MatrixRepository.() -> Unit) { viewModelScope.launch { repository.action() } }
     fun send(text: String, accepted: () -> Unit) { viewModelScope.launch { if (repository.sendMessage(text)) accepted() } }
@@ -74,6 +80,14 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
 class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
+    override fun onStart() {
+        super.onStart()
+        MessengerBackgroundSyncService.setAppVisible(true)
+    }
+    override fun onStop() {
+        MessengerBackgroundSyncService.setAppVisible(false)
+        super.onStop()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -94,10 +108,27 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MessengerApp(model: MessengerViewModel) {
     val state by model.repository.state.collectAsStateWithLifecycle()
+    val alertsRunning by MessengerBackgroundSyncService.running.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showProfile by remember { mutableStateOf(false) }
     var showNewChat by remember { mutableStateOf(false) }
     var signOut by remember { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
+    val startAlerts = {
+        if (!MessengerBackgroundSyncService.start(context)) scope.launch {
+            snackbars.showSnackbar("Alerts could not start. Allow Vellivex notifications in Android settings, then try again.")
+        }
+        Unit
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        if (allowed) startAlerts() else scope.launch {
+            snackbars.showSnackbar("Notifications are off. Open Vellivex to check your messages.")
+        }
+    }
+    LaunchedEffect(state.userId) {
+        if (state.userId == null) MessengerBackgroundSyncService.stop(context)
+    }
     LaunchedEffect(state.error) {
         state.error?.let { snackbars.showSnackbar(it); model.run { clearError() } }
     }
@@ -122,6 +153,14 @@ private fun MessengerApp(model: MessengerViewModel) {
         }
     }
     if (showProfile && state.userId != null) ProfileDialog(state.userId!!,
+        alertsRunning = alertsRunning,
+        toggleAlerts = {
+            if (alertsRunning) MessengerBackgroundSyncService.stop(context)
+            else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else startAlerts()
+        },
         close = { showProfile = false }, signOut = { showProfile = false; signOut = true })
     if (showNewChat) NewChatDialog(close = { showNewChat = false }, create = {
         showNewChat = false; model.run { createDirectMessage(it) }
@@ -177,11 +216,11 @@ private fun SignIn(state: MessengerState, model: MessengerViewModel, onRequest: 
                 modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Open Vellivex") }
             TextButton(onClick = { onRequest(server.trim(), email.trim()) }, enabled = !state.busy) { Text("Send another code") }
         }
-        TextButton(onClick = { serverSettings = !serverSettings }, enabled = !state.busy && !state.codeRequested,
+        if (BuildConfig.DEBUG) TextButton(onClick = { serverSettings = !serverSettings }, enabled = !state.busy && !state.codeRequested,
             contentPadding = PaddingValues(0.dp)) {
             Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Test server settings")
         }
-        if (serverSettings) {
+        if (BuildConfig.DEBUG && serverSettings) {
             OutlinedTextField(server, { model.serverAddress = it.take(300) }, label = { Text("Server address") },
                 placeholder = { Text("https://your-test-server") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 supportingText = { Text("Use the server supplied with your test invitation.") },
@@ -198,7 +237,8 @@ private fun SignIn(state: MessengerState, model: MessengerViewModel, onRequest: 
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.Lock, null, Modifier.size(17.dp), tint = Muted)
-            Text("Early test build. A configured server is required. Use test conversations while we verify delivery and device security.",
+            Text(if (BuildConfig.DEBUG) "Early test build. A configured server is required. Use test conversations while we verify delivery and device security."
+                else "Private test build. Use test conversations while we verify delivery and device security.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Muted)
         }
     }
@@ -325,7 +365,7 @@ private fun NewChatDialog(close: () -> Unit, create: (String) -> Unit) {
 }
 
 @Composable
-private fun ProfileDialog(userId: String, close: () -> Unit, signOut: () -> Unit) {
+private fun ProfileDialog(userId: String, alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
     val context = LocalContext.current
     val invitation = "https://matrix.to/#/$userId"
     val qr = remember(invitation) {
@@ -335,13 +375,19 @@ private fun ProfileDialog(userId: String, close: () -> Unit, signOut: () -> Unit
         }.asImageBitmap()
     }
     AlertDialog(onDismissRequest = close, title = { Text("Your Vellivex ID") },
-        text = { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        text = { Column(Modifier.heightIn(max = 510.dp).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
             Image(qr, "QR code for your public contact ID", Modifier.size(200.dp))
             Text(userId, textAlign = TextAlign.Center, fontSize = 13.sp)
             Text("Share this to receive an invitation. It contains your contact ID, never your email or encryption keys.", color = Muted, fontSize = 13.sp)
             OutlinedButton(onClick = {
                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, invitation) }, "Share your Vellivex ID"))
             }) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Share invitation") }
+            HorizontalDivider()
+            Text(if (alertsRunning) "Background alerts are on" else "Background alerts are off", fontWeight = FontWeight.SemiBold)
+            Text("Keep a visible sync notification to receive generic alerts while the app is closed. Messages and contact names stay out of notifications. Android may pause delivery; reopen Vellivex after a restart or force stop.",
+                color = Muted, fontSize = 12.sp)
+            OutlinedButton(onClick = toggleAlerts) { Text(if (alertsRunning) "Stop background alerts" else "Enable background alerts") }
             Text("Vellivex Messenger ${BuildConfig.VERSION_NAME}\nFree core messaging · No paid features in this alpha", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center)
         } }, confirmButton = { TextButton(onClick = close) { Text("Done") } }, dismissButton = { TextButton(onClick = signOut) { Text("Sign out") } })
 }

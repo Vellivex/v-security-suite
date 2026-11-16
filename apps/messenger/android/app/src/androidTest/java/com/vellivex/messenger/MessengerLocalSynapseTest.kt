@@ -1,8 +1,18 @@
 package com.vellivex.messenger
 
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationManager
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import com.vellivex.messenger.MessengerBackgroundSyncService.Companion.INCOMING_MESSAGES_CHANNEL
+import com.vellivex.messenger.MessengerBackgroundSyncService.Companion.SYNC_STATUS_CHANNEL
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -33,16 +43,7 @@ import java.util.UUID
 class MessengerLocalSynapseTest {
     @Test
     fun verifiedConversationSurvivesOfflineRestoreAndRejectsPlaintext() = runBlocking {
-        val args = InstrumentationRegistry.getArguments()
-        val mailboxKey = args.getString("messengerMailboxKey")
-        assumeTrue("Local Synapse and mailbox fixture arguments are required", !mailboxKey.isNullOrBlank())
-        checkNotNull(mailboxKey)
-
-        val fixture = LocalSynapseFixture(
-            matrixBase = args.getString("messengerSynapseUrl") ?: "http://127.0.0.1:8008",
-            mailboxBase = args.getString("messengerMailboxUrl") ?: "http://127.0.0.1:8025",
-            mailboxKey = mailboxKey,
-        )
+        val fixture = localFixture()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val runId = UUID.randomUUID().toString()
         val aliceEmail = "alice-$runId@example.test"
@@ -91,12 +92,7 @@ class MessengerLocalSynapseTest {
             assertFalse("Bob can send after a rejected SAS", bob.sendMessage(refusedAfterMismatch))
 
             compareSas(bob, alice, "fresh reverse-direction attempt after rejection")
-            coroutineScope {
-                val aliceConfirm = async { alice.confirmVerification() }
-                val bobConfirm = async { bob.confirmVerification() }
-                aliceConfirm.await()
-                bobConfirm.await()
-            }
+            confirmSas(alice, bob)
             awaitState(alice, "Alice's verified room") { it.canSend && it.selectedRoom?.peerVerified == true }
             awaitState(bob, "Bob's verified room") { it.canSend && it.selectedRoom?.peerVerified == true }
 
@@ -173,6 +169,167 @@ class MessengerLocalSynapseTest {
         }
     }
 
+    @Test
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.TIRAMISU)
+    fun backgroundSyncPostsPrivateAlertForVerifiedMessageAfterPermissionGrant() = runBlocking {
+        val fixture = localFixture()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val notifications = checkNotNull(context.getSystemService(NotificationManager::class.java))
+        val permission = Manifest.permission.POST_NOTIFICATIONS
+        assertEquals(
+            "Install the test APK fresh or revoke POST_NOTIFICATIONS before running this test",
+            PackageManager.PERMISSION_DENIED,
+            context.checkSelfPermission(permission),
+        )
+        assertFalse("Android allowed notifications before permission was granted", notifications.areNotificationsEnabled())
+
+        val runId = UUID.randomUUID().toString().take(16)
+        val sender = MatrixRepository(context, sessionNamespace = "notification-$runId-sender")
+        val receiver = (context.applicationContext as MessengerApplication).repository
+        val senderAddress = "notification-sender-$runId@example.test"
+        val receiverAddress = "notification-receiver-$runId@example.test"
+        val deniedSample = "$runId fictional permission-denied message"
+        val backgroundSample = "$runId fictional private notification body"
+        try {
+            fixture.signIn(sender, senderAddress)
+            fixture.signIn(receiver, receiverAddress)
+            val receiverId = checkNotNull(receiver.state.value.userId)
+            val senderId = checkNotNull(sender.state.value.userId)
+            val roomId = checkNotNull(sender.createDirectMessage(receiverId))
+            awaitState(receiver, "encrypted invitation for notification recipient") { state ->
+                state.rooms.any { it.id == roomId && it.encrypted && it.membership == MessengerMembership.Invited }
+            }
+            assertTrue("The notification recipient could not join the invitation", receiver.joinRoom(roomId))
+            awaitState(receiver, "notification recipient's joined room") { state ->
+                state.rooms.any { it.id == roomId && it.membership == MessengerMembership.Joined }
+            }
+            awaitState(sender, "notification sender's view of the joined recipient") { state ->
+                state.rooms.any { it.id == roomId && it.peerId == receiverId }
+            }
+            assertTrue(sender.openRoom(roomId))
+            assertTrue(receiver.openRoom(roomId))
+            compareSas(sender, receiver, "notification fixture")
+            confirmSas(sender, receiver)
+            awaitState(sender, "verified notification sender") { it.canSend }
+            awaitState(receiver, "verified notification recipient") { it.canSend }
+
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    assertFalse(
+                        "Background service accepted a start without notification permission",
+                        MessengerBackgroundSyncService.start(activity),
+                    )
+                }
+                assertFalse("Service ran without notification permission", MessengerBackgroundSyncService.running.value)
+                assertTrue("Permission denial stopped normal messaging", sender.sendMessage(deniedSample))
+                awaitState(receiver, "foreground message after notification permission denial") { state ->
+                    state.messages.any { it.text == deniedSample && it.delivery == MessengerDelivery.Received }
+                }
+                assertEquals("Permission denial cleared the session", receiverId, receiver.state.value.userId)
+                assertFalse("An alert appeared without permission", hasNotification(notifications, INCOMING_MESSAGES_CHANNEL))
+                assertFalse("An ongoing notification appeared without permission", hasNotification(notifications, SYNC_STATUS_CHANNEL))
+
+                instrumentation.uiAutomation.grantRuntimePermission(context.packageName, permission)
+                assertEquals(PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(permission))
+                assertTrue("Android did not enable notifications after granting permission", notifications.areNotificationsEnabled())
+                scenario.onActivity { activity ->
+                    assertTrue("The foreground Activity could not start background sync", MessengerBackgroundSyncService.start(activity))
+                }
+                checkNotNull(withTimeoutOrNull(15_000) { MessengerBackgroundSyncService.running.first { it } }) {
+                    "The background service never entered its running state"
+                }
+                receiver.closeRoom()
+            }
+
+            val status = awaitNotification(notifications, SYNC_STATUS_CHANNEL)
+            assertTrue(
+                "Android did not mark the ongoing notification as a foreground service",
+                (status.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0,
+            )
+            assertTrue("The service stopped when its Activity went away", MessengerBackgroundSyncService.running.value)
+            assertFalse("An old message was replayed as a new alert", hasNotification(notifications, INCOMING_MESSAGES_CHANNEL))
+
+            val eventId = coroutineScope {
+                val incoming = async(start = CoroutineStart.UNDISPATCHED) {
+                    checkNotNull(withTimeoutOrNull(60_000) { receiver.backgroundMessageEvents.first() }) {
+                        "The verified incoming event did not reach the background observer"
+                    }
+                }
+                assertTrue("Could not send the verified background message", sender.sendMessage(backgroundSample))
+                incoming.await()
+            }
+            val alert = awaitNotification(notifications, INCOMING_MESSAGES_CHANNEL)
+            assertEquals("The alert should be hidden from the lock screen", Notification.VISIBILITY_SECRET, alert.visibility)
+            assertEquals("New Vellivex message", alert.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
+            assertEquals("Open Vellivex to view it.", alert.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
+            val privateValues = listOf(runId, deniedSample, backgroundSample, senderId, receiverId, senderAddress, receiverAddress, roomId)
+            assertPrivateNotification(status, privateValues)
+            assertPrivateNotification(alert, privateValues)
+            assertTrue("The background recipient could not reopen the room", receiver.openRoom(roomId))
+            awaitState(receiver, "the same background event decrypted in its conversation") { state ->
+                state.messages.any { it.id == eventId && it.text == backgroundSample && it.delivery == MessengerDelivery.Received }
+            }
+        } finally {
+            MessengerBackgroundSyncService.stop(context)
+            try {
+                cleanUp(sender)
+            } finally {
+                receiver.signOut()
+            }
+        }
+    }
+
+    private fun localFixture(): LocalSynapseFixture {
+        val args = InstrumentationRegistry.getArguments()
+        val mailboxKey = args.getString("messengerMailboxKey")
+        assumeTrue("Local Synapse and mailbox fixture arguments are required", !mailboxKey.isNullOrBlank())
+        return LocalSynapseFixture(
+            matrixBase = args.getString("messengerSynapseUrl") ?: "http://127.0.0.1:8008",
+            mailboxBase = args.getString("messengerMailboxUrl") ?: "http://127.0.0.1:8025",
+            mailboxKey = checkNotNull(mailboxKey),
+        )
+    }
+
+    private suspend fun confirmSas(first: MatrixRepository, second: MatrixRepository) = coroutineScope {
+        val firstConfirm = async { first.confirmVerification() }
+        val secondConfirm = async { second.confirmVerification() }
+        firstConfirm.await()
+        secondConfirm.await()
+    }
+
+    private fun hasNotification(notifications: NotificationManager, channel: String): Boolean =
+        notifications.activeNotifications.any { it.notification.channelId == channel }
+
+    private suspend fun awaitNotification(notifications: NotificationManager, channel: String): Notification {
+        repeat(150) {
+            notifications.activeNotifications.singleOrNull { it.notification.channelId == channel }?.let {
+                return it.notification
+            }
+            delay(100)
+        }
+        error("Android did not post a notification to $channel")
+    }
+
+    private fun assertPrivateNotification(notification: Notification, privateValues: List<String>) {
+        val extras = notification.extras
+        assertFalse("The notification contained a conversation message history", extras.containsKey(Notification.EXTRA_MESSAGES))
+        assertFalse("The notification published a separate lock-screen version", notification.publicVersion != null)
+        assertTrue("Notification has no visible text", !extras.getCharSequence(Notification.EXTRA_TEXT).isNullOrBlank())
+        val text = listOf(
+            notification.tickerText,
+            extras.getCharSequence(Notification.EXTRA_TITLE),
+            extras.getCharSequence(Notification.EXTRA_TITLE_BIG),
+            extras.getCharSequence(Notification.EXTRA_TEXT),
+            extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
+            extras.getCharSequence(Notification.EXTRA_SUB_TEXT),
+            extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
+        ) + extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES).orEmpty()
+        assertFalse("A notification exposed a private message or identity", text.filterNotNull().any { item ->
+            privateValues.any { item.contains(it) }
+        })
+    }
+
     private suspend fun compareSas(alice: MatrixRepository, bob: MatrixRepository, attempt: String) {
         alice.beginVerification()
         awaitState(bob, "Bob's verification request ($attempt)") {
@@ -211,6 +368,7 @@ class MessengerLocalSynapseTest {
             client.close()
         }
     }
+
 }
 
 private class LocalSynapseFixture(matrixBase: String, mailboxBase: String, private val mailboxKey: String) {

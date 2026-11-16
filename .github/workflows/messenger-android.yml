@@ -252,6 +252,23 @@ jobs:
           .venv/bin/python tests/smoke.py --port 8008 --mailbox-port 8025 \
             --mailbox-key-file "$state_dir/mailbox-key"
 
+  deployment-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch public source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Exercise the private deployment with disposable Docker volumes
+        shell: bash
+        run: python3 apps/messenger/server/tests/deploy_smoke.py
+
   android-integration:
     needs: matrix-sdk
     runs-on: ubuntu-24.04

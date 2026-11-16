@@ -8,9 +8,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -19,6 +23,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONException
+import org.json.JSONObject
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
@@ -31,6 +37,8 @@ import org.matrix.rustcomponents.sdk.MsgLikeKind
 import org.matrix.rustcomponents.sdk.PowerLevels
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomHistoryVisibility
+import org.matrix.rustcomponents.sdk.RoomMessageLikeEvent
+import org.matrix.rustcomponents.sdk.RoomMessageLikeEventsListener
 import org.matrix.rustcomponents.sdk.RoomPreset
 import org.matrix.rustcomponents.sdk.RoomVisibility
 import org.matrix.rustcomponents.sdk.SendTarget
@@ -55,6 +63,7 @@ import uniffi.matrix_sdk_base.EncryptionState
 import uniffi.matrix_sdk_crypto.CollectStrategy
 import uniffi.matrix_sdk_crypto.DecryptionSettings
 import uniffi.matrix_sdk_crypto.TrustRequirement
+import uniffi.ruma_events.MessageLikeEventType
 
 class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private val auth = MessengerEmailAuth(context.applicationContext)
@@ -63,6 +72,11 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private val gate = Mutex()
     private val mutableState = MutableStateFlow(MessengerState())
     val state: StateFlow<MessengerState> = mutableState.asStateFlow()
+    private val mutableBackgroundMessageEvents =
+        MutableSharedFlow<String>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** Live IDs of newly synced, strictly verified messages across the account's private rooms. */
+    val backgroundMessageEvents: SharedFlow<String> = mutableBackgroundMessageEvents.asSharedFlow()
 
     private var connection: Connection? = null
     private var opened: OpenTimeline? = null
@@ -401,18 +415,13 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                             }
                         }
                     })
+                    refreshStoredRooms(c)
                     sync.start()
                     c.roomWatch = scope.launch {
                         while (isActive) {
                             gate.withLock {
                                 if (connection !== c) return@withLock
-                                try {
-                                    refresh(c)
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (_: Exception) {
-                                    // Sync will provide the next local snapshot. Keep the last valid one.
-                                }
+                                refreshStoredRooms(c)
                             }
                             delay(1_500)
                         }
@@ -433,6 +442,16 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
     }
 
+    private suspend fun refreshStoredRooms(c: Connection) {
+        try {
+            refresh(c)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Keep the previous snapshot and retry when the SDK has processed more sync data.
+        }
+    }
+
     private suspend fun refresh(c: Connection) {
         val all = c.client.rooms()
         val visible = try {
@@ -447,8 +466,60 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         } else if (current == null && selectedRoom?.let { it.encrypted && it.membership == MessengerMembership.Joined } == true) {
             requireRoom(c, selectedRoom.id).use { attachTimeline(c, it, selectedRoom) }
         }
+        updateBackgroundSubscriptions(c, visible)
         mutableState.update { it.copy(rooms = visible) }
     }
+
+    private fun updateBackgroundSubscriptions(c: Connection, rooms: List<MessengerRoom>) {
+        val eligibleIds = rooms.filter(::isNotificationRoom).mapTo(mutableSetOf()) { it.id }
+        for (roomId in c.backgroundSubscriptions.keys - eligibleIds) {
+            c.backgroundSubscriptions.remove(roomId)?.apply { cancel(); close() }
+        }
+        for (roomId in eligibleIds - c.backgroundSubscriptions.keys) {
+            val room = c.client.getRoom(roomId) ?: continue
+            c.backgroundSubscriptions[roomId] = room.use {
+                it.subscribeToMessageLikeEvents(MessageLikeEventType.RoomMessage, object : RoomMessageLikeEventsListener {
+                    override fun onEvent(event: RoomMessageLikeEvent) = onBackgroundMessage(c, roomId, event)
+                })
+            }
+        }
+    }
+
+    private fun onBackgroundMessage(c: Connection, roomId: String, event: RoomMessageLikeEvent) {
+        val sender = event.sender
+        val encryption = event.encryptionInfo ?: return
+        if (encryption.senderId != sender || encryption.shieldStateStrict != ShieldState.None) return
+
+        val content = try {
+            JSONObject(event.contentJson)
+        } catch (_: JSONException) {
+            return
+        }
+        if (content.optString("msgtype") != "m.text" || content.opt("body") !is String ||
+            content.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+        ) return
+
+        val eventId = event.eventId
+        scope.launch {
+            gate.withLock {
+                if (connection !== c || eventId in c.notifiedEvents) return@withLock
+                val room = try {
+                    c.client.getRoom(roomId)?.use { roomSnapshot(c, it) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    return@withLock
+                }
+                if (room == null || !isNotificationRoom(room) || room.peerId != sender) return@withLock
+                c.notifiedEvents += eventId
+                if (c.notifiedEvents.size > MAX_NOTIFIED_EVENTS) c.notifiedEvents.remove(c.notifiedEvents.first())
+                mutableBackgroundMessageEvents.tryEmit(eventId)
+            }
+        }
+    }
+
+    private fun isNotificationRoom(room: MessengerRoom): Boolean =
+        room.membership == MessengerMembership.Joined && room.encrypted && room.peerVerified
 
     private suspend fun roomSnapshot(c: Connection, room: Room): MessengerRoom? {
         val info = room.roomInfo()
@@ -689,6 +760,8 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         if (old != null) {
             old.roomWatch?.cancel()
             old.syncObserver?.apply { cancel(); close() }
+            old.backgroundSubscriptions.values.forEach { it.cancel(); it.close() }
+            old.backgroundSubscriptions.clear()
             runCatching { old.verification.setDelegate(null) }
             runCatching { withTimeoutOrNull(5_000) { old.sync.stop() } }
             old.verification.close()
@@ -730,6 +803,8 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private data class IncomingVerification(val userId: String, val flowId: String)
 
     private class Connection(val client: Client, val sync: SyncService, val verification: SessionVerificationController) {
+        val backgroundSubscriptions = mutableMapOf<String, TaskHandle>()
+        val notifiedEvents = linkedSetOf<String>()
         var syncObserver: TaskHandle? = null
         var roomWatch: Job? = null
         var verificationPeer: String? = null
@@ -744,6 +819,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     private companion object {
         const val E2EE_SETUP_TIMEOUT_MS = 20_000L
+        const val MAX_NOTIFIED_EVENTS = 256
         const val MAX_TEXT_BYTES = 4_096
         const val MAX_VISIBLE_MESSAGES = 200
     }
