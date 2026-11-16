@@ -635,7 +635,11 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
 
         override fun didFail() = then { finishVerification(c, MessengerVerificationStage.Failed) }
-        override fun didCancel() = then { finishVerification(c, MessengerVerificationStage.Failed) }
+        override fun didCancel() = then {
+            if (c.incoming == null && c.verificationPeer != null && c.verification.activeRequestIsCancelled()) {
+                finishVerification(c, MessengerVerificationStage.Failed)
+            }
+        }
         override fun didFinish() = then {
             finishVerification(c, MessengerVerificationStage.Done)
             refresh(c)
