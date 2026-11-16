@@ -171,7 +171,7 @@ class MessengerLocalSynapseTest {
 
     @Test
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.TIRAMISU)
-    fun backgroundSyncPostsPrivateAlertForVerifiedMessageAfterPermissionGrant() = runBlocking {
+    fun backgroundSyncPostsPrivateAlertForVerifiedMessageAfterPermissionGrant() = runBlocking<Unit> {
         val fixture = localFixture()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
