@@ -37,7 +37,7 @@ import java.util.UUID
  * Run using a fresh local Synapse test stack and its loopback mailbox fixture.
  * Configure `adb reverse` for TCP 8008 and 8025, then pass `messengerMailboxKey`
  * as an instrumentation argument. Optional fixtures URLs must be loopback HTTP.
- * Both Matrix clients run in one emulator process with separate session namespaces.
+ * The Matrix clients run in one emulator process with separate session namespaces.
  */
 @RunWith(AndroidJUnit4::class)
 class MessengerLocalSynapseTest {
@@ -187,8 +187,10 @@ class MessengerLocalSynapseTest {
         val runId = UUID.randomUUID().toString().take(16)
         val sender = MatrixRepository(context, sessionNamespace = "notification-$runId-sender")
         val receiver = (context.applicationContext as MessengerApplication).repository
+        val otherPeer = MatrixRepository(context, sessionNamespace = "notification-$runId-other")
         val senderAddress = "notification-sender-$runId@example.test"
         val receiverAddress = "notification-receiver-$runId@example.test"
+        val otherAddress = "notification-other-$runId@example.test"
         val deniedSample = "$runId fictional permission-denied message"
         val backgroundSample = "$runId fictional private notification body"
         try {
@@ -214,6 +216,14 @@ class MessengerLocalSynapseTest {
             awaitState(sender, "verified notification sender") { it.canSend }
             awaitState(receiver, "verified notification recipient") { it.canSend }
 
+            fixture.signIn(otherPeer, otherAddress)
+            val otherPeerId = checkNotNull(otherPeer.state.value.userId)
+            val otherRoomId = checkNotNull(otherPeer.createDirectMessage(receiverId))
+            assertTrue("The second invitation must target a distinct room", otherRoomId != roomId)
+            awaitState(receiver, "invitation to a second encrypted room") { state ->
+                state.rooms.any { it.id == otherRoomId && it.encrypted && it.membership == MessengerMembership.Invited }
+            }
+
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     assertFalse(
@@ -230,6 +240,13 @@ class MessengerLocalSynapseTest {
                 assertFalse("An alert appeared without permission", hasNotification(notifications, INCOMING_MESSAGES_CHANNEL))
                 assertFalse("An ongoing notification appeared without permission", hasNotification(notifications, SYNC_STATUS_CHANNEL))
 
+                assertTrue("The recipient could not join the second encrypted room", receiver.joinRoom(otherRoomId))
+                awaitState(receiver, "the second encrypted room after joining") { state ->
+                    state.rooms.any { it.id == otherRoomId && it.encrypted && it.membership == MessengerMembership.Joined }
+                }
+                assertTrue("The recipient could not select the second room", receiver.openRoom(otherRoomId))
+                assertEquals(otherRoomId, receiver.state.value.selectedRoomId)
+
                 instrumentation.uiAutomation.grantRuntimePermission(context.packageName, permission)
                 assertEquals(PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(permission))
                 assertTrue("Android did not enable notifications after granting permission", notifications.areNotificationsEnabled())
@@ -239,7 +256,6 @@ class MessengerLocalSynapseTest {
                 checkNotNull(withTimeoutOrNull(15_000) { MessengerBackgroundSyncService.running.first { it } }) {
                     "The background service never entered its running state"
                 }
-                receiver.closeRoom()
             }
 
             val status = awaitNotification(notifications, SYNC_STATUS_CHANNEL)
@@ -249,6 +265,12 @@ class MessengerLocalSynapseTest {
             )
             assertTrue("The service stopped when its Activity went away", MessengerBackgroundSyncService.running.value)
             assertFalse("An old message was replayed as a new alert", hasNotification(notifications, INCOMING_MESSAGES_CHANNEL))
+            assertEquals(
+                "The recipient should still have the second room selected",
+                otherRoomId,
+                receiver.state.value.selectedRoomId,
+            )
+            assertEquals("The sender should still have the original room selected", roomId, sender.state.value.selectedRoomId)
 
             val eventId = coroutineScope {
                 val incoming = async(start = CoroutineStart.UNDISPATCHED) {
@@ -263,7 +285,15 @@ class MessengerLocalSynapseTest {
             assertEquals("The alert should be hidden from the lock screen", Notification.VISIBILITY_SECRET, alert.visibility)
             assertEquals("New Vellivex message", alert.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
             assertEquals("Open Vellivex to view it.", alert.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
-            val privateValues = listOf(runId, deniedSample, backgroundSample, senderId, receiverId, senderAddress, receiverAddress, roomId)
+            assertEquals(
+                "An alert from the first room must leave the second room selected",
+                otherRoomId,
+                receiver.state.value.selectedRoomId,
+            )
+            val privateValues = listOf(
+                runId, deniedSample, backgroundSample, senderId, receiverId, otherPeerId,
+                senderAddress, receiverAddress, otherAddress, roomId, otherRoomId,
+            )
             assertPrivateNotification(status, privateValues)
             assertPrivateNotification(alert, privateValues)
             assertTrue("The background recipient could not reopen the room", receiver.openRoom(roomId))
@@ -275,7 +305,11 @@ class MessengerLocalSynapseTest {
             try {
                 cleanUp(sender)
             } finally {
-                receiver.signOut()
+                try {
+                    cleanUp(otherPeer)
+                } finally {
+                    receiver.signOut()
+                }
             }
         }
     }

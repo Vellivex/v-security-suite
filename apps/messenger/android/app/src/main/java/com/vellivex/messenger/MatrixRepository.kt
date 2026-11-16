@@ -190,15 +190,20 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         room.use {
             val info = roomSnapshot(c, it) ?: fail("This is not a one-to-one conversation on this service.")
             if (!info.encrypted) fail("This conversation is not confirmed encrypted.")
-            if (info.membership == MessengerMembership.Joined) preparePeerIdentity(c, requireNotNull(info.peerId))
+            val joined = info.membership == MessengerMembership.Joined
+            if (joined) preparePeerIdentity(c, requireNotNull(info.peerId))
+            updateSdkRoomSubscriptions(c, state.value.rooms, info.id.takeIf { joined })
             closeTimeline()
             mutableState.update { s -> s.copy(selectedRoomId = roomId, messages = emptyList()) }
-            if (info.membership == MessengerMembership.Joined) attachTimeline(c, it, info)
+            if (joined) attachTimeline(c, it, info)
         }
         true
     }
 
-    suspend fun closeRoom(): Unit = operation(Unit, "Could not close the conversation.") { closeTimeline() }
+    suspend fun closeRoom(): Unit = operation(Unit, "Could not close the conversation.") {
+        closeTimeline()
+        connection?.let { updateSdkRoomSubscriptions(it, state.value.rooms) }
+    }
 
     suspend fun sendMessage(text: String): Boolean =
         operation(false, "Could not queue that message. Check the conversation and connection.") {
@@ -461,13 +466,29 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
         val current = opened
         val selectedRoom = visible.firstOrNull { it.id == state.value.selectedRoomId }
-        if (current != null && (selectedRoom == null || !selectedRoom.encrypted || selectedRoom.peerId != current.peerId)) {
+        if (current != null && (selectedRoom?.membership != MessengerMembership.Joined ||
+                !selectedRoom.encrypted || selectedRoom.peerId != current.peerId)
+        ) {
             closeTimeline()
-        } else if (current == null && selectedRoom?.let { it.encrypted && it.membership == MessengerMembership.Joined } == true) {
-            requireRoom(c, selectedRoom.id).use { attachTimeline(c, it, selectedRoom) }
+        }
+        val joinedSelection = selectedRoom?.takeIf {
+            it.id == state.value.selectedRoomId && it.encrypted && it.membership == MessengerMembership.Joined
         }
         updateBackgroundSubscriptions(c, visible)
+        updateSdkRoomSubscriptions(c, visible, joinedSelection?.id)
+        if (opened == null && joinedSelection != null) {
+            requireRoom(c, joinedSelection.id).use { attachTimeline(c, it, joinedSelection) }
+        }
         mutableState.update { it.copy(rooms = visible) }
+    }
+
+    private suspend fun updateSdkRoomSubscriptions(c: Connection, rooms: List<MessengerRoom>, selectedRoomId: String? = null) {
+        val roomIds = rooms.filter(::isNotificationRoom).mapTo(mutableSetOf()) { it.id }
+        if (selectedRoomId != null) roomIds.add(selectedRoomId)
+        if (roomIds == c.syncedRoomIds) return
+        // The SDK replaces the complete set and can interrupt the current sync request.
+        c.sync.roomListService().use { it.setRoomSubscriptions(roomIds.toList()) }
+        c.syncedRoomIds = roomIds
     }
 
     private fun updateBackgroundSubscriptions(c: Connection, rooms: List<MessengerRoom>) {
@@ -588,7 +609,6 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     }
 
     private suspend fun attachTimeline(c: Connection, room: Room, info: MessengerRoom) {
-        c.sync.roomListService().use { it.setRoomSubscriptions(listOf(info.id)) }
         val timeline = room.timeline()
         val slot = OpenTimeline(info.id, requireNotNull(info.peerId), c.client.userId(), timeline)
         opened = slot
@@ -805,6 +825,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private class Connection(val client: Client, val sync: SyncService, val verification: SessionVerificationController) {
         val backgroundSubscriptions = mutableMapOf<String, TaskHandle>()
         val notifiedEvents = linkedSetOf<String>()
+        var syncedRoomIds: Set<String>? = null
         var syncObserver: TaskHandle? = null
         var roomWatch: Job? = null
         var verificationPeer: String? = null
