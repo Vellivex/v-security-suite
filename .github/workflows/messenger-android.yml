@@ -16,7 +16,8 @@ permissions: {}
 
 concurrency:
   group: messenger-alpha-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: false
+  # A new source push replaces obsolete checks; a delayed PR event must not cancel that push.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
