@@ -38,6 +38,7 @@
   "apps/messenger/README.md",
   "apps/messenger/android/.gitattributes",
   "apps/messenger/android/app/build.gradle.kts",
+  "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerChatLayoutTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerLocalSynapseTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerOnboardingFlowTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerOnboardingSmokeTest.kt",

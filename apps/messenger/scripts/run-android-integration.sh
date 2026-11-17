@@ -183,6 +183,7 @@ if [[ $# == 4 ]]; then
 fi
 
 overall_status=0
+run_instrumentation MessengerChatLayoutTest || overall_status=1
 run_instrumentation MessengerOnboardingSmokeTest || overall_status=1
 start_synapse core
 run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key" || overall_status=1

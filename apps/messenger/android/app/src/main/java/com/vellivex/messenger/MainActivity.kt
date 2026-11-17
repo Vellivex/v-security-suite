@@ -574,7 +574,7 @@ private fun Inbox(state: MessengerState, profile: () -> Unit, newChat: () -> Uni
 }
 
 @Composable
-private fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> Unit) -> Unit, retry: (String) -> Unit, verify: () -> Unit, join: () -> Unit) {
+internal fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> Unit) -> Unit, retry: (String) -> Unit, verify: () -> Unit, join: () -> Unit) {
     var draft by remember(state.selectedRoomId) { mutableStateOf("") }
     val list = rememberLazyListState()
     val room = state.selectedRoom
@@ -594,7 +594,7 @@ private fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> U
             Text(RECOVERED_HISTORY_NOTE, color = Muted, fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp))
         }
-        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(18.dp),
+        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().testTag("conversation_messages"), contentPadding = PaddingValues(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(if (room?.encrypted == true) "Messages are end-to-end encrypted. Your server still sees account and conversation metadata."
