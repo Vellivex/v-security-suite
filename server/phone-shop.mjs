@@ -11,11 +11,13 @@ export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const MESSENGER_SETUP_PATH = '/messenger';
-const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
-const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/' + MESSENGER_APK_NAME;
-const MESSENGER_DOWNLOAD_PAUSED = true;
-const MESSENGER_PAUSE_MESSAGE = 'Messenger update in testing. Free download will return after the checks pass.';
+const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/' + MESSENGER_APK_NAME;
+const RETIRED_MESSENGER_APK_PATHS = new Set([
+  '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
+]);
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
 const PUBLIC_PAGES = new Set(['/','/beta','/source','/trust','/blog','/testing','/feedback','/security','/brand','/roadmap','/privacy','/terms']);
@@ -140,31 +142,48 @@ function messengerDownloadButton() {
 }
 function messengerHero(downloadAvailable) {
   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Public alpha</p>
     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
-    <p class="messenger-description">${MESSENGER_DOWNLOAD_PAUSED ? MESSENGER_PAUSE_MESSAGE : 'End-to-end encrypted one-to-one messages with device verification.'}</p>
+    <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
     <div class="messenger-actions">
       ${downloadAvailable ? messengerDownloadButton() : ''}
-      <a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">${MESSENGER_DOWNLOAD_PAUSED ? 'Update status' : 'Setup guide'} ${arrow}</a>
+      <a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">Setup guide ${arrow}</a>
     </div>
   </section>`;
 }
 function messengerSetup(downloadAvailable) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="${MESSENGER_DOWNLOAD_PAUSED ? MESSENGER_PAUSE_MESSAGE : 'Install the Vellivex Messenger Android alpha and sign in with your invitation.'}">
+    <meta name="description" content="Install Vellivex Messenger on Android, sign in with an email code and save your recovery key before chatting.">
     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
-    <h1>${MESSENGER_DOWNLOAD_PAUSED ? 'Vellivex Messenger update' : 'Set up Vellivex Messenger'}</h1>
-    ${MESSENGER_DOWNLOAD_PAUSED ? `<p>${MESSENGER_PAUSE_MESSAGE}</p>` : `<p>You’ll need the email address on your invitation and an ARM64 phone running Android 8.0 or later.</p>
-    <p>This is a debug test build. Use test conversations during the alpha.</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Public alpha</p>
+    <h1>Set up Vellivex Messenger</h1>
+    <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
+    <p>Use test conversations during this alpha.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
+    <h2>Install and sign in</h2>
     <ol>
-      <li>Open the downloaded APK and follow Android’s installation prompts.</li>
-      <li>Open Vellivex Messenger. In <strong>Test server settings</strong>, enter <code>https://messenger.vellivex.com</code> as the server address.</li>
-      <li>Enter your invited email address and select <strong>Continue with email</strong>. Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
-    </ol>`}
+      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, choose <strong>Update</strong> to keep your existing installation, session and message keys.</li>
+      <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your email address and tap <strong>Continue with email</strong>.</li>
+      <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
+    </ol>
+    <h2>Save your recovery key before chatting</h2>
+    <ol>
+      <li>On <strong>Secure your account</strong>, tap <strong>Create recovery key</strong>. If you’re already signed in after updating, open your profile and choose <strong>Set up recovery</strong>.</li>
+      <li>Save the key somewhere private, such as your password manager. <strong>Copy recovery key</strong> lets you copy it.</li>
+      <li>Enter the <strong>Last 4 characters</strong> and tap <strong>I've saved my recovery key</strong> before starting a conversation.</li>
+    </ol>
+    <h2>Sign in again or move to another phone</h2>
+    <p>Only one phone can be active at a time. Before moving, save your recovery key, bring your old phone online and choose <strong>Sign out</strong> on that phone first.</p>
+    <p>Sign in again with the same email address and its email code. When you see <strong>Recover your messages</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover messages</strong>. Without your recovery key, your encrypted message history cannot be recovered.</p>
+    <h2>Start a conversation</h2>
+    <ol>
+      <li>Open your profile to find and share your Vellivex ID. If you already have your contact’s ID, tap <strong>New conversation</strong> and enter it.</li>
+      <li>Once you’ve both joined the conversation, tap <strong>Verify contact</strong> and compare the codes in person or through another channel you trust. Both people should tap <strong>They match</strong> only when the codes agree.</li>
+      <li>After verification, type your message and tap <strong>Send message</strong>.</li>
+    </ol>
+    <p>This alpha supports end-to-end encrypted one-to-one text chats on Android.</p>
     </main></body></html>`;
 }
 function catalogue(config) {
@@ -264,18 +283,17 @@ async function shopResponse(body, request, type = 'text/html; charset=utf-8', st
 
 export function withPhoneShop(worker, config = {}) {
   if (typeof worker?.fetch !== 'function') throw new TypeError('An existing Worker is required');
-  const messengerApkUrl = MESSENGER_DOWNLOAD_PAUSED ? null : messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
+  const messengerApkUrl = messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
   return {...worker, async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
-    if (path === MESSENGER_SETUP_PATH || path === MESSENGER_APK_PATH) {
+    const retiredMessengerApk = RETIRED_MESSENGER_APK_PATHS.has(path);
+    if (path === MESSENGER_SETUP_PATH || path === MESSENGER_APK_PATH || retiredMessengerApk) {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {
         status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
       });
       if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerApkUrl)), request);
-      if (MESSENGER_DOWNLOAD_PAUSED) return new Response(request.method === 'HEAD' ? null : MESSENGER_PAUSE_MESSAGE, {
-        status:503, headers:{...envelope, 'Retry-After':'3600', 'Content-Type':'text/plain; charset=utf-8'},
-      });
+      if (retiredMessengerApk) return new Response(null, {status:303, headers:{...envelope, 'Location':MESSENGER_SETUP_PATH}});
       if (!messengerApkUrl) return shopResponse('APK download unavailable', request, 'text/plain; charset=utf-8', 503);
       return new Response(null, {status:302, headers:{...envelope, 'Location':messengerApkUrl}});
     }
