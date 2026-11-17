@@ -40,7 +40,6 @@ import org.matrix.rustcomponents.sdk.MsgLikeKind
 import org.matrix.rustcomponents.sdk.ShieldState
 import org.matrix.rustcomponents.sdk.Timeline
 import org.matrix.rustcomponents.sdk.TimelineItemContent
-import uniffi.matrix_sdk_crypto.UtdCause
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -147,38 +146,33 @@ class MessengerOnboardingFlowTest {
                     compose.waitForText("Messages")
                 }
 
-                reportUiStage("Reading restored history and sending new encrypted messages")
+                reportUiStage("Checking recovered account access and sending new encrypted messages")
                 compose.waitForText("Verified conversation")
                 compose.onNodeWithText("Verified conversation").performClick()
                 try {
                     compose.waitForText(RECOVERED_HISTORY_NOTE)
-                    reportUiStage("Reading the restored message from the active peer's device")
-                    compose.waitForText(PEER_REPLY)
+                    compose.onNodeWithText(RECOVERED_HISTORY_NOTE).assertIsDisplayed()
+                    requireUnavailableOriginalEvents(device, setOf(sent.id, reply.id))
+                    compose.assertOriginalRecoveryHistoryHidden(device)
+                    compose.waitForText("Write a message")
+                    compose.field("Write a message").performTextReplacement(RECOVERED_MESSAGE)
+                    compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
+                    awaitPeer(peer, "the recovered device's encrypted message") { state ->
+                        state.messages.any { it.text == RECOVERED_MESSAGE && it.delivery == MessengerDelivery.Received }
+                    }
+                    assertTrue("The verified peer could not reply to the recovered device", peer.sendMessage(RECOVERED_REPLY))
+                    compose.waitForText(RECOVERED_REPLY)
+                    compose.onNodeWithText(RECOVERED_REPLY).assertIsDisplayed()
+                    compose.assertOriginalRecoveryHistoryHidden(device)
                 } catch (error: AssertionError) {
                     reportRestoredHistoryDiagnostics(device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id)
-                    reportPostRecoveryMessagingDiagnostics(
-                        compose, fixture, device, peer, roomId, returned.accessToken, reply.id, sent.id,
-                    )
-                    // The diagnostics below never turn a failed history assertion into a pass.
+                    throw error
+                } catch (error: Exception) {
+                    if (error !is CancellationException) {
+                        reportRestoredHistoryDiagnostics(device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id)
+                    }
                     throw error
                 }
-                assertTrue(
-                    "The signed-out sender was not classified as an unknown device",
-                    reportRestoredHistoryDiagnostics(
-                        device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id, waitForUnknownDevice = true,
-                    ),
-                )
-                assertFalse("The app rendered unverified historical text", device.state.value.messages.any { it.id == sent.id })
-                compose.onNodeWithText(UI_MESSAGE).assertDoesNotExist()
-                compose.waitForText("Write a message")
-                compose.field("Write a message").performTextReplacement(RECOVERED_MESSAGE)
-                compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
-                awaitPeer(peer, "the recovered device's encrypted message") { state ->
-                    state.messages.any { it.text == RECOVERED_MESSAGE && it.delivery == MessengerDelivery.Received }
-                }
-                assertTrue("The verified peer could not reply to the recovered device", peer.sendMessage(RECOVERED_REPLY))
-                compose.waitForText(RECOVERED_REPLY)
-                compose.onNodeWithText(RECOVERED_REPLY).assertIsDisplayed()
                 // The process-restart case starts from the inbox and opens the same recovered room.
                 compose.onNodeWithContentDescription("Back to messages").performClick()
                 compose.waitForText("Messages")
@@ -205,6 +199,8 @@ class MessengerOnboardingRestartTest {
     @Test
     fun restoresVerifiedConversationAfterRestartAndSignsOutThroughTheUi() {
         val args = InstrumentationRegistry.getArguments()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val device = (context.applicationContext as MessengerApplication).repository
         assertTrue("Run the UI flow and force-stop the app before this test", args.getString("messengerUiRestart") == "true")
         val upgraded = args.getString("messengerAlpha02Upgrade") == "true"
         if (upgraded) {
@@ -215,16 +211,19 @@ class MessengerOnboardingRestartTest {
         compose.waitForText("Messages")
         compose.waitForText("Verified conversation")
         compose.onNodeWithText("Verified conversation").performClick()
-        compose.waitForText(PEER_REPLY)
-        compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
         if (upgraded) {
+            compose.waitForText(PEER_REPLY)
+            compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
             compose.waitForText(UI_MESSAGE)
+            compose.onNodeWithText(UI_MESSAGE).assertIsDisplayed()
             compose.onNodeWithText(RECOVERED_HISTORY_NOTE).assertDoesNotExist()
         } else {
             compose.waitForText(RECOVERED_HISTORY_NOTE)
             compose.waitForText(RECOVERED_MESSAGE)
+            compose.onNodeWithText(RECOVERED_MESSAGE).assertIsDisplayed()
             compose.waitForText(RECOVERED_REPLY)
-            compose.onNodeWithText(UI_MESSAGE).assertDoesNotExist()
+            compose.onNodeWithText(RECOVERED_REPLY).assertIsDisplayed()
+            compose.assertOriginalRecoveryHistoryHidden(device)
         }
         reportUiStage("Signing out from the restored account")
         compose.onNodeWithContentDescription("Back to messages").performClick()
@@ -236,10 +235,8 @@ private const val UI_MESSAGE = "Fictional message sent through the Android inter
 private const val PEER_REPLY = "Fictional reply from the verified second account."
 private const val RECOVERED_MESSAGE = "Fictional encrypted message from the recovered device."
 private const val RECOVERED_REPLY = "Fictional encrypted reply to the recovered device."
-private const val DIAGNOSTIC_REPLY = "Fictional diagnostic reply after account recovery."
-private const val DIAGNOSTIC_MESSAGE = "Fictional diagnostic response from the recovered account."
 private const val RECOVERED_HISTORY_NOTE =
-    "Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them."
+    "Your recovery key restores your account’s encryption keys. In this alpha, it may not restore any earlier messages."
 
 private fun savedSession(): org.matrix.rustcomponents.sdk.Session {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -322,6 +319,7 @@ private fun ComposeTestRule.signOutThroughUi() {
     waitForText("Your Vellivex ID")
     onNodeWithText("Sign out").performClick()
     waitForText("Sign out of this phone?")
+    onNodeWithText(RECOVERED_HISTORY_NOTE, substring = true).assertIsDisplayed()
     onNodeWithText("Sign out").performClick()
     waitForText("Email address")
     val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -353,37 +351,48 @@ private fun reportUiStage(message: String) {
     InstrumentationRegistry.getInstrumentation().sendStatus(2, status)
 }
 
+private fun ComposeTestRule.assertOriginalRecoveryHistoryHidden(repository: MatrixRepository) {
+    assertFalse("The recovered account rendered unverified historical text", repository.state.value.messages.any {
+        it.text == UI_MESSAGE || it.text == PEER_REPLY
+    })
+    onNodeWithText(UI_MESSAGE).assertDoesNotExist()
+    onNodeWithText(PEER_REPLY).assertDoesNotExist()
+}
+
+private suspend fun requireUnavailableOriginalEvents(repository: MatrixRepository, eventIds: Set<String>) {
+    val timeline = checkNotNull(sdkTimeline(repository)) { "The recovered conversation has no SDK timeline" }
+    val observed = withTimeoutOrNull(15_000) {
+        while (!eventIds.all { timeline.restoredEventCategory(it).unavailable }) {
+            delay(250)
+        }
+        true
+    }
+    assertTrue("The original encrypted events were not present as unavailable SDK messages", observed == true)
+}
+
+private fun sdkTimeline(repository: MatrixRepository): Timeline? = try {
+    val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
+    opened?.javaClass?.getDeclaredField("timeline")?.apply { isAccessible = true }?.get(opened) as? Timeline
+} catch (_: ReflectiveOperationException) {
+    null
+}
+
 private suspend fun reportRestoredHistoryDiagnostics(
     repository: MatrixRepository,
     activePeerEvent: String,
     signedOutDeviceEvent: String,
-    waitForUnknownDevice: Boolean = false,
-): Boolean {
+) {
     // Read only the fixture's two event categories, with no app runtime diagnostic surface.
     reportRecoveryStateDiagnostics(repository)
-    val timeline = try {
-        val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
-        opened?.javaClass?.getDeclaredField("timeline")?.apply { isAccessible = true }?.get(opened) as? Timeline
-    } catch (_: ReflectiveOperationException) {
-        null
-    }
+    val timeline = sdkTimeline(repository)
     if (timeline == null) {
         reportUiStage("Restored-history diagnostic: no open SDK timeline")
-        return false
+        return
     }
     val activePeer = timeline.restoredEventCategory(activePeerEvent)
-    var signedOutDevice = timeline.restoredEventCategory(signedOutDeviceEvent)
-    if (waitForUnknownDevice) {
-        withTimeoutOrNull(6_000) {
-            while (!signedOutDevice.unknownDevice) {
-                delay(250)
-                signedOutDevice = timeline.restoredEventCategory(signedOutDeviceEvent)
-            }
-        }
-    }
+    val signedOutDevice = timeline.restoredEventCategory(signedOutDeviceEvent)
     reportUiStage("Restored-history diagnostic for active peer: ${activePeer.description}")
     reportUiStage("Restored-history diagnostic for signed-out device: ${signedOutDevice.description}")
-    return signedOutDevice.unknownDevice
 }
 
 private fun reportRecoveryStateDiagnostics(repository: MatrixRepository) {
@@ -409,46 +418,7 @@ private fun reportRecoveryStateDiagnostics(repository: MatrixRepository) {
     }
 }
 
-private suspend fun reportPostRecoveryMessagingDiagnostics(
-    compose: ComposeTestRule,
-    fixture: LocalSynapseFixture,
-    device: MatrixRepository,
-    peer: MatrixRepository,
-    roomId: String,
-    recoveredToken: String,
-    oldPeerEvent: String,
-    signedOutDeviceEvent: String,
-) {
-    try {
-        reportUiStage("Checking new encrypted delivery after the history assertion failed")
-        assertTrue("The diagnostic peer could not send", peer.sendMessage(DIAGNOSTIC_REPLY))
-        compose.waitForText(DIAGNOSTIC_REPLY)
-        compose.onNodeWithText(DIAGNOSTIC_REPLY).assertIsDisplayed()
-        val delivered = awaitPeer(peer, "the diagnostic reply's server acknowledgement") { state ->
-            state.messages.any { it.text == DIAGNOSTIC_REPLY && it.delivery == MessengerDelivery.Sent }
-        }.messages.single { it.text == DIAGNOSTIC_REPLY }
-        val previousSession = fixture.readEvent(recoveredToken, roomId, oldPeerEvent)
-            .getJSONObject("content").getString("session_id")
-        val newSession = fixture.readEvent(recoveredToken, roomId, delivered.id)
-            .getJSONObject("content").getString("session_id")
-        reportUiStage("Recovery peer session diagnostic: same-session=${previousSession == newSession}")
-        compose.field("Write a message").performTextReplacement(DIAGNOSTIC_MESSAGE)
-        compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
-        awaitPeer(peer, "the diagnostic response from the recovered account") { state ->
-            state.messages.any { it.text == DIAGNOSTIC_MESSAGE && it.delivery == MessengerDelivery.Received }
-        }
-        reportUiStage("Recovery delivery diagnostic: new encrypted messages passed in both directions")
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: AssertionError) {
-        reportUiStage("Recovery delivery diagnostic: new encrypted exchange did not complete")
-    } catch (_: Exception) {
-        reportUiStage("Recovery delivery diagnostic: new encrypted exchange could not be checked")
-    }
-    reportRestoredHistoryDiagnostics(device, activePeerEvent = oldPeerEvent, signedOutDeviceEvent = signedOutDeviceEvent)
-}
-
-private data class RestoredEventCategory(val description: String, val unknownDevice: Boolean = false)
+private data class RestoredEventCategory(val description: String, val unavailable: Boolean = false)
 
 private suspend fun Timeline.restoredEventCategory(eventId: String): RestoredEventCategory = withTimeoutOrNull(3_000) {
     val event = try {
@@ -462,12 +432,12 @@ private suspend fun Timeline.restoredEventCategory(eventId: String): RestoredEve
                 val cause = (kind.msg as? EncryptedMessage.MegolmV1AesSha2)?.cause
                 RestoredEventCategory(
                     description = "unable to decrypt (${cause?.name ?: "unknown scheme"})",
-                    unknownDevice = cause == UtdCause.UNKNOWN_DEVICE,
+                    unavailable = true,
                 )
             }
             is MsgLikeKind.Message -> when (val shield = event.lazyProvider.getShields(true)) {
-                is ShieldState.Red -> RestoredEventCategory("decrypted, strict red shield (${shield.code.name})")
-                is ShieldState.Grey -> RestoredEventCategory("decrypted, strict grey shield (${shield.code.name})")
+                is ShieldState.Red -> RestoredEventCategory("decrypted, strict red shield (${shield.code.name})", unavailable = true)
+                is ShieldState.Grey -> RestoredEventCategory("decrypted, strict grey shield (${shield.code.name})", unavailable = true)
                 ShieldState.None -> RestoredEventCategory("decrypted, no strict shield")
             }
             else -> RestoredEventCategory("event present without message content")
