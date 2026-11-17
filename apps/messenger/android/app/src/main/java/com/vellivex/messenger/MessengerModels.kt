@@ -41,7 +41,7 @@ data class MessengerVerification(
 
 data class MessengerState(
     val userId: String? = null,
-    val codeRequested: Boolean = false,
+    val pendingSignInEmail: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
     val connection: MessengerConnection = MessengerConnection.SignedOut,
@@ -50,6 +50,7 @@ data class MessengerState(
     val messages: List<MessengerMessage> = emptyList(),
     val verification: MessengerVerification? = null,
 ) {
+    val codeRequested: Boolean get() = pendingSignInEmail != null
     val selectedRoom: MessengerRoom? get() = rooms.firstOrNull { it.id == selectedRoomId }
     val canSend: Boolean
         get() = selectedRoom?.let {

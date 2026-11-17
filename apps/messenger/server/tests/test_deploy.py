@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
 from tempfile import TemporaryDirectory
@@ -54,6 +55,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(private_read(state / "synapse" / "invited-emails"), OWNER_EMAIL)
         self.assertNotIn("synthetic-deploy-token", json.dumps(config))
         self.assertEqual(config["modules"][0]["config"]["smtp_password_file"], "/data/smtp-password")
+        self.assertEqual(config["modules"][0]["config"]["signup_mode"], "invite")
         self.assertNotEqual(private_read(state / "synapse" / "identity-secret"),
                             private_read(state / "synapse" / "otp-secret"))
         unit = Stack(state).unit()
@@ -62,6 +64,45 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn("synthetic-deploy-token", unit)
         with self.assertRaisesRegex(ValueError, "empty state"):
             initialize(state, options)
+
+    def test_signup_mode_changes_only_email_settings_and_preserves_existing_state(self):
+        state, _ = self.initialize_state()
+        config_path = state / "synapse" / "homeserver.yaml"
+        before = json.loads(private_read(config_path))
+        roster = private_read(state / "synapse" / "invited-emails")
+        stack = Stack(state)
+        with patch.object(stack, "service_states", return_value={"running"}), patch.object(stack, "reload_synapse") as reload:
+            with self.assertRaisesRegex(ValueError, "day_limit"):
+                stack.signup("public", day_limit=81)
+            self.assertEqual(json.loads(private_read(config_path)), before)
+            reload.assert_not_called()
+            stack.signup("public", day_limit=80, month_limit=2400, ip_hour_limit=5)
+            after = json.loads(private_read(config_path))
+            expected = json.loads(json.dumps(before))
+            expected["modules"][0]["config"].update(signup_mode="public", day_limit=80, month_limit=2400,
+                                                     ip_hour_limit=5, email_hour_limit=2)
+            self.assertEqual(after, expected)
+            reload.assert_called_once()
+            stack.signup("public")
+            reload.assert_called_once()
+            stack.signup("invite")
+            restored = json.loads(private_read(config_path))
+        expected["modules"][0]["config"]["signup_mode"] = "invite"
+        self.assertEqual(restored, expected)
+        self.assertEqual(private_read(state / "synapse" / "invited-emails"), roster)
+
+    def test_signup_restores_configuration_if_reload_fails(self):
+        state, _ = self.initialize_state()
+        config_path = state / "synapse" / "homeserver.yaml"
+        before = config_path.read_bytes()
+        stack = Stack(state)
+        with patch.object(stack, "service_states", return_value={"running"}), patch.object(
+            stack, "reload_synapse", side_effect=[subprocess.CalledProcessError(1, "docker compose"), None],
+        ) as reload:
+            with self.assertRaises(subprocess.CalledProcessError):
+                stack.signup("public")
+        self.assertEqual(config_path.read_bytes(), before)
+        self.assertEqual(reload.call_count, 2)
 
     def test_proxy_replaces_forwarded_for_and_tunnel_checks_edge_ip_header(self):
         direct = proxy_config("chat.example.test", "direct")

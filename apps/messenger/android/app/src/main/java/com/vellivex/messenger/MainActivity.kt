@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.annotation.MainThread
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -40,8 +42,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,11 +77,87 @@ class MessengerApplication : Application() {
     val repository by lazy { MatrixRepository(this) }
 }
 
+internal enum class SignInInputError(val message: String) {
+    Email("Enter a valid email address."),
+    Server("Enter the HTTPS address of the Vellivex messaging service."),
+    Code("Enter the eight-digit email code."),
+}
+
 class MessengerViewModel(application: Application) : AndroidViewModel(application) {
     val repository = (application as MessengerApplication).repository
     var signInEmail by mutableStateOf("")
     var serverAddress by mutableStateOf(BuildConfig.PRODUCTION_SERVER_URL)
-    init { viewModelScope.launch { repository.restore() } }
+    internal var signInInputError by mutableStateOf<SignInInputError?>(null)
+        private set
+    var authenticationPending by mutableStateOf(false)
+        private set
+
+    init { restoreSignInSession() }
+
+    @MainThread
+    fun requestSignInCode(): Boolean {
+        if (repository.state.value.codeRequested) return false
+        val email = signInEmail.trim()
+        val server = serverAddress.trim()
+        val error = when {
+            !isValidMessengerEmail(email) -> SignInInputError.Email
+            server.isBlank() -> SignInInputError.Server
+            else -> null
+        }
+        return submitAuthentication(error) { requestCode(server, email) }
+    }
+
+    @MainThread
+    fun resendSignInCode(onSent: () -> Unit): Boolean {
+        if (!repository.state.value.codeRequested) return false
+        return submitAuthentication(null) {
+            if (resendCode() != null) onSent()
+        }
+    }
+
+    @MainThread
+    fun changeSignInEmail(onChanged: () -> Unit): Boolean {
+        val address = repository.state.value.pendingSignInEmail ?: return false
+        return submitAuthentication(null) {
+            if (discardSignInChallenge()) {
+                signInEmail = address
+                onChanged()
+            }
+        }
+    }
+
+    @MainThread
+    fun verifySignInCode(code: String): Boolean {
+        if (!repository.state.value.codeRequested) return false
+        val error = if (code.length != 8 || code.any { it !in '0'..'9' }) SignInInputError.Code else null
+        return submitAuthentication(error) { verifyCode(code) }
+    }
+
+    @MainThread
+    fun restoreSignInSession() {
+        submitAuthentication(null) { restore() }
+    }
+
+    internal fun clearSignInInputError(error: SignInInputError) {
+        if (signInInputError == error) signInInputError = null
+    }
+
+    private fun submitAuthentication(error: SignInInputError?, action: suspend MatrixRepository.() -> Unit): Boolean {
+        val state = repository.state.value
+        if (authenticationPending || state.busy || state.userId != null) return false
+        signInInputError = error
+        if (error != null) return false
+        authenticationPending = true
+        viewModelScope.launch {
+            try {
+                repository.action()
+            } finally {
+                authenticationPending = false
+            }
+        }
+        return true
+    }
+
     fun run(action: suspend MatrixRepository.() -> Unit) { viewModelScope.launch { repository.action() } }
     fun send(text: String, accepted: () -> Unit) { viewModelScope.launch { if (repository.sendMessage(text)) accepted() } }
 }
@@ -136,9 +220,7 @@ private fun MessengerApp(model: MessengerViewModel) {
     Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbars) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             if (state.userId == null) {
-                SignIn(state, model, onRequest = { server, email -> model.run { requestCode(server, email) } },
-                    onVerify = { model.run { verifyCode(it) } },
-                    restore = { model.run { restore() } }, reset = { signOut = true })
+                SignIn(state, model, reset = { signOut = true })
             } else if (state.selectedRoomId != null) {
                 Chat(state, back = { model.run { closeRoom() } },
                     send = { text, accepted -> model.send(text, accepted) },
@@ -149,7 +231,9 @@ private fun MessengerApp(model: MessengerViewModel) {
                 Inbox(state, profile = { showProfile = true }, newChat = { showNewChat = true },
                     open = { model.run { openRoom(it) } }, refresh = { model.run { refreshRooms() } })
             }
-            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            if (state.busy || model.authenticationPending) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
         }
     }
     if (showProfile && state.userId != null) ProfileDialog(state.userId!!,
@@ -178,13 +262,36 @@ private fun MessengerApp(model: MessengerViewModel) {
 }
 
 @Composable
-private fun SignIn(state: MessengerState, model: MessengerViewModel, onRequest: (String, String) -> Unit, onVerify: (String) -> Unit, restore: () -> Unit, reset: () -> Unit) {
+private fun SignIn(state: MessengerState, model: MessengerViewModel, reset: () -> Unit) {
     val server = model.serverAddress
     val email = model.signInEmail
+    val pendingEmail = state.pendingSignInEmail
+    val busy = state.busy || model.authenticationPending
+    val inputError = model.signInInputError
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var code by remember { mutableStateOf("") }
     var serverSettings by remember { mutableStateOf(false) }
     var signInHelp by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 24.dp),
+    val dismissKeyboard = {
+        focus.clearFocus()
+        keyboard?.hide()
+    }
+    val submitEmail: () -> Unit = {
+        if (model.requestSignInCode()) {
+            dismissKeyboard()
+        } else if (model.signInInputError == SignInInputError.Server) {
+            serverSettings = true
+            dismissKeyboard()
+        }
+    }
+    val submitCode: () -> Unit = {
+        if (model.verifySignInCode(code)) {
+            code = ""
+            dismissKeyboard()
+        }
+    }
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Image(painterResource(R.drawable.ic_vellivex), "Vellivex", Modifier.size(34.dp))
@@ -198,46 +305,65 @@ private fun SignIn(state: MessengerState, model: MessengerViewModel, onRequest: 
         }
         Text(if (state.codeRequested) "Check your\ninbox." else "A little more\nprivate.",
             fontSize = 43.sp, lineHeight = 47.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1.5).sp)
-        Text(if (state.codeRequested) "Enter the one-time code sent to your email." else "Conversations for you and your people. No phone number. No address book upload.",
+        Text(if (pendingEmail != null) "Enter the one-time code sent to $pendingEmail." else "Conversations for you and your people. No phone number. No address book upload.",
             color = Muted, fontSize = 16.sp, lineHeight = 24.sp)
         if (!state.codeRequested) {
-            OutlinedTextField(email, { model.signInEmail = it.take(254) }, label = { Text("Email address") },
-                singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-            Button(onClick = { onRequest(server.trim(), email.trim()) },
-                enabled = !state.busy && email.contains('@') && server.isNotBlank(), modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            OutlinedTextField(email, {
+                model.signInEmail = it.take(254)
+                model.clearSignInInputError(SignInInputError.Email)
+            }, label = { Text("Email address") }, singleLine = true, enabled = !busy,
+                modifier = Modifier.fillMaxWidth(), isError = inputError == SignInInputError.Email,
+                supportingText = if (inputError == SignInInputError.Email) ({ Text(inputError.message) }) else null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submitEmail() }))
+            Button(onClick = submitEmail, enabled = !busy, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                 Text("Continue with email", fontWeight = FontWeight.SemiBold)
             }
+            if (inputError == SignInInputError.Server) Text(inputError.message,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error)
         } else {
-            OutlinedTextField(code, { code = it.filter { digit -> digit in '0'..'9' }.take(8) }, label = { Text("Eight-digit email code") },
-                singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
-            Button(onClick = { onVerify(code); code = "" }, enabled = !state.busy && code.length == 8,
+            OutlinedTextField(code, {
+                code = it.filter { digit -> digit in '0'..'9' }.take(8)
+                model.clearSignInInputError(SignInInputError.Code)
+            }, label = { Text("Eight-digit email code") }, singleLine = true, enabled = !busy,
+                modifier = Modifier.fillMaxWidth(), isError = inputError == SignInInputError.Code,
+                supportingText = if (inputError == SignInInputError.Code) ({ Text(inputError.message) }) else null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submitCode() }))
+            Button(onClick = submitCode, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Open Vellivex") }
-            TextButton(onClick = { onRequest(server.trim(), email.trim()) }, enabled = !state.busy) { Text("Send another code") }
+            TextButton(onClick = {
+                if (model.resendSignInCode(onSent = { code = "" })) dismissKeyboard()
+            }, enabled = !busy) { Text("Send another code") }
+            TextButton(onClick = {
+                if (model.changeSignInEmail(onChanged = { code = "" })) dismissKeyboard()
+            }, enabled = !busy) { Text("Change email") }
         }
-        if (BuildConfig.DEBUG) TextButton(onClick = { serverSettings = !serverSettings }, enabled = !state.busy && !state.codeRequested,
+        if (BuildConfig.DEBUG) TextButton(onClick = { serverSettings = !serverSettings }, enabled = !busy && !state.codeRequested,
             contentPadding = PaddingValues(0.dp)) {
             Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Test server settings")
         }
-        if (BuildConfig.DEBUG && serverSettings) {
-            OutlinedTextField(server, { model.serverAddress = it.take(300) }, label = { Text("Server address") },
+        if (BuildConfig.DEBUG && serverSettings && !state.codeRequested) {
+            OutlinedTextField(server, {
+                model.serverAddress = it.take(300)
+                model.clearSignInInputError(SignInInputError.Server)
+            }, label = { Text("Server address") }, enabled = !busy, isError = inputError == SignInInputError.Server,
                 placeholder = { Text("https://your-test-server") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 supportingText = { Text("Use the server supplied with your test invitation.") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done))
         }
-        TextButton(onClick = { signInHelp = !signInHelp }, enabled = !state.busy, contentPadding = PaddingValues(0.dp)) { Text("Trouble signing in?") }
+        TextButton(onClick = { signInHelp = !signInHelp }, enabled = !busy, contentPadding = PaddingValues(0.dp)) { Text("Trouble signing in?") }
         if (signInHelp) {
             Text("A saved session keeps your message keys on this phone. Try restoring it before removing it.", color = Muted, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = restore, enabled = !state.busy) { Text("Restore session") }
-                TextButton(onClick = reset, enabled = !state.busy) { Text("Reset this device") }
+                OutlinedButton(onClick = { model.restoreSignInSession() }, enabled = !busy) { Text("Restore session") }
+                TextButton(onClick = reset, enabled = !busy) { Text("Reset this device") }
             }
         }
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.Lock, null, Modifier.size(17.dp), tint = Muted)
-            Text(if (BuildConfig.DEBUG) "Early test build. A configured server is required. Use test conversations while we verify delivery and device security."
+            Text(if (BuildConfig.DEBUG) "Early test build. Use test conversations while we verify delivery and device security."
                 else "Private test build. Use test conversations while we verify delivery and device security.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Muted)
         }

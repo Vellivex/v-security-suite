@@ -329,6 +329,8 @@ jobs:
           path: |
             ${{ runner.temp }}/messenger-evidence/MessengerOnboardingSmokeTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerLocalSynapseTest.log
+            ${{ runner.temp }}/messenger-evidence/MessengerOnboardingFlowTest.log
+            ${{ runner.temp }}/messenger-evidence/MessengerOnboardingRestartTest.log
             ${{ runner.temp }}/messenger-evidence/vellivex-alpha-onboarding.png
           if-no-files-found: warn
           retention-days: 7

@@ -314,17 +314,6 @@ class MessengerLocalSynapseTest {
         }
     }
 
-    private fun localFixture(): LocalSynapseFixture {
-        val args = InstrumentationRegistry.getArguments()
-        val mailboxKey = args.getString("messengerMailboxKey")
-        assumeTrue("Local Synapse and mailbox fixture arguments are required", !mailboxKey.isNullOrBlank())
-        return LocalSynapseFixture(
-            matrixBase = args.getString("messengerSynapseUrl") ?: "http://127.0.0.1:8008",
-            mailboxBase = args.getString("messengerMailboxUrl") ?: "http://127.0.0.1:8025",
-            mailboxKey = checkNotNull(mailboxKey),
-        )
-    }
-
     private suspend fun confirmSas(first: MatrixRepository, second: MatrixRepository) = coroutineScope {
         val firstConfirm = async { first.confirmVerification() }
         val secondConfirm = async { second.confirmVerification() }
@@ -405,9 +394,35 @@ class MessengerLocalSynapseTest {
 
 }
 
-private class LocalSynapseFixture(matrixBase: String, mailboxBase: String, private val mailboxKey: String) {
-    private val matrix = loopbackBase(matrixBase)
+internal fun localFixture(): LocalSynapseFixture {
+    val args = InstrumentationRegistry.getArguments()
+    val mailboxKey = args.getString("messengerMailboxKey")
+    assumeTrue("Local Synapse and mailbox fixture arguments are required", !mailboxKey.isNullOrBlank())
+    return LocalSynapseFixture(
+        matrixBase = args.getString("messengerSynapseUrl") ?: "http://127.0.0.1:8008",
+        mailboxBase = args.getString("messengerMailboxUrl") ?: "http://127.0.0.1:8025",
+        mailboxKey = checkNotNull(mailboxKey),
+    )
+}
+
+internal class LocalSynapseFixture(matrixBase: String, mailboxBase: String, private val mailboxKey: String) {
+    val matrix = loopbackBase(matrixBase)
     private val mailbox = loopbackBase(mailboxBase)
+
+    fun challengeIds(): Set<String> {
+        val ids = request(mailbox, "/", bearer = mailboxKey).getJSONArray("challenge_ids")
+        return (0 until ids.length()).mapTo(mutableSetOf(), ids::getString)
+    }
+
+    suspend fun nextCode(previous: Set<String>): String {
+        repeat(30) {
+            val added = challengeIds() - previous
+            check(added.size <= 1) { "Expected exactly one synthetic code request" }
+            added.singleOrNull()?.let { return mailboxCode(it) }
+            delay(250)
+        }
+        error("The sign-in UI did not request a synthetic email code")
+    }
 
     suspend fun signIn(client: MatrixRepository, email: String) {
         val challenge = checkNotNull(client.requestCode(matrix, email)) { "OTP request did not return a challenge" }

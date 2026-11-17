@@ -96,22 +96,39 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     suspend fun requestCode(baseUrl: String, email: String): String? =
         operation(null, "Could not request a sign-in code. Check the service address and connection.") {
-            if (connection != null || sessionStore.exists()) {
-                fail("Restore or sign out of the saved session before starting another sign-in.")
-            }
-            val base = auth.checkedBaseUrl(baseUrl)
-            val id = auth.requestCode(base, email)
-            challenge = Challenge(base, id)
-            mutableState.update { it.copy(codeRequested = true) }
-            id
+            sendSignInCode(baseUrl, email)
         }
+
+    suspend fun resendCode(): String? = operation(null, "Could not send another sign-in code. Try again.") {
+        val request = challenge ?: fail("Request a new email code first.")
+        sendSignInCode(request.baseUrl, request.email)
+    }
+
+    private fun sendSignInCode(baseUrl: String, email: String): String {
+        if (connection != null || sessionStore.exists()) {
+            fail("Restore or sign out of the saved session before starting another sign-in.")
+        }
+        val base = auth.checkedBaseUrl(baseUrl)
+        val address = email.trim()
+        val id = auth.requestCode(base, address)
+        challenge = Challenge(base, id, address)
+        mutableState.update { it.copy(pendingSignInEmail = address) }
+        return id
+    }
+
+    suspend fun discardSignInChallenge(): Boolean = operation(false, "Could not change the sign-in email.") {
+        if (challenge == null) return@operation false
+        challenge = null
+        mutableState.update { it.copy(pendingSignInEmail = null) }
+        true
+    }
 
     suspend fun verifyCode(code: String): Boolean = operation(false, "Could not complete sign-in. If a session was saved, restore it.") {
         if (connection != null || sessionStore.exists()) fail("A saved session already exists.")
         val request = challenge ?: fail("Request a new email code first.")
         val session = auth.verifyCode(request.baseUrl, request.id, code.trim())
         challenge = null
-        mutableState.update { it.copy(codeRequested = false) }
+        mutableState.update { it.copy(pendingSignInEmail = null) }
         val stored = sessionStore.newSession(session)
         try {
             sessionStore.write(stored)
@@ -400,8 +417,9 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                 try {
                     val c = Connection(client, sync, client.getSessionVerificationController())
                     connection = c
+                    challenge = null
                     mutableState.update {
-                        it.copy(userId = userId, connection = MessengerConnection.Syncing, codeRequested = false)
+                        it.copy(userId = userId, connection = MessengerConnection.Syncing, pendingSignInEmail = null)
                     }
                     c.verification.setDelegate(verificationDelegate(c))
                     c.syncObserver = sync.state(object : SyncServiceStateObserver {
@@ -819,7 +837,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     private fun fail(message: String): Nothing = throw MessengerFailure(message)
 
-    private data class Challenge(val baseUrl: String, val id: String)
+    private data class Challenge(val baseUrl: String, val id: String, val email: String)
     private data class IncomingVerification(val userId: String, val flowId: String)
 
     private class Connection(val client: Client, val sync: SyncService, val verification: SessionVerificationController) {
