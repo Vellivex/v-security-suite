@@ -8,9 +8,12 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
-const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
-const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
-const messengerPauseMessage = 'Messenger update in testing. Free download will return after the checks pass.';
+const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
+const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
+const retiredMessengerApkPaths = [
+  '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
+];
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.
 const seller = {name:'Vellivex Test Supplier',addressLines:['1 Example Street','Test City','ZZ1 1ZZ']};
@@ -182,10 +185,10 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   const footer = text.match(/<\/main>\s*<footer\b[^>]*>([\s\S]*?)<\/footer>/)?.[1] ?? '';
   assert.match(main, /^<section id="vellivex-messenger-hero"/);
   assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
-  assert.match(main, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
-  assert.ok(main.includes(messengerPauseMessage));
-  assert.ok(!main.includes(`href="${messengerApkPath}"`));
-  assert.match(main, /href="\/messenger">Update status/);
+  assert.match(main, /Android 8\.0\+ \(ARM64\) · Public alpha/);
+  assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
+  assert.match(main, /href="\/messenger">Setup guide/);
+  for (const path of retiredMessengerApkPaths) assert.ok(!main.includes(path));
   assert.match(footer, /^<section id="vellivex-phone-promotion"/);
   assert.match(footer, /New Pixel 9a[\s\S]*£479[\s\S]*Refurbished Pixel 9a[\s\S]*£375/);
   assert.match(footer, /class="footer-links"/);
@@ -194,28 +197,45 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   assert.doesNotMatch(beta, /id="vellivex-phone-promotion"|id="vellivex-messenger-hero"|\/phones-promotion\.css/);
 });
 
-test('the Messenger guide shows the pause and its public download rejects GET and HEAD without redirecting', async () => {
+test('Messenger setup and download support public GET and HEAD without trusting request parameters', async () => {
   const worker = shop();
   const guide = await worker.fetch(request('/messenger'), sellerEnv);
   const guideText = await guide.text();
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
-  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
-  assert.ok(guideText.includes(messengerPauseMessage));
-  assert.doesNotMatch(guideText, /Test server settings|Continue with email|class="messenger-download"/);
+  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Public alpha/);
+  assert.match(guideText, /Use test conversations during this alpha/);
+  assert.match(guideText, /<strong>Update<\/strong> to keep your existing installation, session and message keys/);
+  assert.match(guideText, /connects to the Vellivex messaging service automatically.*Continue with email/);
+  assert.match(guideText, /eight-digit code from your inbox.*Open Vellivex/);
+  assert.match(guideText, /Secure your account[\s\S]*Create recovery key[\s\S]*Set up recovery[\s\S]*Save the key somewhere private/);
+  assert.match(guideText, /Last 4 characters[\s\S]*I've saved my recovery key[\s\S]*before starting a conversation/);
+  assert.match(guideText, /Only one phone can be active[\s\S]*old phone online[\s\S]*Sign out<\/strong> on that phone first/);
+  assert.match(guideText, /same email address[\s\S]*Recover your messages[\s\S]*saved <strong>Recovery key<\/strong>[\s\S]*Recover messages/);
+  assert.match(guideText, /Without your recovery key, your encrypted message history cannot be recovered/);
+  assert.match(guideText, /New conversation[\s\S]*Verify contact[\s\S]*They match[\s\S]*Send message/);
+  assert.doesNotMatch(guideText, /Test server settings|invite-only|invited email|lost phone|uninstall/i);
+  assert.ok(guideText.includes(`href="${messengerApkPath}">Free download</a>`));
+  for (const path of retiredMessengerApkPaths) assert.ok(!guideText.includes(path));
 
   for (const method of ['GET', 'HEAD']) {
-    const paused = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
-    assert.equal(paused.status, 503);
-    assert.equal(paused.headers.get('Location'), null);
-    assert.equal(paused.headers.get('Cache-Control'), 'no-store');
-    assert.equal(paused.headers.get('Retry-After'), '3600');
-    assert.equal(await paused.text(), method === 'HEAD' ? '' : messengerPauseMessage);
+    const download = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
+    assert.equal(download.status, 302);
+    assert.equal(download.headers.get('Location'), messengerApkSource);
+    assert.equal(download.headers.get('Cache-Control'), 'no-store');
+    assert.equal(await download.text(), '');
+    for (const path of retiredMessengerApkPaths) {
+      const retired = await worker.fetch(request(`${path}?next=https://other.example`, method), sellerEnv);
+      assert.equal(retired.status, 303);
+      assert.equal(retired.headers.get('Location'), '/messenger');
+      assert.equal(retired.headers.get('Cache-Control'), 'no-store');
+      assert.equal(await retired.text(), '');
+    }
   }
   const guideHead = await worker.fetch(request('/messenger', 'HEAD'), sellerEnv);
   assert.equal(guideHead.status, 200);
   assert.equal(await guideHead.text(), '');
-  for (const path of ['/messenger', messengerApkPath]) {
+  for (const path of ['/messenger', messengerApkPath, ...retiredMessengerApkPaths]) {
     const post = await worker.fetch(request(path, 'POST'), sellerEnv);
     assert.equal(post.status, 405);
     assert.equal(post.headers.get('Allow'), 'GET, HEAD');
@@ -224,14 +244,14 @@ test('the Messenger guide shows the pause and its public download rejects GET an
   }
 });
 
-test('a configured APK source cannot override the Messenger download pause', async () => {
-  for (const target of [messengerApkSource, '', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
+test('Messenger keeps its setup guide available when no public APK target is configured', async () => {
+  for (const target of ['', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
     messengerApkSource.replace('github.com', 'fixture.example'), messengerApkSource.replace('Vellivex/', 'other/'),
     messengerApkSource.replace('.apk', '.zip')]) {
     const config = {links, messengerApkSource: target};
     const guide = await html('/messenger', config);
-    assert.ok(guide.includes(messengerPauseMessage));
-    assert.doesNotMatch(guide, /class="messenger-download"/);
+    assert.match(guide, /APK download is currently unavailable/);
+    assert.doesNotMatch(guide, /Free download/);
     const download = await shop(config).fetch(request(messengerApkPath), sellerEnv);
     assert.equal(download.status, 503);
     assert.equal(download.headers.get('Location'), null);
