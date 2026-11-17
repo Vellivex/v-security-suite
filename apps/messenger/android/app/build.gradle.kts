@@ -15,15 +15,15 @@ android {
         applicationId = "com.vellivex.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.0-alpha02"
+        versionCode = 3
+        versionName = "0.1.0-alpha03"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
         debug {
             applicationIdSuffix = ".alpha"
             versionNameSuffix = "-test"
-            buildConfigField("String", "PRODUCTION_SERVER_URL", "\"\"")
+            buildConfigField("String", "PRODUCTION_SERVER_URL", "\"https://messenger.vellivex.com\"")
         }
         release { isMinifyEnabled = false }
     }

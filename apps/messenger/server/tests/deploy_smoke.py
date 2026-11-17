@@ -31,12 +31,14 @@ INVITED_FIXTURE = "backup-fixture@example.invalid"
 CREDENTIAL_FILES = ("postgres-password", "postgres-app-password", "synapse/smtp-password", "synapse/otp-secret")
 
 
-def request(path, *, body=None, client_ip=CLIENT_IP, forwarded_ip=None):
+def request(path, *, body=None, client_ip=CLIENT_IP, forwarded_ip=None, bearer=None):
     headers = {"Host": DOMAIN, "Accept": "application/json"}
     if client_ip is not None:
         headers["CF-Connecting-IP"] = client_ip
     if forwarded_ip is not None:
         headers["X-Forwarded-For"] = forwarded_ip
+    if bearer is not None:
+        headers["Authorization"] = "Bearer " + bearer
     payload = None
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -173,18 +175,55 @@ def deployment(temporary, name):
         stack.compose("down", "--volumes", "--remove-orphans", "--timeout", "15", timeout=120)
 
 
-def seed_email_challenge(stack):
+def email_state(stack):
     data = stack.state / "synapse"
-    broker = EmailState(
+    return EmailState(
         data / "email.sqlite",
         bytes.fromhex(private_read(data / "otp-secret")),
         bytes.fromhex(private_read(data / "identity-secret")),
     )
+
+
+def seed_email_challenge(stack):
+    broker = email_state(stack)
     challenge = broker.issue(INVITED_FIXTURE, "192.0.2.20")
     # Create a live fixture with the same durable state as an issued code without sending mail.
     broker.set_delivery(challenge.id, True)
     assert challenge_count(stack) == 1, "Backup needs an outstanding source challenge to test exclusion"
     return challenge
+
+
+def exercise_public_signup(stack):
+    stack.signup("public", day_limit=2, month_limit=3)
+    wait_for_proxy()
+    # The fixture's SMTP name resolves inside Synapse, so delivery fails without leaving the container.
+    assert request(EMAIL_API + "request", body=UNINVITED)[0] == 503
+    assert challenge_count(stack) == 1, "Public signup failed to reserve the attempted message"
+    assert sql(stack, "SELECT count(*) FROM users") == "0", "Requesting a code created a user"
+    assert request("/_matrix/client/v3/register", body={"username": "unverified"})[0] == 403
+
+    broker = email_state(stack)
+    challenge = broker.issue("verified-public@example.invalid", "192.0.2.20")
+    broker.set_delivery(challenge.id, True)
+    payload = {"challenge_id": challenge.id, "code": "11111111" if challenge.code == "00000000" else "00000000"}
+    assert request(EMAIL_API + "verify", body=payload)[0] == 403
+    payload["code"] = challenge.code
+    status, verified, _ = request(EMAIL_API + "verify", body=payload)
+    assert status == 200 and verified["expires_in_ms"] == 60_000
+    assert request(EMAIL_API + "verify", body=payload)[0] == 403
+    login = {"type": "m.login.token", "token": verified["login_token"]}
+    status, session, _ = request("/_matrix/client/v3/login", body=login)
+    assert status == 200 and session["user_id"].startswith("@vx_")
+    assert sql(stack, "SELECT count(*) FROM users") == "1", "Email proof did not create exactly one account"
+    assert request("/_matrix/client/v3/login", body=login)[0] == 403
+    status, full, cache = request(EMAIL_API + "request", body={"email": "another@example.invalid"})
+    assert status == 429 and full["vellivex_capacity_exhausted"] is True and cache == "no-store"
+    assert full["retry_after_ms"] > 0
+    stack.signup("invite")
+    wait_for_proxy()
+    assert request(EMAIL_API + "request", body=UNINVITED)[0] == 200
+    assert challenge_count(stack) == 2, "Closing public signup reset the mail attempt ledger"
+    assert request("/_matrix/client/v3/logout", body={}, bearer=session["access_token"])[0] == 200
 
 
 def exercise_restore(temporary):
@@ -239,6 +278,7 @@ def exercise_restore(temporary):
             "Destination accepted a code outstanding in the source deployment"
         )
         assert sql(destination, "SELECT count(*) FROM users") == "0", "A restored OTP challenge created a user"
+        exercise_public_signup(destination)
 
 
 def main():
@@ -249,7 +289,7 @@ def main():
     os.umask(0o077)
     with TemporaryDirectory(prefix="vellivex-deploy-smoke-") as directory:
         exercise_restore(Path(directory))
-    print("PASS private deployment, restricted routes, restart persistence and encrypted backup and restore")
+    print("PASS invite-default deployment, restricted routes, encrypted backup and restore, and public signup proof")
 
 
 if __name__ == "__main__":

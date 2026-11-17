@@ -2,13 +2,58 @@ package com.vellivex.messenger
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.time.Duration
+import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import org.json.JSONObject
 import org.matrix.rustcomponents.sdk.Session
 import org.matrix.rustcomponents.sdk.SlidingSyncVersion
 
 internal class MessengerFailure(message: String) : Exception(message)
+
+private val messengerEmailPattern = Regex("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")
+private const val MAX_RETRY_DELAY_MS = 31 * 24 * 60 * 60 * 1_000L
+
+internal fun isValidMessengerEmail(value: String): Boolean =
+    value.length in 3..254 && messengerEmailPattern.matches(value)
+
+internal fun messengerRateLimitMessage(body: JSONObject?, retryAfter: String?, now: Instant = Instant.now()): String {
+    if (body?.opt("vellivex_capacity_exhausted") == true) {
+        return "Vellivex Messenger has reached its sign-in capacity. Try again later."
+    }
+    val matrixDelay = when (val value = body?.opt("retry_after_ms")) {
+        is Int -> value.toLong()
+        is Long -> value
+        else -> 0L
+    }
+    val headerDelay = retryAfter?.takeIf { it.length <= 64 }?.trim()?.let { value ->
+        if (value.all { it in '0'..'9' }) {
+            value.toLongOrNull()?.takeIf { it <= MAX_RETRY_DELAY_MS / 1_000 }?.times(1_000)
+        } else {
+            runCatching {
+                val until = ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()
+                Duration.between(now, until).toMillis()
+            }.getOrNull()
+        }
+    } ?: 0L
+    val delay = maxOf(
+        matrixDelay.takeIf { it in 1..MAX_RETRY_DELAY_MS } ?: 0L,
+        headerDelay.takeIf { it in 1..MAX_RETRY_DELAY_MS } ?: 0L,
+    )
+    if (delay == 0L) return "Too many attempts. Wait before trying again."
+    val (unitMillis, unitName) = when {
+        delay >= 86_400_000 -> 86_400_000L to "day"
+        delay >= 3_600_000 -> 3_600_000L to "hour"
+        delay >= 60_000 -> 60_000L to "minute"
+        else -> 1_000L to "second"
+    }
+    val count = (delay + unitMillis - 1) / unitMillis
+    return "Too many attempts. Try again in $count $unitName${if (count == 1L) "" else "s"}."
+}
 
 internal class MessengerEmailAuth(context: Context) {
     private val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -31,7 +76,7 @@ internal class MessengerEmailAuth(context: Context) {
 
     fun requestCode(baseUrl: String, email: String): String {
         val value = email.trim()
-        if (value.length !in 3..254 || !EMAIL.matches(value)) {
+        if (!isValidMessengerEmail(value)) {
             throw MessengerFailure("Enter a valid email address.")
         }
         return post(baseUrl, REQUEST_PATH, JSONObject().put("email", value))
@@ -83,28 +128,32 @@ internal class MessengerEmailAuth(context: Context) {
             if (status !in 200..299) {
                 throw MessengerFailure(
                     when {
-                        status == 429 -> "Too many attempts. Wait before requesting another code."
+                        status == 429 -> {
+                            val detail = runCatching { connection.errorStream?.use { readJson(it, 4_096) } }.getOrNull()
+                            messengerRateLimitMessage(detail, connection.getHeaderField("Retry-After"))
+                        }
                         path == VERIFY_PATH && status in 400..499 -> "That code could not be verified. Check it or request a new one."
                         path == MATRIX_LOGIN_PATH && status in 400..499 -> "The sign-in token was rejected. Request a new code."
                         else -> "The messaging service could not complete that request."
                     },
                 )
             }
-            val bytes = connection.inputStream.use { stream ->
-                val buffer = ByteArray(16_385)
-                var length = 0
-                while (length < buffer.size) {
-                    val count = stream.read(buffer, length, buffer.size - length)
-                    if (count < 0) break
-                    length += count
-                }
-                check(length < buffer.size)
-                buffer.copyOf(length)
-            }
-            return JSONObject(bytes.decodeToString())
+            return connection.inputStream.use { readJson(it, 16_384) }
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun readJson(stream: InputStream, limit: Int): JSONObject {
+        val buffer = ByteArray(limit + 1)
+        var length = 0
+        while (length < buffer.size) {
+            val count = stream.read(buffer, length, buffer.size - length)
+            if (count < 0) break
+            length += count
+        }
+        check(length <= limit)
+        return JSONObject(buffer.decodeToString(endIndex = length))
     }
 
     private companion object {
@@ -112,7 +161,6 @@ internal class MessengerEmailAuth(context: Context) {
         const val VERIFY_PATH = "/_synapse/client/vellivex/email/verify"
         const val MATRIX_LOGIN_PATH = "/_matrix/client/v3/login"
         const val MATRIX_LOGOUT_PATH = "/_matrix/client/v3/logout"
-        val EMAIL = Regex("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")
         val CODE = Regex("[0-9]{8}")
         val LOOPBACK = setOf("127.0.0.1", "[::1]")
     }
