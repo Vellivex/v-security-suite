@@ -2,11 +2,17 @@ package com.vellivex.messenger
 
 import android.app.Application
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PersistableBundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -18,6 +24,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.annotation.MainThread
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,13 +51,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,6 +77,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 private val Ink = Color(0xFF0C151B)
 private val Surface = Color(0xFF14212B)
@@ -90,6 +101,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     internal var signInInputError by mutableStateOf<SignInInputError?>(null)
         private set
     var authenticationPending by mutableStateOf(false)
+        private set
+    var recoveryKeyToSave by mutableStateOf<String?>(null)
         private set
 
     init { restoreSignInSession() }
@@ -142,11 +155,46 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         if (signInInputError == error) signInInputError = null
     }
 
+    @MainThread
+    fun createRecoveryKey() = submitRecovery {
+        prepareRecoveryKey()?.let { recoveryKeyToSave = it }
+    }
+
+    @MainThread
+    fun saveRecoveryKey(lastFour: String) = submitRecovery {
+        if (confirmRecoveryKeySaved(lastFour)) recoveryKeyToSave = null
+    }
+
+    @MainThread
+    fun restoreRecoveryKey(key: String, onRestored: () -> Unit) = submitRecovery {
+        if (recoverWithKey(key)) {
+            recoveryKeyToSave = null
+            onRestored()
+        }
+    }
+
+    @MainThread
+    fun recheckRecovery() = submitRecovery { checkRecovery() }
+
+    fun forgetRecoveryKeyDisplay() {
+        recoveryKeyToSave = null
+    }
+
+    private fun submitRecovery(action: suspend MatrixRepository.() -> Unit): Boolean {
+        val state = repository.state.value
+        if (authenticationPending || state.busy || state.userId == null || state.recovery == MessengerRecovery.Ready) return false
+        return launchAccountAction(action)
+    }
+
     private fun submitAuthentication(error: SignInInputError?, action: suspend MatrixRepository.() -> Unit): Boolean {
         val state = repository.state.value
         if (authenticationPending || state.busy || state.userId != null) return false
         signInInputError = error
         if (error != null) return false
+        return launchAccountAction(action)
+    }
+
+    private fun launchAccountAction(action: suspend MatrixRepository.() -> Unit): Boolean {
         authenticationPending = true
         viewModelScope.launch {
             try {
@@ -198,6 +246,7 @@ private fun MessengerApp(model: MessengerViewModel) {
     var showProfile by remember { mutableStateOf(false) }
     var showNewChat by remember { mutableStateOf(false) }
     var signOut by remember { mutableStateOf(false) }
+    val canUseMessages = state.recovery == MessengerRecovery.Ready
     val snackbars = remember { SnackbarHostState() }
     val startAlerts = {
         if (!MessengerBackgroundSyncService.start(context)) scope.launch {
@@ -210,17 +259,20 @@ private fun MessengerApp(model: MessengerViewModel) {
             snackbars.showSnackbar("Notifications are off. Open Vellivex to check your messages.")
         }
     }
-    LaunchedEffect(state.userId) {
-        if (state.userId == null) MessengerBackgroundSyncService.stop(context)
+    LaunchedEffect(state.userId, state.recovery) {
+        if (!canUseMessages) MessengerBackgroundSyncService.stop(context)
+        if (state.recovery != MessengerRecovery.SetupRequired) model.forgetRecoveryKeyDisplay()
     }
     LaunchedEffect(state.error) {
         state.error?.let { snackbars.showSnackbar(it); model.run { clearError() } }
     }
-    BackHandler(state.selectedRoomId != null) { model.run { closeRoom() } }
+    BackHandler(canUseMessages && state.selectedRoomId != null) { model.run { closeRoom() } }
     Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbars) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             if (state.userId == null) {
                 SignIn(state, model, reset = { signOut = true })
+            } else if (!canUseMessages) {
+                RecoveryGate(state, model, profile = { showProfile = true }, signOut = { signOut = true })
             } else if (state.selectedRoomId != null) {
                 Chat(state, back = { model.run { closeRoom() } },
                     send = { text, accepted -> model.send(text, accepted) },
@@ -236,7 +288,9 @@ private fun MessengerApp(model: MessengerViewModel) {
             }
         }
     }
-    if (showProfile && state.userId != null) ProfileDialog(state.userId!!,
+    if (showProfile && state.userId != null && (canUseMessages || state.recovery == MessengerRecovery.SetupRequired)) ProfileDialog(state.userId!!,
+        recoveryReady = canUseMessages,
+        setupRecovery = { showProfile = false; model.createRecoveryKey() },
         alertsRunning = alertsRunning,
         toggleAlerts = {
             if (alertsRunning) MessengerBackgroundSyncService.stop(context)
@@ -246,19 +300,122 @@ private fun MessengerApp(model: MessengerViewModel) {
             } else startAlerts()
         },
         close = { showProfile = false }, signOut = { showProfile = false; signOut = true })
-    if (showNewChat) NewChatDialog(close = { showNewChat = false }, create = {
+    if (showNewChat && canUseMessages) NewChatDialog(close = { showNewChat = false }, create = {
         showNewChat = false; model.run { createDirectMessage(it) }
     })
     if (signOut) AlertDialog(onDismissRequest = { signOut = false },
         title = { Text("Sign out of this phone?") },
-        text = { Text("This removes the session and encryption keys from this phone. This alpha has no key recovery, so you may lose access to your message history. The other person keeps their copy.") },
+        text = { Text(if (canUseMessages || state.recovery == MessengerRecovery.OtherDevice)
+            "Keep your recovery key. Signing out removes the session and encryption keys from this phone. You’ll need the saved key to recover your backed-up messages when you sign in again."
+            else "Signing out removes the session and encryption keys from this phone. Set up recovery first if you still have access to your keys here. Without it, you could lose access to your encrypted conversations.") },
         confirmButton = { TextButton(onClick = { signOut = false; model.run { signOut() } }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { signOut = false }) { Text("Keep signed in") } })
-    state.verification?.let { v -> VerificationDialog(v, state.busy,
+    state.verification?.takeIf { canUseMessages }?.let { v -> VerificationDialog(v, state.busy,
         accept = { model.run { acceptVerification() } },
         confirm = { model.run { confirmVerification() } },
         reject = { model.run { rejectVerification() } },
         cancel = { model.run { cancelVerification() } }) }
+}
+
+@Composable
+private fun RecoveryGate(state: MessengerState, model: MessengerViewModel, profile: () -> Unit, signOut: () -> Unit) {
+    val context = LocalContext.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val busy = state.busy || model.authenticationPending
+    val key = model.recoveryKeyToSave
+    var enteredKey by remember(state.recovery, state.userId) { mutableStateOf("") }
+    var lastFour by remember(key) { mutableStateOf("") }
+    var copied by remember(key) { mutableStateOf(false) }
+    val hideKeyboard = { focus.clearFocus(); keyboard?.hide() }
+    val confirm: () -> Unit = {
+        if (model.saveRecoveryKey(lastFour)) hideKeyboard()
+    }
+    val recover: () -> Unit = {
+        if (model.restoreRecoveryKey(enteredKey) { enteredKey = "" }) hideKeyboard()
+    }
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Icon(Icons.Outlined.Lock, null, Modifier.size(44.dp), tint = Accent)
+        when (state.recovery) {
+            MessengerRecovery.SetupRequired -> {
+                Text("Secure your account", style = MaterialTheme.typography.headlineLarge)
+                Text("Save a recovery key so you can read your encrypted messages after signing out or moving to another phone.", color = Muted)
+                if (key == null) {
+                    Button(onClick = { model.createRecoveryKey() }, enabled = !busy) { Text("Create recovery key") }
+                } else {
+                    Text("Save this key in a password manager or write it down somewhere private. Keep it with you when you sign out.", color = Muted)
+                    Text(key, modifier = Modifier.fillMaxWidth().testTag("recovery-key")
+                        .background(Surface, RoundedCornerShape(8.dp)).padding(14.dp),
+                        fontFamily = FontFamily.Monospace, lineHeight = 25.sp)
+                    OutlinedButton(onClick = { copied = copyRecoveryKey(context, key) }, enabled = !busy) {
+                        Text(if (copied) "Recovery key copied" else "Copy recovery key")
+                    }
+                    OutlinedTextField(lastFour, { lastFour = it.take(4) }, label = { Text("Last 4 characters") },
+                        supportingText = { Text("Enter the last four characters from your saved copy.") },
+                        singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (lastFour.length == 4) confirm() }))
+                    Button(onClick = confirm, enabled = !busy && lastFour.length == 4) { Text("I've saved my recovery key") }
+                }
+                TextButton(onClick = profile, enabled = !busy) { Text("Your profile") }
+            }
+            MessengerRecovery.KeyRequired -> {
+                Text("Recover your messages", style = MaterialTheme.typography.headlineLarge)
+                Text("Enter the recovery key you saved. It unlocks this account’s backed-up encryption keys.", color = Muted)
+                OutlinedTextField(enteredKey, { enteredKey = it.take(192) }, label = { Text("Recovery key") },
+                    singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (enteredKey.isNotBlank()) recover() }))
+                Button(onClick = recover, enabled = !busy && enteredKey.isNotBlank()) { Text("Recover messages") }
+            }
+            MessengerRecovery.NoRecovery -> {
+                Text("Recovery isn’t set up", style = MaterialTheme.typography.headlineLarge)
+                Text("If you have a phone where you’re already signed in, set up recovery there first and save the key. Then sign out on that phone and return here. Email sign-in alone can’t restore your encrypted conversations.", color = Muted)
+                OutlinedButton(onClick = { model.recheckRecovery() }, enabled = !busy) { Text("Check again") }
+            }
+            MessengerRecovery.OtherDevice -> {
+                Text("Sign out on your other phone", style = MaterialTheme.typography.headlineLarge)
+                Text("Messenger supports one active phone for an account. Save your recovery key and sign out in Messenger on your other phone before continuing here. If you can’t access that phone, this device stays locked.", color = Muted)
+                OutlinedButton(onClick = { model.recheckRecovery() }, enabled = !busy) { Text("Check again") }
+            }
+            MessengerRecovery.Checking -> {
+                Text("Checking your keys", style = MaterialTheme.typography.headlineLarge)
+                Text("Connect to the internet so Messenger can check whether recovery is set up.", color = Muted)
+                OutlinedButton(onClick = { model.recheckRecovery() }, enabled = !busy) { Text("Check again") }
+            }
+            MessengerRecovery.Ready -> Unit
+        }
+        TextButton(onClick = signOut, enabled = !busy) { Text("Sign out") }
+    }
+}
+
+private fun copyRecoveryKey(context: Context, key: String): Boolean {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return false
+    val clipId = UUID.randomUUID().toString()
+    val marker = "com.vellivex.messenger.recovery_clip"
+    val clip = ClipData.newPlainText("Messenger recovery key", key)
+    clip.description.extras = PersistableBundle().apply {
+        putBoolean("android.content.extra.IS_SENSITIVE", true)
+        putString(marker, clipId)
+    }
+    try {
+        clipboard.setPrimaryClip(clip)
+    } catch (_: SecurityException) {
+        return false
+    }
+    Handler(Looper.getMainLooper()).postDelayed({
+        try {
+            if (clipboard.primaryClipDescription?.extras?.getString(marker) == clipId) {
+                if (Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+                else clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+            }
+        } catch (_: SecurityException) {
+            // Android can disallow clipboard access once this app is in the background.
+        }
+    }, 90_000L)
+    return true
 }
 
 @Composable
@@ -491,7 +648,8 @@ private fun NewChatDialog(close: () -> Unit, create: (String) -> Unit) {
 }
 
 @Composable
-private fun ProfileDialog(userId: String, alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
+private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery: () -> Unit,
+    alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
     val context = LocalContext.current
     val invitation = "https://matrix.to/#/$userId"
     val qr = remember(invitation) {
@@ -510,10 +668,16 @@ private fun ProfileDialog(userId: String, alertsRunning: Boolean, toggleAlerts: 
                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, invitation) }, "Share your Vellivex ID"))
             }) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Share invitation") }
             HorizontalDivider()
-            Text(if (alertsRunning) "Background alerts are on" else "Background alerts are off", fontWeight = FontWeight.SemiBold)
-            Text("Keep a visible sync notification to receive generic alerts while the app is closed. Messages and contact names stay out of notifications. Android may pause delivery; reopen Vellivex after a restart or force stop.",
-                color = Muted, fontSize = 12.sp)
-            OutlinedButton(onClick = toggleAlerts) { Text(if (alertsRunning) "Stop background alerts" else "Enable background alerts") }
+            if (recoveryReady) {
+                Text("Recovery is set up", fontWeight = FontWeight.SemiBold)
+                Text("Keep your saved key so you can recover your encrypted messages after signing out.", color = Muted, fontSize = 12.sp)
+                Text(if (alertsRunning) "Background alerts are on" else "Background alerts are off", fontWeight = FontWeight.SemiBold)
+                Text("Keep a visible sync notification to receive generic alerts while the app is closed. Messages and contact names stay out of notifications. Android may pause delivery; reopen Vellivex after a restart or force stop.",
+                    color = Muted, fontSize = 12.sp)
+                OutlinedButton(onClick = toggleAlerts) { Text(if (alertsRunning) "Stop background alerts" else "Enable background alerts") }
+            } else {
+                OutlinedButton(onClick = setupRecovery) { Text("Set up recovery") }
+            }
             Text("Vellivex Messenger ${BuildConfig.VERSION_NAME}\nFree core messaging · No paid features in this alpha", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center)
         } }, confirmButton = { TextButton(onClick = close) { Text("Done") } }, dismissButton = { TextButton(onClick = signOut) { Text("Sign out") } })
 }

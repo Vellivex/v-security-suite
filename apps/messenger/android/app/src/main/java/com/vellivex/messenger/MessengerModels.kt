@@ -39,12 +39,15 @@ data class MessengerVerification(
     val numbers: List<Int> = emptyList(),
 )
 
+enum class MessengerRecovery { Checking, SetupRequired, KeyRequired, NoRecovery, OtherDevice, Ready }
+
 data class MessengerState(
     val userId: String? = null,
     val pendingSignInEmail: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
     val connection: MessengerConnection = MessengerConnection.SignedOut,
+    val recovery: MessengerRecovery = MessengerRecovery.Checking,
     val rooms: List<MessengerRoom> = emptyList(),
     val selectedRoomId: String? = null,
     val messages: List<MessengerMessage> = emptyList(),
@@ -53,7 +56,7 @@ data class MessengerState(
     val codeRequested: Boolean get() = pendingSignInEmail != null
     val selectedRoom: MessengerRoom? get() = rooms.firstOrNull { it.id == selectedRoomId }
     val canSend: Boolean
-        get() = selectedRoom?.let {
+        get() = recovery == MessengerRecovery.Ready && selectedRoom?.let {
             it.membership == MessengerMembership.Joined && it.encrypted && it.peerVerified
         } == true
 }
