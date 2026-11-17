@@ -1,7 +1,7 @@
 {
   "app_url": "https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-arm64.apk",
   "app_sha256": "a3c215607533f82d7aee623254928b27b5e454e79ef2c074550aff234e8c116a",
-  "instrumentation_url": "https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-synthetic-tests.apk",
-  "instrumentation_sha256": "31dfab60280b2246af371271a0e251f3a3fb5639d739c729ea323cd240db4e7f",
+  "instrumentation_url": "https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-acceptance-tests.apk",
+  "instrumentation_sha256": "076198d7922761bec3729855a4bdf9c1426d6d40e3fc2e5ae857585e4bc6f589",
   "signer_sha256": "3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2"
 }
