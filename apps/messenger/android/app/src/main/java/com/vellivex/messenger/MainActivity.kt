@@ -271,7 +271,7 @@ private fun MessengerApp(model: MessengerViewModel) {
     }
     BackHandler(canUseMessages && state.selectedRoomId != null) { model.run { closeRoom() } }
     Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbars) }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if (state.userId == null) {
                 SignIn(state, model, reset = { signOut = true })
             } else if (!canUseMessages) {
@@ -597,17 +597,20 @@ internal fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> 
             if (room?.encrypted == true && room.membership == MessengerMembership.Joined)
                 IconButton(onClick = verify) { Icon(Icons.Outlined.CheckCircle, "Verify contact", tint = Accent) }
         }
-        if (state.recoveredWithKey && room?.encrypted == true && room.membership == MessengerMembership.Joined) {
-            Text(RECOVERED_HISTORY_NOTE, color = Muted, fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp))
-        }
         LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().testTag("conversation_messages")
             .onSizeChanged { viewportSize = it }, contentPadding = PaddingValues(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text(if (room?.encrypted == true) "Messages are end-to-end encrypted. Your server still sees account and conversation metadata."
-                    else "This conversation cannot be used for private messages.",
-                    color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
+                // Keep the complete recovery warning reachable without taking space from replies when typing.
+                Column(Modifier.fillMaxWidth()) {
+                    if (state.recoveredWithKey && room?.encrypted == true && room.membership == MessengerMembership.Joined) {
+                        Text(RECOVERED_HISTORY_NOTE, color = Muted, fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    }
+                    Text(if (room?.encrypted == true) "Messages are end-to-end encrypted. Your server still sees account and conversation metadata."
+                        else "This conversation cannot be used for private messages.",
+                        color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
+                }
             }
             items(state.messages, key = { it.id }) { msg ->
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = if (msg.own) Alignment.End else Alignment.Start) {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
@@ -14,8 +15,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -68,6 +71,31 @@ class MessengerChatLayoutTest {
         compose.runOnIdle { state = state.copy(messages = state.messages.drop(1) + reply) }
         assertEquals("Exercise replacement at the repository's 200-message limit", 200, state.messages.size)
         requireDisplayed(reply.text)
+    }
+
+    @Test
+    fun recoveredChatKeepsRepliesVisibleInTheSpaceAboveTheKeyboard() {
+        var state by mutableStateOf(conversation(emptyList()))
+        compose.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                // Match a compact phone's available chat space while the software keyboard is open.
+                Box(Modifier.fillMaxWidth().height(260.dp)) {
+                    Chat(state, {}, { _, _ -> }, {}, {}, {})
+                }
+            }
+        }
+        compose.onNodeWithText("Your recovery key restores your account’s encryption keys. In this alpha, it may not restore any earlier messages.")
+            .assertIsDisplayed()
+        val reply = message(1).copy(text = "Fictional encrypted reply to the recovered device.")
+        compose.runOnIdle {
+            state = state.copy(messages = listOf(
+                message(0).copy(text = "Fictional encrypted message from the recovered device.", own = true),
+                reply,
+            ))
+        }
+        requireDisplayed(reply.text)
+        compose.onNodeWithText("Write a message").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Send message").assertIsDisplayed()
     }
 
     private fun requireDisplayed(text: String) {
