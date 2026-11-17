@@ -32,6 +32,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.matrix.rustcomponents.sdk.ClientException
+import org.matrix.rustcomponents.sdk.EncryptedMessage
+import org.matrix.rustcomponents.sdk.MsgLikeKind
+import org.matrix.rustcomponents.sdk.ShieldState
+import org.matrix.rustcomponents.sdk.Timeline
+import org.matrix.rustcomponents.sdk.TimelineItemContent
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -96,17 +102,20 @@ class MessengerOnboardingFlowTest {
             reportUiStage("Exchanging fictional messages between verified accounts")
             compose.field("Write a message").performTextReplacement(UI_MESSAGE)
             compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
-            awaitPeer(peer, "the message sent through the UI") { state ->
+            val sent = awaitPeer(peer, "the message sent through the UI") { state ->
                 state.messages.any { it.text == UI_MESSAGE && it.delivery == MessengerDelivery.Received }
-            }
+            }.messages.single { it.text == UI_MESSAGE }
             assertTrue("The verified peer could not reply", peer.sendMessage(PEER_REPLY))
             compose.waitForText(PEER_REPLY)
             compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
 
             if (!alpha02Seed) {
                 val original = savedSession()
-                reportUiStage("Waiting for the synthetic conversation backup")
-                fixture.waitForRoomBackup(original.accessToken, roomId)
+                val reply = awaitPeer(peer, "the original reply's server acknowledgement") { state ->
+                    state.messages.any { it.text == PEER_REPLY && it.delivery == MessengerDelivery.Sent }
+                }.messages.single { it.text == PEER_REPLY }
+                reportUiStage("Checking backup coverage for both original encrypted events")
+                fixture.waitForRoomBackup(original.accessToken, roomId, eventIds = setOf(sent.id, reply.id))
                 reportUiStage("Signing out and requesting a new device session for the same email")
                 compose.onNodeWithContentDescription("Back to messages").performClick()
                 compose.signOutThroughUi()
@@ -138,8 +147,15 @@ class MessengerOnboardingFlowTest {
                 reportUiStage("Reading restored history and sending new encrypted messages")
                 compose.waitForText("Verified conversation")
                 compose.onNodeWithText("Verified conversation").performClick()
-                compose.waitForText(UI_MESSAGE)
-                compose.waitForText(PEER_REPLY)
+                try {
+                    reportUiStage("Reading the restored message from the active peer's device")
+                    compose.waitForText(PEER_REPLY)
+                    reportUiStage("Reading the restored message from the signed-out device")
+                    compose.waitForText(UI_MESSAGE)
+                } catch (error: AssertionError) {
+                    reportRestoredHistoryDiagnostics(device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id)
+                    throw error
+                }
                 compose.waitForText("Write a message")
                 compose.field("Write a message").performTextReplacement(RECOVERED_MESSAGE)
                 compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
@@ -309,6 +325,51 @@ private fun reportUiStage(message: String) {
     val status = Bundle().apply { putString("stream", "\nVellivex UI: $message\n") }
     InstrumentationRegistry.getInstrumentation().sendStatus(2, status)
 }
+
+private suspend fun reportRestoredHistoryDiagnostics(
+    repository: MatrixRepository,
+    activePeerEvent: String,
+    signedOutDeviceEvent: String,
+) {
+    // Read only the fixture's two event categories, with no app runtime diagnostic surface.
+    val timeline = try {
+        val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
+        opened?.javaClass?.getDeclaredField("timeline")?.apply { isAccessible = true }?.get(opened) as? Timeline
+    } catch (_: ReflectiveOperationException) {
+        null
+    }
+    if (timeline == null) {
+        reportUiStage("Restored-history diagnostic: no open SDK timeline")
+        return
+    }
+    for ((source, eventId) in listOf("active peer" to activePeerEvent, "signed-out device" to signedOutDeviceEvent)) {
+        reportUiStage("Restored-history diagnostic for $source: ${timeline.restoredEventCategory(eventId)}")
+    }
+}
+
+private suspend fun Timeline.restoredEventCategory(eventId: String): String = withTimeoutOrNull(3_000) {
+    val event = try {
+        getEventTimelineItemByEventId(eventId)
+    } catch (_: ClientException) {
+        return@withTimeoutOrNull "event absent from SDK timeline"
+    }
+    try {
+        when (val kind = (event.content as? TimelineItemContent.MsgLike)?.content?.kind) {
+            is MsgLikeKind.UnableToDecrypt -> {
+                val cause = (kind.msg as? EncryptedMessage.MegolmV1AesSha2)?.cause
+                "unable to decrypt (${cause?.name ?: "unknown scheme"})"
+            }
+            is MsgLikeKind.Message -> when (val shield = event.lazyProvider.getShields(true)) {
+                is ShieldState.Red -> "decrypted, strict red shield (${shield.code.name})"
+                is ShieldState.Grey -> "decrypted, strict grey shield (${shield.code.name})"
+                ShieldState.None -> "decrypted, no strict shield"
+            }
+            else -> "event present without message content"
+        }
+    } finally {
+        event.destroy()
+    }
+} ?: "SDK lookup timed out"
 
 private suspend fun awaitPeer(
     peer: MatrixRepository,
