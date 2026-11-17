@@ -57,6 +57,7 @@
   "apps/messenger/android/app/src/main/res/xml/data_extraction_rules.xml",
   "apps/messenger/android/app/src/test/java/com/vellivex/messenger/MatrixUserIdTest.kt",
   "apps/messenger/android/app/src/test/java/com/vellivex/messenger/MessengerStateTest.kt",
+  "apps/messenger/android/arm64-acceptance.json",
   "apps/messenger/android/build.gradle.kts",
   "apps/messenger/android/gradle.properties",
   "apps/messenger/android/gradle/wrapper/gradle-wrapper.jar",
