@@ -147,7 +147,7 @@ test('application, auth, download, API and unknown-host responses retain their e
 });
 
 test('public homepage promotion is idempotent and preserves existing content and security policy',async()=>{
-  const original='<!doctype html><html><head><title>Existing</title></head><body><nav id="navigation"><a href="/beta">Apps</a></nav><main><h1>Existing homepage</h1><a href="/apps/vault">Vault</a></main></body></html>';
+  const original='<!doctype html><html><head><title>Existing</title></head><body><nav id="navigation"><a href="/beta">Apps</a></nav><main><h1>Existing homepage</h1><a href="/apps/vault">Vault</a></main><footer><div>Existing footer</div></footer></body></html>';
   const csp="default-src 'none'; script-src 'self'; style-src 'self'";
   const originalWorker={fetch:()=>new Response(original,{headers:{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':csp,'ETag':'old','Content-Length':String(original.length),'X-Existing':'yes'}})};
   const once=shop({links},originalWorker),twice=shop({links},once);
@@ -172,17 +172,24 @@ test('public homepage promotion is idempotent and preserves existing content and
   assert.equal(first.headers.get('Content-Length'),null);
 });
 
-test('the homepage offers the Messenger APK before both existing phone options', async () => {
-  const worker = shop({links}, {fetch: () => new Response(page('/'), {
+test('the homepage keeps Messenger first in main and both phone options in the footer', async () => {
+  const worker = shop({links}, {fetch: req => new Response(page(new URL(req.url).pathname), {
     headers: {'Content-Type': 'text/html; charset=utf-8'},
   })});
   const text = await (await worker.fetch(request('/'), sellerEnv)).text();
-  assert.match(text, /<main\b[^>]*><section id="vellivex-messenger-hero"/);
-  assert.ok(text.indexOf('id="vellivex-messenger-hero"') < text.indexOf('id="vellivex-phone-promotion"'));
-  assert.match(text, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
-  assert.ok(text.includes(`href="${messengerApkPath}">Free download</a>`));
-  assert.match(text, /href="\/messenger">Setup guide/);
-  assert.match(text, /New Pixel 9a[\s\S]*£479[\s\S]*Refurbished Pixel 9a[\s\S]*£375/);
+  const main = text.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? '';
+  const footer = text.match(/<\/main>\s*<footer\b[^>]*>([\s\S]*?)<\/footer>/)?.[1] ?? '';
+  assert.match(main, /^<section id="vellivex-messenger-hero"/);
+  assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
+  assert.match(main, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
+  assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
+  assert.match(main, /href="\/messenger">Setup guide/);
+  assert.match(footer, /^<section id="vellivex-phone-promotion"/);
+  assert.match(footer, /New Pixel 9a[\s\S]*£479[\s\S]*Refurbished Pixel 9a[\s\S]*£375/);
+  assert.match(footer, /class="footer-links"/);
+
+  const beta = await (await worker.fetch(request('/beta'), sellerEnv)).text();
+  assert.doesNotMatch(beta, /id="vellivex-phone-promotion"|id="vellivex-messenger-hero"|\/phones-promotion\.css/);
 });
 
 test('Messenger setup and download support public GET and HEAD without trusting request parameters', async () => {
