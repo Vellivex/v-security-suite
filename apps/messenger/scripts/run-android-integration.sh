@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-if [[ $# != 1 && $# != 3 ]]; then
-  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY [ARM64_APP_APK INSTRUMENTATION_APK]' >&2
+if [[ $# != 1 && $# != 3 && $# != 4 ]]; then
+  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY [ARM64_APP_APK INSTRUMENTATION_APK [ALPHA02_ARM64_APK]]' >&2
   exit 2
 fi
 
@@ -15,10 +15,14 @@ evidence_dir=$(cd -- "$evidence_dir" && pwd)
 sdk=${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}
 sdk_tools="$sdk/cmdline-tools/latest/bin"
 system_image='system-images;android-35;default;x86_64'
-if [[ $# == 3 ]]; then
+if (( $# >= 3 )); then
   app_apk=$(realpath -e -- "$2")
   test_apk=$(realpath -e -- "$3")
   [[ -s "$app_apk" && -s "$test_apk" ]]
+  if [[ $# == 4 ]]; then
+    previous_app_apk=$(realpath -e -- "$4")
+    [[ -s "$previous_app_apk" ]]
+  fi
   system_image='system-images;android-35;google_apis;x86_64'
   "$sdk_tools/sdkmanager" --install 'platform-tools' 'emulator' "$system_image"
 else
@@ -33,11 +37,15 @@ work_dir=$(mktemp -d)
 emulator_pid=''
 synapse_pid=''
 adb=("$sdk/platform-tools/adb" -s emulator-5554)
-cleanup() {
+stop_synapse() {
   if [[ -n "$synapse_pid" ]]; then
     kill "$synapse_pid" 2>/dev/null || true
     wait "$synapse_pid" 2>/dev/null || true
+    synapse_pid=''
   fi
+}
+cleanup() {
+  stop_synapse
   if [[ -n "$emulator_pid" ]]; then
     kill "$emulator_pid" 2>/dev/null || true
     wait "$emulator_pid" 2>/dev/null || true
@@ -92,37 +100,56 @@ fi
 "${adb[@]}" shell wm size 720x1280
 "${adb[@]}" shell wm density 320
 
-server_state="$work_dir/synapse"
-"$python" "$messenger_dir/server/dev_server.py" \
-  --state-dir "$server_state" --port 8008 --mailbox-port 8025 >"$work_dir/synapse.log" 2>&1 &
-synapse_pid=$!
-if ! curl --noproxy '*' --fail --silent --retry 30 --retry-connrefused --retry-delay 1 \
-  --max-time 3 http://127.0.0.1:8008/_matrix/client/versions >/dev/null; then
-  tail -80 "$work_dir/synapse.log" >&2
-  printf '%s\n' 'The local Synapse fixture did not become ready.' >&2
-  exit 1
-fi
+start_synapse() {
+  local name=$1
+  local state="$work_dir/$name"
+  "$python" "$messenger_dir/server/dev_server.py" \
+    --state-dir "$state" --port 8008 --mailbox-port 8025 >"$work_dir/$name.log" 2>&1 &
+  synapse_pid=$!
+  if ! curl --noproxy '*' --fail --silent --retry 30 --retry-connrefused --retry-delay 1 \
+    --max-time 3 http://127.0.0.1:8008/_matrix/client/versions >/dev/null; then
+    tail -80 "$work_dir/$name.log" >&2
+    printf 'The local Synapse fixture did not become ready: %s\n' "$name" >&2
+    return 1
+  fi
+  mailbox_key=$(<"$state/mailbox-key")
+  test -n "$mailbox_key"
+}
 "${adb[@]}" reverse tcp:8008 tcp:8008
 "${adb[@]}" reverse tcp:8025 tcp:8025
 
 test_app=com.vellivex.messenger.alpha
-if [[ $# == 3 ]]; then
+runner="$test_app.test/androidx.test.runner.AndroidJUnitRunner"
+
+verify_installed_arm64() {
+  local version=$1
+  local package_report
+  package_report=$("${adb[@]}" shell dumpsys package "$test_app" | tr -d '\r')
+  grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' <<< "$package_report"
+  grep -Eq "^[[:space:]]*versionCode=$version([[:space:]]|$)" <<< "$package_report"
+  printf '%s versionCode=%s primaryCpuAbi=arm64-v8a\n' "$test_app" "$version" | tee -a "$evidence_dir/translation.txt"
+}
+
+if (( $# >= 3 )); then
   native_bridge=$("${adb[@]}" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')
   supported_abis=$("${adb[@]}" shell getprop ro.product.cpu.abilist | tr -d '\r')
   if [[ -z "$native_bridge" || "$native_bridge" == 0 || ",$supported_abis," != *,arm64-v8a,* ]]; then
     printf '%s\n' 'The Android emulator does not advertise ARM64 translation.' >&2
     exit 1
   fi
-  "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
-  package_report=$("${adb[@]}" shell dumpsys package "$test_app" | tr -d '\r')
-  grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' <<< "$package_report"
-  printf 'Android 35 x86_64 native bridge: %s\nSupported ABIs: %s\n%s primaryCpuAbi: arm64-v8a\n' \
-    "$native_bridge" "$supported_abis" "$test_app" | tee "$evidence_dir/translation.txt"
+  printf 'Android 35 x86_64 native bridge: %s\nSupported ABIs: %s\n' \
+    "$native_bridge" "$supported_abis" | tee "$evidence_dir/translation.txt"
+  if [[ $# == 4 ]]; then
+    "${adb[@]}" install -t --abi arm64-v8a "$previous_app_apk"
+    verify_installed_arm64 2
+  else
+    "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
+    verify_installed_arm64 3
+  fi
 else
   "${adb[@]}" install -t "$app_apk"
 fi
 "${adb[@]}" install -t "$test_apk"
-runner="$test_app.test/androidx.test.runner.AndroidJUnitRunner"
 
 run_instrumentation() {
   local test_class=$1
@@ -144,11 +171,24 @@ run_instrumentation() {
   fi
 }
 
+if [[ $# == 4 ]]; then
+  start_synapse upgrade
+  run_instrumentation MessengerOnboardingFlowTest -e messengerMailboxKey "$mailbox_key" -e messengerAlpha02Seed true
+  unset mailbox_key
+  "${adb[@]}" shell am force-stop "$test_app"
+  "${adb[@]}" install -r -t --abi arm64-v8a "$app_apk"
+  verify_installed_arm64 3
+  run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true -e messengerAlpha02Upgrade true
+  exit
+fi
+
 overall_status=0
 run_instrumentation MessengerOnboardingSmokeTest || overall_status=1
-mailbox_key=$(<"$server_state/mailbox-key")
-test -n "$mailbox_key"
+start_synapse core
 run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key" || overall_status=1
+# The core fixture uses six OTP requests from one address, the server's minute budget.
+stop_synapse
+start_synapse onboarding
 if ! run_instrumentation MessengerOnboardingFlowTest -e messengerMailboxKey "$mailbox_key"; then
   overall_status=1
 elif ! "${adb[@]}" shell am force-stop "$test_app"; then
