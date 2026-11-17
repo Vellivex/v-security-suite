@@ -21,6 +21,10 @@ private const val MAX_RETRY_DELAY_MS = 31 * 24 * 60 * 60 * 1_000L
 internal fun isValidMessengerEmail(value: String): Boolean =
     value.length in 3..254 && messengerEmailPattern.matches(value)
 
+internal fun isHardMatrixLogout(status: Int, body: JSONObject?): Boolean =
+    status == HttpURLConnection.HTTP_UNAUTHORIZED && body?.opt("errcode") == "M_UNKNOWN_TOKEN" &&
+        (!body.has("soft_logout") || body.opt("soft_logout") == false)
+
 internal fun messengerRateLimitMessage(body: JSONObject?, retryAfter: String?, now: Instant = Instant.now()): String {
     if (body?.opt("vellivex_capacity_exhausted") == true) {
         return "Vellivex Messenger has reached its sign-in capacity. Try again later."
@@ -110,28 +114,42 @@ internal class MessengerEmailAuth(context: Context) {
         return true
     }
 
-    private fun post(baseUrl: String, path: String, body: JSONObject, accessToken: String? = null): JSONObject {
-        val connection = (URI(baseUrl + path).toURL().openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
+    fun hasEndedSession(session: Session): Boolean {
+        val connection = request(checkedBaseUrl(session.homeserverUrl), MATRIX_WHOAMI_PATH, "GET", session.accessToken)
+        return try {
+            val status = connection.responseCode
+            status == HttpURLConnection.HTTP_UNAUTHORIZED && isHardMatrixLogout(status, readError(connection))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun request(baseUrl: String, path: String, method: String, accessToken: String?): HttpURLConnection =
+        (URI(baseUrl + path).toURL().openConnection() as HttpURLConnection).apply {
+            requestMethod = method
             connectTimeout = 10_000
             readTimeout = 15_000
             instanceFollowRedirects = false
             useCaches = false
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
             if (accessToken != null) setRequestProperty("Authorization", "Bearer $accessToken")
+        }
+
+    private fun post(baseUrl: String, path: String, body: JSONObject, accessToken: String? = null): JSONObject {
+        val connection = request(baseUrl, path, "POST", accessToken).apply {
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
         }
         try {
             connection.outputStream.use { it.write(body.toString().encodeToByteArray()) }
             val status = connection.responseCode
             if (status !in 200..299) {
+                if (path == MATRIX_LOGOUT_PATH && status == HttpURLConnection.HTTP_UNAUTHORIZED &&
+                    isHardMatrixLogout(status, readError(connection))
+                ) return JSONObject()
                 throw MessengerFailure(
                     when {
-                        status == 429 -> {
-                            val detail = runCatching { connection.errorStream?.use { readJson(it, 4_096) } }.getOrNull()
-                            messengerRateLimitMessage(detail, connection.getHeaderField("Retry-After"))
-                        }
+                        status == 429 -> messengerRateLimitMessage(readError(connection), connection.getHeaderField("Retry-After"))
                         path == VERIFY_PATH && status in 400..499 -> "That code could not be verified. Check it or request a new one."
                         path == MATRIX_LOGIN_PATH && status in 400..499 -> "The sign-in token was rejected. Request a new code."
                         else -> "The messaging service could not complete that request."
@@ -143,6 +161,9 @@ internal class MessengerEmailAuth(context: Context) {
             connection.disconnect()
         }
     }
+
+    private fun readError(connection: HttpURLConnection): JSONObject? =
+        runCatching { connection.errorStream?.use { readJson(it, 4_096) } }.getOrNull()
 
     private fun readJson(stream: InputStream, limit: Int): JSONObject {
         val buffer = ByteArray(limit + 1)
@@ -161,6 +182,7 @@ internal class MessengerEmailAuth(context: Context) {
         const val VERIFY_PATH = "/_synapse/client/vellivex/email/verify"
         const val MATRIX_LOGIN_PATH = "/_matrix/client/v3/login"
         const val MATRIX_LOGOUT_PATH = "/_matrix/client/v3/logout"
+        const val MATRIX_WHOAMI_PATH = "/_matrix/client/v3/account/whoami"
         val CODE = Regex("[0-9]{8}")
         val LOOPBACK = setOf("127.0.0.1", "[::1]")
     }

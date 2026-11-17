@@ -30,10 +30,12 @@ import org.matrix.rustcomponents.sdk.BackupSteadyStateListener
 import org.matrix.rustcomponents.sdk.BackupUploadState
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
+import org.matrix.rustcomponents.sdk.ClientException
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
 import org.matrix.rustcomponents.sdk.EnableRecoveryProgress
 import org.matrix.rustcomponents.sdk.EnableRecoveryProgressListener
 import org.matrix.rustcomponents.sdk.Encryption
+import org.matrix.rustcomponents.sdk.ErrorKind
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.JoinRule
@@ -427,6 +429,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     suspend fun signOut(): Unit = operation(Unit, "Could not remove the local session.") {
         val active = connection
+        var alreadyEnded = false
         if (active != null && active.recoveryConfirmed &&
             (state.value.recovery == MessengerRecovery.Ready || state.value.recovery == MessengerRecovery.OtherDevice)
         ) {
@@ -444,15 +447,29 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
             } catch (_: Exception) {
                 false
             }
-            if (backedUp != true) fail("Your messages are still backing up. Stay signed in and try again when connected.")
+            if (backedUp != true) {
+                // The server may have committed a previous logout even when its response was lost.
+                alreadyEnded = try {
+                    auth.hasEndedSession(active.client.session())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
+                }
+                if (!alreadyEnded) fail("Your messages are still backing up. Stay signed in and try again when connected.")
+            }
         }
-        val revoked = if (active != null) {
+        val revoked = if (alreadyEnded) {
+            true
+        } else if (active != null) {
             withTimeoutOrNull(12_000) {
                 try {
                     active.client.logout()
                     true
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: ClientException.MatrixApi) {
+                    (e.kind as? ErrorKind.UnknownToken)?.softLogout == false
                 } catch (_: Exception) {
                     false
                 }
