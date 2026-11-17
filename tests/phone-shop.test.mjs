@@ -204,14 +204,15 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
   assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Public alpha/);
-  assert.match(guideText, /Use test conversations during this alpha/);
+  assert.match(guideText, /This is an early test build\. Use test conversations during this alpha/);
   assert.match(guideText, /<strong>Update<\/strong> to keep your existing installation, session and message keys/);
   assert.match(guideText, /connects to the Vellivex messaging service automatically.*Continue with email/);
   assert.match(guideText, /eight-digit code from your inbox.*Open Vellivex/);
   assert.match(guideText, /Secure your account[\s\S]*Create recovery key[\s\S]*Set up recovery[\s\S]*Save the key somewhere private/);
   assert.match(guideText, /Last 4 characters[\s\S]*I've saved my recovery key[\s\S]*before starting a conversation/);
   assert.match(guideText, /Only one phone can be active[\s\S]*old phone online[\s\S]*Sign out<\/strong> on that phone first/);
-  assert.match(guideText, /same email address[\s\S]*Recover your messages[\s\S]*saved <strong>Recovery key<\/strong>[\s\S]*Recover messages/);
+  assert.match(guideText, /same email address[\s\S]*Recover your account[\s\S]*saved <strong>Recovery key<\/strong>[\s\S]*Recover account<\/strong> to restore your account’s encryption keys/);
+  assert.match(guideText, /After signing out or moving phones, your message history may be incomplete\. Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them/);
   assert.match(guideText, /Without your recovery key, your encrypted message history cannot be recovered/);
   assert.match(guideText, /New conversation[\s\S]*Verify contact[\s\S]*They match[\s\S]*Send message/);
   assert.doesNotMatch(guideText, /Test server settings|invite-only|invited email|lost phone|uninstall/i);
