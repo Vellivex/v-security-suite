@@ -48,6 +48,7 @@ data class MessengerState(
     val error: String? = null,
     val connection: MessengerConnection = MessengerConnection.SignedOut,
     val recovery: MessengerRecovery = MessengerRecovery.Checking,
+    val recoveredWithKey: Boolean = false,
     val rooms: List<MessengerRoom> = emptyList(),
     val selectedRoomId: String? = null,
     val messages: List<MessengerMessage> = emptyList(),
