@@ -162,9 +162,10 @@ function messengerSetup(downloadAvailable) {
     <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
     <p>This is an early test build. Use test conversations during this alpha.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
+    <p><strong>Message history warning:</strong> In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone.</p>
     <h2>Install and sign in</h2>
     <ol>
-      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, choose <strong>Update</strong> to keep your existing installation, session and message keys.</li>
+      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong> to keep your existing installation, session and message keys. Keep the app signed in. Do not uninstall it or sign out before updating.</li>
       <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your email address and tap <strong>Continue with email</strong>.</li>
       <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
     </ol>
@@ -177,7 +178,7 @@ function messengerSetup(downloadAvailable) {
     <h2>Sign in again or move to another phone</h2>
     <p>Only one phone can be active at a time. Before moving, save your recovery key, bring your old phone online and choose <strong>Sign out</strong> on that phone first.</p>
     <p>Sign in again with the same email address and its email code. When you see <strong>Recover your account</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover account</strong> to restore your account’s encryption keys.</p>
-    <p>After signing out or moving phones, your message history may be incomplete. Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them. Without your recovery key, your encrypted message history cannot be recovered.</p>
+    <p>Earlier conversations may remain unreadable after recovery. If you need access to the message history already available on this phone, keep the existing installation and remain signed in. Without your saved recovery key, you cannot recover your account’s encryption keys after losing this installation.</p>
     <h2>Start a conversation</h2>
     <ol>
       <li>Open your profile to find and share your Vellivex ID. If you already have your contact’s ID, tap <strong>New conversation</strong> and enter it.</li>
