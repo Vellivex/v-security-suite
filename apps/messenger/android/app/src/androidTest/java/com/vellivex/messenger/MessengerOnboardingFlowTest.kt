@@ -63,7 +63,7 @@ class MessengerOnboardingFlowTest {
         try {
             val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, useIme = !alpha02Seed, tryWrongCode = true)
             if (!alpha02Seed) {
-                deviceRecoveryKey = compose.createRecoveryThroughUi()
+                deviceRecoveryKey = compose.createRecoveryThroughUi(device)
             }
             compose.waitForText("Messages")
 
@@ -142,7 +142,9 @@ class MessengerOnboardingFlowTest {
                 }
                 assertTrue("An incorrect recovery key removed the OTP-authenticated session", savedSession().deviceId == returned.deviceId)
                 sensitiveUi("recover the synthetic account with its saved key") {
-                    compose.enterRecoveryKey(checkNotNull(deviceRecoveryKey))
+                    compose.waitForRecoveryReady(device) {
+                        compose.enterRecoveryKey(checkNotNull(deviceRecoveryKey))
+                    }
                     compose.waitForText("Messages")
                 }
 
@@ -161,7 +163,7 @@ class MessengerOnboardingFlowTest {
                         state.messages.any { it.text == RECOVERED_MESSAGE && it.delivery == MessengerDelivery.Received }
                     }
                     assertTrue("The verified peer could not reply to the recovered device", peer.sendMessage(RECOVERED_REPLY))
-                    compose.waitForText(RECOVERED_REPLY)
+                    compose.waitForDisplayedText(RECOVERED_REPLY)
                     compose.onNodeWithText(RECOVERED_REPLY).assertIsDisplayed()
                     compose.assertOriginalRecoveryHistoryHidden(device)
                 } catch (error: AssertionError) {
@@ -205,7 +207,7 @@ class MessengerOnboardingRestartTest {
         val upgraded = args.getString("messengerAlpha02Upgrade") == "true"
         if (upgraded) {
             assertEquals("Restore the alpha02 history on the installed alpha04 app", 4L, installedVersionCode())
-            compose.createRecoveryThroughUi().fill('\u0000')
+            compose.createRecoveryThroughUi(device).fill('\u0000')
         }
         reportUiStage("Restoring the saved session and encrypted conversation")
         compose.waitForText("Messages")
@@ -237,6 +239,7 @@ private const val RECOVERED_MESSAGE = "Fictional encrypted message from the reco
 private const val RECOVERED_REPLY = "Fictional encrypted reply to the recovered device."
 private const val RECOVERED_HISTORY_NOTE =
     "Your recovery key restores your account’s encryption keys. In this alpha, it may not restore any earlier messages."
+private const val RECOVERY_READY_TIMEOUT_MS = 55_000L
 
 private fun savedSession(): org.matrix.rustcomponents.sdk.Session {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -273,7 +276,7 @@ private suspend fun ComposeTestRule.signInWithSyntheticMail(
     return requestedAt
 }
 
-private fun ComposeTestRule.createRecoveryThroughUi(): CharArray = sensitiveUi("save the synthetic recovery key") {
+private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository): CharArray = sensitiveUi("save the synthetic recovery key") {
     reportUiStage("Creating and acknowledging a recovery key before opening messages")
     waitForText("Secure your account")
     onNodeWithText("Messages").assertDoesNotExist()
@@ -293,7 +296,9 @@ private fun ComposeTestRule.createRecoveryThroughUi(): CharArray = sensitiveUi("
         onNodeWithText("Messages").assertDoesNotExist()
         waitForTextToClear(error)
         field("Last 4 characters").performScrollTo().performTextReplacement(lastFour)
-        onNodeWithText("I've saved my recovery key").performScrollTo().assertIsEnabled().performClick()
+        waitForRecoveryReady(repository) {
+            onNodeWithText("I've saved my recovery key").performScrollTo().assertIsEnabled().performClick()
+        }
         key
     } catch (failure: Throwable) {
         key.fill('\u0000')
@@ -344,6 +349,92 @@ private fun ComposeTestRule.waitForText(value: String, substring: Boolean = fals
 
 private fun ComposeTestRule.waitForTextToClear(value: String) {
     waitUntil(15_000) { onAllNodes(hasText(value)).fetchSemanticsNodes().isEmpty() }
+}
+
+private fun ComposeTestRule.waitForDisplayedText(value: String) {
+    try {
+        waitUntil(30_000) {
+            try {
+                onNodeWithText(value).assertIsDisplayed()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+    } catch (error: ComposeTimeoutException) {
+        try {
+            val nodes = onAllNodes(hasText(value)).fetchSemanticsNodes()
+            val bounds = nodes.firstOrNull()?.boundsInRoot
+            reportUiStage("Message visibility diagnostic: matching-nodes=${nodes.size}, " +
+                "left=${bounds?.left}, top=${bounds?.top}, right=${bounds?.right}, bottom=${bounds?.bottom}")
+        } catch (_: Exception) {
+            reportUiStage("Message visibility diagnostic unavailable")
+        }
+        throw AssertionError("The recovered reply did not become visible within 30 seconds", error)
+    }
+}
+
+private fun ComposeTestRule.waitForRecoveryReady(repository: MatrixRepository, submit: () -> Unit) {
+    val before = repository.state.value
+    var observedBusy = false
+    var failure: String? = null
+    val started = SystemClock.elapsedRealtime()
+    submit()
+    try {
+        // Both setup and recovery allow a 30-second SDK call followed by a
+        // 20-second readiness check. This wait leaves those app limits intact.
+        waitUntil(RECOVERY_READY_TIMEOUT_MS) {
+            val state = repository.state.value
+            if (state.busy) observedBusy = true
+            val newError = state.error != null && (observedBusy || state.error != before.error)
+            when {
+                newError -> {
+                    failure = "Recovery reported an error (${recoveryErrorCategory(state.error).name})"
+                    true
+                }
+                state.recovery == MessengerRecovery.Ready && !state.busy -> true
+                observedBusy && !state.busy -> {
+                    failure = "Recovery finished without becoming ready"
+                    true
+                }
+                else -> false
+            }
+        }
+    } catch (error: ComposeTimeoutException) {
+        reportRecoveryWaitState(repository, started, observedBusy, "timed out")
+        throw AssertionError("Recovery did not become ready within 55 seconds", error)
+    }
+    failure?.let {
+        reportRecoveryWaitState(repository, started, observedBusy, "failed")
+        throw AssertionError(it)
+    }
+    reportRecoveryWaitState(repository, started, observedBusy, "completed")
+}
+
+private fun reportRecoveryWaitState(repository: MatrixRepository, started: Long, observedBusy: Boolean, outcome: String) {
+    val state = repository.state.value
+    reportUiStage("Recovery readiness $outcome: elapsed-ms=${SystemClock.elapsedRealtime() - started}, " +
+        "observed-busy=$observedBusy, app=${state.recovery.name}, busy=${state.busy}, " +
+        "sync=${state.connection.name}, error=${recoveryErrorCategory(state.error).name}")
+    // Emit only safe state before sensitiveUi replaces a failure's message.
+    reportRecoveryStateDiagnostics(repository)
+}
+
+private enum class RecoveryUiError {
+    NONE, SETUP_TIMEOUT, RECOVERY_TIMEOUT, USABILITY_TIMEOUT, SETUP_FAILED,
+    RECOVERY_FAILED, SETTINGS_CHANGED, OTHER_DEVICE, OTHER,
+}
+
+private fun recoveryErrorCategory(message: String?): RecoveryUiError = when (message) {
+    null -> RecoveryUiError.NONE
+    "Recovery setup timed out. Keep your recovery key and try again." -> RecoveryUiError.SETUP_TIMEOUT
+    "Recovery timed out. Try again when you are connected." -> RecoveryUiError.RECOVERY_TIMEOUT
+    "Your recovery key was accepted, but this phone is still waiting for encryption and backup. Keep your key and try again." -> RecoveryUiError.USABILITY_TIMEOUT
+    "Could not finish setting up recovery. Keep your key and try again when connected." -> RecoveryUiError.SETUP_FAILED
+    "Could not recover with that key. Check the key and your connection, then try again." -> RecoveryUiError.RECOVERY_FAILED
+    "Recovery settings changed. If you already saved a recovery key, use it to recover this session." -> RecoveryUiError.SETTINGS_CHANGED
+    "Sign out on your other phone before recovering this account here." -> RecoveryUiError.OTHER_DEVICE
+    else -> RecoveryUiError.OTHER
 }
 
 private fun reportUiStage(message: String) {
@@ -401,11 +492,14 @@ private fun reportRecoveryStateDiagnostics(repository: MatrixRepository) {
             .apply { isAccessible = true }.get(repository)
         val client = connection?.javaClass?.getDeclaredField("client")
             ?.apply { isAccessible = true }?.get(connection) as? Client
+        val confirmed = connection?.javaClass?.getDeclaredField("recoveryConfirmed")
+            ?.apply { isAccessible = true }?.getBoolean(connection)
         client?.encryption()?.use { encryption ->
-            reportUiStage("Recovery state diagnostic: app=${repository.state.value.recovery}, " +
-                "saved-key=${repository.state.value.recoveredWithKey}, sync=${repository.state.value.connection}, " +
-                "SDK recovery=${encryption.recoveryState()}, backup=${encryption.backupState()}, " +
-                "device=${encryption.verificationState()}")
+            reportUiStage("Recovery state diagnostic: app=${repository.state.value.recovery.name}, " +
+                "busy=${repository.state.value.busy}, confirmed=$confirmed, " +
+                "saved-key=${repository.state.value.recoveredWithKey}, sync=${repository.state.value.connection.name}, " +
+                "SDK recovery=${encryption.recoveryState().name}, backup=${encryption.backupState().name}, " +
+                "device=${encryption.verificationState().name}")
         }
         val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
         val retryCount = if (opened == null) 0 else synchronized(opened) {
