@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.view.WindowManager
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -20,6 +21,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -28,16 +30,26 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.runners.MethodSorters
 
 @RunWith(AndroidJUnit4::class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class MessengerOnboardingSmokeTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
+
+    @After
+    fun discardAnyUnfinishedMockChallenge() = runBlocking<Unit> {
+        val application = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as MessengerApplication
+        if (application.repository.state.value.codeRequested) application.repository.discardSignInChallenge()
+    }
 
     @Test
     fun freshInstallHasDefaultHttpsAndCanContinueWithTheKeyboardOpen() {
@@ -103,24 +115,28 @@ class MessengerOnboardingSmokeTest {
             compose.onNodeWithText("Enter the eight-digit email code.").performScrollTo().assertIsDisplayed()
             code.performScrollTo().performTextReplacement("00000000")
             code.performImeAction()
-            compose.waitUntil(10_000) {
-                compose.onAllNodes(hasText("That code could not be verified.", substring = true)).fetchSemanticsNodes().isNotEmpty()
-            }
+            waitForText("That code could not be verified.", substring = true)
             code.performScrollTo().assertIsEnabled()
             compose.onNodeWithText("Open Vellivex").performScrollTo().assertIsEnabled()
             assertEquals(listOf("request", "verify"), probe.requests.toList())
 
             code.performScrollTo().performTextReplacement("12345678")
+            waitForTextToClear("That code could not be verified.", substring = true)
             probe.requestError = """{"errcode":"M_LIMIT_EXCEEDED","vellivex_capacity_exhausted":true}"""
-            compose.onNodeWithText("Send another code").performScrollTo().performClick()
-            waitForText("Vellivex Messenger has reached its sign-in capacity. Try again later.")
+            compose.onNodeWithText("Send another code").performScrollTo().assertIsEnabled().performClick()
+            waitUntil("The first resend did not reach the local probe") { probe.requests.size >= 3 }
+            val capacityMessage = "Vellivex Messenger has reached its sign-in capacity. Try again later."
+            waitForText(capacityMessage)
             code.performScrollTo().assertTextContains("12345678")
 
+            waitForTextToClear(capacityMessage)
             probe.requestError = """{"errcode":"M_LIMIT_EXCEEDED","retry_after_ms":60000}"""
             compose.onNodeWithText("Send another code").performScrollTo().assertIsEnabled().performClick()
+            waitUntil("The second resend did not reach the local probe") { probe.requests.size >= 4 }
             waitForText("Too many attempts. Try again in 1 minute.")
             code.performScrollTo().assertTextContains("12345678")
 
+            waitForTextToClear("Too many attempts. Try again in 1 minute.")
             compose.onNodeWithText("Change email").performScrollTo().performClick()
             field("Email address").performScrollTo().assertTextContains("tester@example.test")
             code.assertDoesNotExist()
@@ -130,8 +146,24 @@ class MessengerOnboardingSmokeTest {
 
     private fun field(label: String) = compose.onNode(hasSetTextAction() and hasText(label))
 
-    private fun waitForText(value: String) {
-        compose.waitUntil(10_000) { compose.onAllNodes(hasText(value)).fetchSemanticsNodes().isNotEmpty() }
+    private fun waitForText(value: String, substring: Boolean = false) {
+        waitUntil("The onboarding UI did not show '$value'") {
+            compose.onAllNodes(hasText(value, substring = substring)).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForTextToClear(value: String, substring: Boolean = false) {
+        waitUntil("The previous onboarding message did not clear") {
+            compose.onAllNodes(hasText(value, substring = substring)).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    private fun waitUntil(message: String, condition: () -> Boolean) {
+        try {
+            compose.waitUntil(15_000, condition)
+        } catch (error: ComposeTimeoutException) {
+            throw AssertionError(message, error)
+        }
     }
 
     private fun captureBlankOnboarding() {

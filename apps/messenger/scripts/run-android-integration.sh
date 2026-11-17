@@ -144,7 +144,7 @@ if (( $# >= 3 )); then
     verify_installed_arm64 2
   else
     "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
-    verify_installed_arm64 3
+    verify_installed_arm64 4
   fi
 else
   "${adb[@]}" install -t "$app_apk"
@@ -177,7 +177,7 @@ if [[ $# == 4 ]]; then
   unset mailbox_key
   "${adb[@]}" shell am force-stop "$test_app"
   "${adb[@]}" install -r -t --abi arm64-v8a "$app_apk"
-  verify_installed_arm64 3
+  verify_installed_arm64 4
   run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true -e messengerAlpha02Upgrade true
   exit
 fi

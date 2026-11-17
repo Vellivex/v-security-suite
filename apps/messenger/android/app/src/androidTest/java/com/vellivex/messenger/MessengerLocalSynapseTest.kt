@@ -56,6 +56,8 @@ class MessengerLocalSynapseTest {
         try {
             fixture.signIn(alice, aliceEmail)
             fixture.signIn(bob, bobEmail)
+            fixture.createRecoveryFor(alice).fill('\u0000')
+            fixture.createRecoveryFor(bob).fill('\u0000')
             val bobUserId = checkNotNull(bob.state.value.userId)
             val roomId = checkNotNull(alice.createDirectMessage(bobUserId)) {
                 "Alice could not create the encrypted direct room"
@@ -196,6 +198,8 @@ class MessengerLocalSynapseTest {
         try {
             fixture.signIn(sender, senderAddress)
             fixture.signIn(receiver, receiverAddress)
+            fixture.createRecoveryFor(sender).fill('\u0000')
+            fixture.createRecoveryFor(receiver).fill('\u0000')
             val receiverId = checkNotNull(receiver.state.value.userId)
             val senderId = checkNotNull(sender.state.value.userId)
             val roomId = checkNotNull(sender.createDirectMessage(receiverId))
@@ -217,6 +221,7 @@ class MessengerLocalSynapseTest {
             awaitState(receiver, "verified notification recipient") { it.canSend }
 
             fixture.signIn(otherPeer, otherAddress)
+            fixture.createRecoveryFor(otherPeer).fill('\u0000')
             val otherPeerId = checkNotNull(otherPeer.state.value.userId)
             val otherRoomId = checkNotNull(otherPeer.createDirectMessage(receiverId))
             assertTrue("The second invitation must target a distinct room", otherRoomId != roomId)
@@ -428,6 +433,35 @@ internal class LocalSynapseFixture(matrixBase: String, mailboxBase: String, priv
         val challenge = checkNotNull(client.requestCode(matrix, email)) { "OTP request did not return a challenge" }
         assertTrue("OTP login failed", client.verifyCode(mailboxCode(challenge)))
         assertNotNull("OTP login did not establish a user ID", client.state.value.userId)
+    }
+
+    suspend fun createRecoveryFor(client: MatrixRepository): CharArray {
+        checkNotNull(withTimeoutOrNull(45_000) {
+            client.state.first { it.recovery == MessengerRecovery.SetupRequired }
+        }) { "Synthetic peer never reached recovery setup" }
+        val key = checkNotNull(client.prepareRecoveryKey()) { "Synthetic peer could not create recovery" }.toCharArray()
+        val lastFour = key.filterNot(Char::isWhitespace).takeLast(4).joinToString("")
+        if (!client.confirmRecoveryKeySaved(lastFour)) {
+            key.fill('\u0000')
+            error("Synthetic peer could not acknowledge its recovery key")
+        }
+        return key
+    }
+
+    suspend fun waitForRoomBackup(token: String, roomId: String) {
+        repeat(40) {
+            val sessions = try {
+                val version = request(matrix, "/_matrix/client/v3/room_keys/version", bearer = token).getString("version")
+                request(matrix, "/_matrix/client/v3/room_keys/keys/${segment(roomId)}?version=${segment(version)}", bearer = token)
+                    .getJSONObject("sessions").length()
+            } catch (error: FixtureHttpFailure) {
+                if (error.status != 404 && error.status != 429) throw error
+                0
+            }
+            if (sessions >= 2) return
+            delay(1_000)
+        }
+        error("The synthetic account did not back up both directions of the encrypted conversation")
     }
 
     suspend fun withRawDevice(email: String, verify: suspend (String) -> Unit) {
