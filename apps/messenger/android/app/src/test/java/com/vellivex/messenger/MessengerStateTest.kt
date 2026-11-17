@@ -22,11 +22,13 @@ class MessengerStateTest {
     @Test
     fun canSendRequiresSelectedJoinedEncryptedRoomWithVerifiedPeer() {
         val validState = MessengerState(
+            recovery = MessengerRecovery.Ready,
             rooms = listOf(verifiedRoom),
             selectedRoomId = verifiedRoom.id,
         )
 
         assertTrue(validState.canSend)
+        assertFalse(validState.copy(recovery = MessengerRecovery.KeyRequired).canSend)
         assertFalse(validState.copy(selectedRoomId = null).canSend)
         assertFalse(validState.copy(selectedRoomId = "!missing:example.test").canSend)
         assertFalse(validState.copy(rooms = listOf(verifiedRoom.copy(encrypted = false))).canSend)

@@ -21,6 +21,7 @@ internal data class StoredMessengerSession(
     val session: Session,
     val storeId: String,
     val storeKey: ByteArray,
+    val recoveryConfirmed: Boolean = false,
 )
 
 internal class MessengerSessionStore(context: Context, namespace: String) {
@@ -43,6 +44,9 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
 
     fun sdkDirectory(value: StoredMessengerSession): File =
         File(directory, value.storeId).apply { check(isDirectory || mkdirs()) }
+
+    fun hasSdkStore(value: StoredMessengerSession): Boolean =
+        File(File(directory, value.storeId), "matrix-sdk-crypto.sqlite3").let { it.isFile && it.length() > 0L }
 
     fun read(): StoredMessengerSession? {
         if (!exists()) return null
@@ -72,7 +76,7 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
             )
             val storeKey = Base64.decode(json.getString("sdkKey"), Base64.NO_WRAP)
             check(storeKey.size == 32)
-            return StoredMessengerSession(session, storeId, storeKey)
+            return StoredMessengerSession(session, storeId, storeKey, json.optBoolean("recoveryConfirmed", false))
         } finally {
             clear.fill(0)
         }
@@ -93,6 +97,7 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
             .put("homeserverUrl", session.homeserverUrl)
             .put("storeId", value.storeId)
             .put("sdkKey", Base64.encodeToString(value.storeKey, Base64.NO_WRAP))
+            .put("recoveryConfirmed", value.recoveryConfirmed)
             .toString().encodeToByteArray()
         val encoded = try {
             byteArrayOf(FORMAT_VERSION) + cipher.iv + cipher.doFinal(clear)
@@ -106,6 +111,16 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
         } catch (error: Exception) {
             record.failWrite(output)
             throw error
+        }
+    }
+
+    fun updateRecoveryConfirmation(storeId: String, confirmed: Boolean) {
+        val saved = requireNotNull(read())
+        try {
+            check(saved.storeId == storeId)
+            if (saved.recoveryConfirmed != confirmed) write(saved.copy(recoveryConfirmed = confirmed))
+        } finally {
+            saved.storeKey.fill(0)
         }
     }
 

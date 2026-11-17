@@ -1,8 +1,8 @@
 # Vellivex Messenger Android alpha
 
-Messenger is an Android source alpha for one-to-one text conversations. The core is free. This build has no payment flow, public service or push gateway. Use fictional conversations and the local test server described below, or deploy the private service before testing remotely.
+Messenger is an Android source alpha for one-to-one text conversations. The core is free. Use fictional conversations when testing the app or the local server described below.
 
-The app signs in with an email code, lets you share a Vellivex ID as a QR code or Matrix link, and uses the ID to invite one contact. Accept the invitation, then compare the verification symbols or numbers over an independent channel before sending text. The verification dialog establishes trust separately from sharing an ID. Signing out removes the local session and keys. This alpha has no key recovery, and signing in again may leave earlier messages unreadable.
+The app signs in with an email code, lets you share a Vellivex ID as a QR code or Matrix link, and uses the ID to invite one contact. Accept the invitation, then compare the verification symbols or numbers over an independent channel before sending text. The verification dialog establishes trust separately from sharing an ID.
 
 ## Build from source
 
@@ -20,9 +20,15 @@ cd apps/messenger/android
 
 The debug APKs are `apps/messenger/android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` for modern ARM phones and `app-x86_64-debug.apk` in the same directory for the emulator. They use the `com.vellivex.messenger.alpha` application ID and a local debug signer. The build commands recreate a debug APK from source. Release signing and binary reproducibility require separate verification.
 
-This alpha supports one active, cross-signed device per contact for starting verification. It refuses to choose silently between multiple devices. Multi-device setup and account-key recovery are not part of this build.
+This alpha supports one active, cross-signed phone per account. For contact verification the SDK refuses to choose silently between multiple eligible devices.
 
 For a remote private test, follow [the server deployment instructions](server/deploy/README.md). Build the release APK with `assembleRelease -PmessengerProductionServerUrl=https://YOUR_SERVICE_HOST` and sign it with the retained private release key. Release builds require this HTTPS origin and hide development server settings; they fail configuration if the origin is missing or invalid. Do not distribute an unsigned or placeholder-server release as ready to use.
+
+## Recovery and moving phones
+
+Save the recovery key in a password manager or somewhere private and confirm its last four characters before opening messages. On an existing phone, install the update over Messenger and set up recovery while still signed in. Keep the same installation so the app can use its existing keys.
+
+To move phones, save the key and complete **Sign out** on the old phone while it is online. Then use your email code and saved recovery key on the new phone. A second trusted phone keeps the conversation view locked until that phone signs out. If you lose both the recovery key and access to your trusted phone, an email code alone cannot restore encrypted conversations.
 
 ## Background alerts
 

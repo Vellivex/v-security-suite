@@ -25,9 +25,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONException
 import org.json.JSONObject
+import org.matrix.rustcomponents.sdk.BackupState
+import org.matrix.rustcomponents.sdk.BackupSteadyStateListener
+import org.matrix.rustcomponents.sdk.BackupUploadState
 import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientBuilder
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
+import org.matrix.rustcomponents.sdk.EnableRecoveryProgress
+import org.matrix.rustcomponents.sdk.EnableRecoveryProgressListener
+import org.matrix.rustcomponents.sdk.Encryption
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
 import org.matrix.rustcomponents.sdk.EventSendState
 import org.matrix.rustcomponents.sdk.JoinRule
@@ -35,12 +41,14 @@ import org.matrix.rustcomponents.sdk.Membership
 import org.matrix.rustcomponents.sdk.MessageType
 import org.matrix.rustcomponents.sdk.MsgLikeKind
 import org.matrix.rustcomponents.sdk.PowerLevels
+import org.matrix.rustcomponents.sdk.RecoveryState
 import org.matrix.rustcomponents.sdk.Room
 import org.matrix.rustcomponents.sdk.RoomHistoryVisibility
 import org.matrix.rustcomponents.sdk.RoomMessageLikeEvent
 import org.matrix.rustcomponents.sdk.RoomMessageLikeEventsListener
 import org.matrix.rustcomponents.sdk.RoomPreset
 import org.matrix.rustcomponents.sdk.RoomVisibility
+import org.matrix.rustcomponents.sdk.SecretStorageKey
 import org.matrix.rustcomponents.sdk.SendTarget
 import org.matrix.rustcomponents.sdk.SessionVerificationController
 import org.matrix.rustcomponents.sdk.SessionVerificationControllerDelegate
@@ -59,6 +67,7 @@ import org.matrix.rustcomponents.sdk.TimelineDiff
 import org.matrix.rustcomponents.sdk.TimelineItem
 import org.matrix.rustcomponents.sdk.TimelineItemContent
 import org.matrix.rustcomponents.sdk.TimelineListener
+import org.matrix.rustcomponents.sdk.VerificationState
 import uniffi.matrix_sdk_base.EncryptionState
 import uniffi.matrix_sdk_crypto.CollectStrategy
 import uniffi.matrix_sdk_crypto.DecryptionSettings
@@ -138,6 +147,95 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
         true
     }
+
+    suspend fun prepareRecoveryKey(): String? = operation(null, "Could not create a recovery key. Try again.") {
+        val c = requireSessionConnection()
+        requireRecoverySetup(c)
+        val key = c.pendingRecoveryKey ?: SecretStorageKey().also { c.pendingRecoveryKey = it }
+        key.toBase58()
+    }
+
+    suspend fun confirmRecoveryKeySaved(lastFour: String): Boolean =
+        operation(false, "Could not finish setting up recovery. Keep your key and try again when connected.") {
+            val c = requireSessionConnection()
+            val key = c.pendingRecoveryKey ?: fail("Create a recovery key first.")
+            if (lastFour != key.toBase58().filterNot(Char::isWhitespace).takeLast(4)) {
+                fail("Enter the last four characters of your recovery key exactly as shown.")
+            }
+            requireRecoverySetup(c)
+            c.client.encryption().use { encryption ->
+                val backupReady = withTimeoutOrNull(RECOVERY_TIMEOUT_MS) {
+                    // The supplied key is already saved by the user. Never display or log progress payloads.
+                    encryption.enableRecovery(true, key, object : EnableRecoveryProgressListener {
+                        override fun onUpdate(status: EnableRecoveryProgress) = Unit
+                    })
+                    true
+                }
+                if (backupReady != true) fail("Recovery setup timed out. Keep your recovery key and try again.")
+                completeRecovery(c, encryption)
+            }
+            true
+        }
+
+    suspend fun recoverWithKey(key: String): Boolean =
+        operation(false, "Could not recover with that key. Check the key and your connection, then try again.") {
+            val c = requireSessionConnection()
+            if (state.value.recovery != MessengerRecovery.KeyRequired) fail("This session is not waiting for a recovery key.")
+            val value = key.trim()
+            if (value.length !in 16..192) {
+                fail("Could not recover with that key. Check the key and your connection, then try again.")
+            }
+            c.client.encryption().use { encryption ->
+                if (encryption.hasDevicesToVerifyAgainst()) {
+                    refreshStoredRooms(c)
+                    fail("Sign out on your other phone before recovering this account here.")
+                }
+                val recovered = withTimeoutOrNull(RECOVERY_TIMEOUT_MS) {
+                    encryption.recover(value)
+                    true
+                }
+                if (recovered != true) fail("Recovery timed out. Try again when you are connected.")
+                completeRecovery(c, encryption)
+            }
+            true
+        }
+
+    suspend fun checkRecovery(): Unit = operation(Unit, "Could not check recovery. Connect and try again.") {
+        val saved = sessionStore.read() ?: fail("Sign in to the messaging service first.")
+        try {
+            disconnect()
+            connect(saved)
+        } finally {
+            saved.storeKey.fill(0)
+        }
+    }
+
+    private fun requireRecoverySetup(c: Connection) {
+        c.client.encryption().use { encryption ->
+            if (encryption.recoveryState() != RecoveryState.DISABLED ||
+                encryption.verificationState() != VerificationState.VERIFIED
+            ) {
+                fail("Recovery settings changed. If you already saved a recovery key, use it to recover this session.")
+            }
+        }
+    }
+
+    private suspend fun completeRecovery(c: Connection, encryption: Encryption) {
+        val ready = withTimeoutOrNull(E2EE_SETUP_TIMEOUT_MS) {
+            while (!encryption.recoveryIsUsable()) delay(250)
+            true
+        }
+        if (ready != true) fail("Your recovery key was accepted, but this phone is still waiting for encryption and backup. Keep your key and try again.")
+        sessionStore.updateRecoveryConfirmation(c.storeId, true)
+        c.recoveryConfirmed = true
+        c.pendingRecoveryKey?.close()
+        c.pendingRecoveryKey = null
+        refreshStoredRooms(c)
+    }
+
+    private fun Encryption.recoveryIsUsable(): Boolean =
+        recoveryState() == RecoveryState.ENABLED && verificationState() == VerificationState.VERIFIED &&
+            (backupState() == BackupState.ENABLED || backupState() == BackupState.DOWNLOADING)
 
     suspend fun refreshRooms(): Unit = operation(Unit, "Could not refresh conversations.") {
         refresh(requireConnection())
@@ -329,6 +427,25 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     suspend fun signOut(): Unit = operation(Unit, "Could not remove the local session.") {
         val active = connection
+        if (active != null && active.recoveryConfirmed &&
+            (state.value.recovery == MessengerRecovery.Ready || state.value.recovery == MessengerRecovery.OtherDevice)
+        ) {
+            val backedUp = try {
+                withTimeoutOrNull(RECOVERY_TIMEOUT_MS) {
+                    active.client.encryption().use { encryption ->
+                        encryption.waitForBackupUploadSteadyState(object : BackupSteadyStateListener {
+                            override fun onUpdate(state: BackupUploadState) = Unit
+                        })
+                    }
+                    true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            if (backedUp != true) fail("Your messages are still backing up. Stay signed in and try again when connected.")
+        }
         val revoked = if (active != null) {
             withTimeoutOrNull(12_000) {
                 try {
@@ -354,12 +471,11 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         } else {
             true
         }
+        if (!revoked) fail("Could not confirm sign-out. Your session and keys are still on this phone. Connect and try again.")
         disconnect()
         sessionStore.clear()
         challenge = null
-        mutableState.value = MessengerState(
-            error = if (revoked) null else "The local session was removed, but server sign-out could not be confirmed.",
-        )
+        mutableState.value = MessengerState()
     }
 
     suspend fun close() = withContext(Dispatchers.IO) {
@@ -375,6 +491,10 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     private suspend fun connect(saved: StoredMessengerSession, freshSignIn: Boolean = false) {
         val base = auth.checkedBaseUrl(saved.session.homeserverUrl)
+        val recoveryConfirmed = saved.recoveryConfirmed && sessionStore.hasSdkStore(saved)
+        if (saved.recoveryConfirmed && !recoveryConfirmed) {
+            sessionStore.updateRecoveryConfirmation(saved.storeId, false)
+        }
         val directory = sessionStore.sdkDirectory(saved)
         val client = SqliteStoreBuilder(directory.absolutePath, directory.absolutePath).use { plain ->
             plain.key(saved.storeKey).use { sqlite ->
@@ -415,11 +535,12 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
             client.syncService().use { builder ->
                 val sync = builder.withOfflineMode().withRoomListTimelineLimit(40u).use { it.finish() }
                 try {
-                    val c = Connection(client, sync, client.getSessionVerificationController())
+                    val c = Connection(client, sync, client.getSessionVerificationController(), saved.storeId, recoveryConfirmed)
                     connection = c
                     challenge = null
                     mutableState.update {
-                        it.copy(userId = userId, connection = MessengerConnection.Syncing, pendingSignInEmail = null)
+                        it.copy(userId = userId, connection = MessengerConnection.Syncing, pendingSignInEmail = null,
+                            recovery = MessengerRecovery.Checking)
                     }
                     c.verification.setDelegate(verificationDelegate(c))
                     c.syncObserver = sync.state(object : SyncServiceStateObserver {
@@ -457,7 +578,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         } catch (e: Exception) {
             client.close()
             mutableState.update {
-                it.copy(userId = null, connection = MessengerConnection.SignedOut)
+                it.copy(userId = null, connection = MessengerConnection.SignedOut, recovery = MessengerRecovery.Checking)
             }
             throw e
         } finally {
@@ -467,7 +588,42 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     private suspend fun refreshStoredRooms(c: Connection) {
         try {
-            refresh(c)
+            val recovery = c.client.encryption().use { encryption ->
+                val verified = encryption.verificationState()
+                val sdkRecovery = encryption.recoveryState()
+                val mode = when (sdkRecovery) {
+                    RecoveryState.UNKNOWN -> if (c.recoveryConfirmed && verified == VerificationState.VERIFIED) {
+                        if (state.value.recovery == MessengerRecovery.OtherDevice) MessengerRecovery.OtherDevice
+                        else MessengerRecovery.Ready
+                    } else MessengerRecovery.Checking
+                    RecoveryState.DISABLED -> when (verified) {
+                        VerificationState.VERIFIED -> MessengerRecovery.SetupRequired
+                        VerificationState.UNVERIFIED -> MessengerRecovery.NoRecovery
+                        VerificationState.UNKNOWN -> MessengerRecovery.Checking
+                    }
+                    RecoveryState.ENABLED, RecoveryState.INCOMPLETE ->
+                        if (c.recoveryConfirmed && encryption.recoveryIsUsable()) MessengerRecovery.Ready
+                        else MessengerRecovery.KeyRequired
+                }
+                if (sdkRecovery != RecoveryState.UNKNOWN &&
+                    (mode == MessengerRecovery.Ready || mode == MessengerRecovery.KeyRequired) &&
+                    encryption.hasDevicesToVerifyAgainst()
+                ) MessengerRecovery.OtherDevice
+                else mode
+            }
+            val previous = state.value.recovery
+            if (recovery != previous) {
+                mutableState.update {
+                    if (recovery == MessengerRecovery.Ready) it.copy(recovery = recovery)
+                    else it.copy(recovery = recovery, rooms = emptyList(), selectedRoomId = null,
+                        messages = emptyList(), verification = null)
+                }
+                if (previous == MessengerRecovery.Ready) {
+                    closeTimeline()
+                    updateBackgroundSubscriptions(c, emptyList())
+                }
+            }
+            if (recovery == MessengerRecovery.Ready) refresh(c)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -541,7 +697,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         val eventId = event.eventId
         scope.launch {
             gate.withLock {
-                if (connection !== c || eventId in c.notifiedEvents) return@withLock
+                if (connection !== c || state.value.recovery != MessengerRecovery.Ready || eventId in c.notifiedEvents) return@withLock
                 val room = try {
                     c.client.getRoom(roomId)?.use { roomSnapshot(c, it) }
                 } catch (e: CancellationException) {
@@ -796,6 +952,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         connection = null
         closeTimeline()
         if (old != null) {
+            old.pendingRecoveryKey?.close()
             old.roomWatch?.cancel()
             old.syncObserver?.apply { cancel(); close() }
             old.backgroundSubscriptions.values.forEach { it.cancel(); it.close() }
@@ -826,7 +983,13 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
             }
         }
 
-    private fun requireConnection(): Connection = connection ?: fail("Sign in to the messaging service first.")
+    private fun requireSessionConnection(): Connection = connection ?: fail("Sign in to the messaging service first.")
+
+    private fun requireConnection(): Connection {
+        val c = requireSessionConnection()
+        if (state.value.recovery != MessengerRecovery.Ready) fail("Finish recovery before using messages.")
+        return c
+    }
 
     private fun requireRoom(c: Connection, roomId: String): Room =
         c.client.getRoom(roomId) ?: fail("This conversation has not synced yet.")
@@ -840,7 +1003,14 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private data class Challenge(val baseUrl: String, val id: String, val email: String)
     private data class IncomingVerification(val userId: String, val flowId: String)
 
-    private class Connection(val client: Client, val sync: SyncService, val verification: SessionVerificationController) {
+    private class Connection(
+        val client: Client,
+        val sync: SyncService,
+        val verification: SessionVerificationController,
+        val storeId: String,
+        var recoveryConfirmed: Boolean,
+    ) {
+        var pendingRecoveryKey: SecretStorageKey? = null
         val backgroundSubscriptions = mutableMapOf<String, TaskHandle>()
         val notifiedEvents = linkedSetOf<String>()
         var syncedRoomIds: Set<String>? = null
@@ -858,6 +1028,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
 
     private companion object {
         const val E2EE_SETUP_TIMEOUT_MS = 20_000L
+        const val RECOVERY_TIMEOUT_MS = 30_000L
         const val MAX_NOTIFIED_EVENTS = 256
         const val MAX_TEXT_BYTES = 4_096
         const val MAX_VISIBLE_MESSAGES = 200
