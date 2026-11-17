@@ -34,6 +34,7 @@ import org.matrix.rustcomponents.sdk.ClientException
 import org.matrix.rustcomponents.sdk.CreateRoomParameters
 import org.matrix.rustcomponents.sdk.EnableRecoveryProgress
 import org.matrix.rustcomponents.sdk.EnableRecoveryProgressListener
+import org.matrix.rustcomponents.sdk.EncryptedMessage
 import org.matrix.rustcomponents.sdk.Encryption
 import org.matrix.rustcomponents.sdk.ErrorKind
 import org.matrix.rustcomponents.sdk.EventOrTransactionId
@@ -75,6 +76,7 @@ import uniffi.matrix_sdk_base.EncryptionState
 import uniffi.matrix_sdk_crypto.CollectStrategy
 import uniffi.matrix_sdk_crypto.DecryptionSettings
 import uniffi.matrix_sdk_crypto.TrustRequirement
+import uniffi.matrix_sdk_crypto.UtdCause
 import uniffi.ruma_events.MessageLikeEventType
 
 class MatrixRepository(context: Context, sessionNamespace: String = "default") {
@@ -524,7 +526,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                         .slidingSyncVersionBuilder(SlidingSyncVersionBuilder.NATIVE)
                         .autoEnableCrossSigning(true)
                         .autoEnableBackups(false)
-                        .backupDownloadStrategy(BackupDownloadStrategy.ONE_SHOT)
+                        .backupDownloadStrategy(BackupDownloadStrategy.AFTER_DECRYPTION_FAILURE)
                         .enableShareHistoryOnInvite(false)
                         .roomKeyRecipientStrategy(CollectStrategy.ONLY_TRUSTED_DEVICES)
                         .decryptionSettings(DecryptionSettings(TrustRequirement.CROSS_SIGNED))
@@ -841,6 +843,29 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                 mutableState.update {
                     if (it.selectedRoomId == slot.roomId) it.copy(messages = rendered) else it
                 }
+                val retrySessions = slot.pendingDecryptionSessions.toList()
+                slot.pendingDecryptionSessions.clear()
+                if (retrySessions.isNotEmpty()) {
+                    scope.launch {
+                        gate.withLock {
+                            if (opened === slot && state.value.recoveredWithKey &&
+                                state.value.recovery == MessengerRecovery.Ready
+                            ) {
+                                // Recovery may finish before a cached timeline subscribes to the
+                                // SDK's backup-available update. Retry its missing sessions after
+                                // attaching the listener so the SDK can fetch their backed-up keys.
+                                // The same cross-signed decryption and strict rendering checks apply.
+                                try {
+                                    // This FFI method queues native work and returns immediately.
+                                    slot.timeline.retryDecryption(retrySessions)
+                                } catch (_: Exception) {
+                                    mutableState.update { it.copy(error =
+                                        "Could not reload earlier messages. Reopen the conversation to try again.") }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } catch (_: Exception) {
             synchronized(slot) {
@@ -859,8 +884,15 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         val event = item.asEvent() ?: return null
         try {
             if (event.sender != slot.ownUserId && event.sender != slot.peerId) return null
-            val kind = (event.content as? TimelineItemContent.MsgLike)?.content?.kind as? MsgLikeKind.Message
-                ?: return null
+            val eventKind = (event.content as? TimelineItemContent.MsgLike)?.content?.kind
+            if (eventKind is MsgLikeKind.UnableToDecrypt && state.value.recoveredWithKey) {
+                val encrypted = eventKind.msg as? EncryptedMessage.MegolmV1AesSha2
+                if (encrypted?.cause == UtdCause.UNKNOWN &&
+                    slot.retriedDecryptionSessions.size < MAX_VISIBLE_MESSAGES &&
+                    slot.retriedDecryptionSessions.add(encrypted.sessionId)
+                ) slot.pendingDecryptionSessions.add(encrypted.sessionId)
+            }
+            val kind = eventKind as? MsgLikeKind.Message ?: return null
             val content = (kind.content.msgType as? MessageType.Text)?.content ?: return null
             // The pinned SDK's strict shield reports SentInClear for plaintext in encrypted rooms.
             val shield = if (event.isRemote) event.lazyProvider.getShields(true) else null
@@ -1044,6 +1076,8 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         var listener: TaskHandle? = null
         var closed = false
         val items = mutableListOf<MessengerMessage?>()
+        val pendingDecryptionSessions = linkedSetOf<String>()
+        val retriedDecryptionSessions = mutableSetOf<String>()
     }
 
     private companion object {
