@@ -38,6 +38,7 @@ import org.matrix.rustcomponents.sdk.MsgLikeKind
 import org.matrix.rustcomponents.sdk.ShieldState
 import org.matrix.rustcomponents.sdk.Timeline
 import org.matrix.rustcomponents.sdk.TimelineItemContent
+import uniffi.matrix_sdk_crypto.UtdCause
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -124,7 +125,7 @@ class MessengerOnboardingFlowTest {
                 val wait = firstRequestAt + 62_000 - SystemClock.elapsedRealtime()
                 if (wait > 0) delay(wait)
                 compose.signInWithSyntheticMail(fixture, email, useIme = true)
-                compose.waitForText("Recover your messages")
+                compose.waitForText("Recover your account")
                 val returned = savedSession()
                 assertTrue("The same email did not return to the same Matrix account", returned.userId == original.userId)
                 assertTrue("Sign-in reused the signed-out Matrix device", returned.deviceId != original.deviceId)
@@ -134,7 +135,7 @@ class MessengerOnboardingFlowTest {
                     compose.enterRecoveryKey(checkNotNull(otherRecoveryKey))
                     val error = "Could not recover with that key. Check the key and your connection, then try again."
                     compose.waitForText(error)
-                    compose.onNodeWithText("Recover your messages").assertIsDisplayed()
+                    compose.onNodeWithText("Recover your account").assertIsDisplayed()
                     compose.onNodeWithText("Messages").assertDoesNotExist()
                     compose.waitForTextToClear(error)
                 }
@@ -148,14 +149,21 @@ class MessengerOnboardingFlowTest {
                 compose.waitForText("Verified conversation")
                 compose.onNodeWithText("Verified conversation").performClick()
                 try {
+                    compose.waitForText(RECOVERED_HISTORY_NOTE)
                     reportUiStage("Reading the restored message from the active peer's device")
                     compose.waitForText(PEER_REPLY)
-                    reportUiStage("Reading the restored message from the signed-out device")
-                    compose.waitForText(UI_MESSAGE)
                 } catch (error: AssertionError) {
                     reportRestoredHistoryDiagnostics(device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id)
                     throw error
                 }
+                assertTrue(
+                    "The signed-out sender was not classified as an unknown device",
+                    reportRestoredHistoryDiagnostics(
+                        device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id, waitForUnknownDevice = true,
+                    ),
+                )
+                assertFalse("The app rendered unverified historical text", device.state.value.messages.any { it.id == sent.id })
+                compose.onNodeWithText(UI_MESSAGE).assertDoesNotExist()
                 compose.waitForText("Write a message")
                 compose.field("Write a message").performTextReplacement(RECOVERED_MESSAGE)
                 compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
@@ -192,7 +200,8 @@ class MessengerOnboardingRestartTest {
     fun restoresVerifiedConversationAfterRestartAndSignsOutThroughTheUi() {
         val args = InstrumentationRegistry.getArguments()
         assertTrue("Run the UI flow and force-stop the app before this test", args.getString("messengerUiRestart") == "true")
-        if (args.getString("messengerAlpha02Upgrade") == "true") {
+        val upgraded = args.getString("messengerAlpha02Upgrade") == "true"
+        if (upgraded) {
             assertEquals("Restore the alpha02 history on the installed alpha04 app", 4L, installedVersionCode())
             compose.createRecoveryThroughUi().fill('\u0000')
         }
@@ -200,9 +209,17 @@ class MessengerOnboardingRestartTest {
         compose.waitForText("Messages")
         compose.waitForText("Verified conversation")
         compose.onNodeWithText("Verified conversation").performClick()
-        compose.waitForText(UI_MESSAGE)
         compose.waitForText(PEER_REPLY)
         compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
+        if (upgraded) {
+            compose.waitForText(UI_MESSAGE)
+            compose.onNodeWithText(RECOVERED_HISTORY_NOTE).assertDoesNotExist()
+        } else {
+            compose.waitForText(RECOVERED_HISTORY_NOTE)
+            compose.waitForText(RECOVERED_MESSAGE)
+            compose.waitForText(RECOVERED_REPLY)
+            compose.onNodeWithText(UI_MESSAGE).assertDoesNotExist()
+        }
         reportUiStage("Signing out from the restored account")
         compose.onNodeWithContentDescription("Back to messages").performClick()
         compose.signOutThroughUi()
@@ -213,6 +230,8 @@ private const val UI_MESSAGE = "Fictional message sent through the Android inter
 private const val PEER_REPLY = "Fictional reply from the verified second account."
 private const val RECOVERED_MESSAGE = "Fictional encrypted message from the recovered device."
 private const val RECOVERED_REPLY = "Fictional encrypted reply to the recovered device."
+private const val RECOVERED_HISTORY_NOTE =
+    "Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them."
 
 private fun savedSession(): org.matrix.rustcomponents.sdk.Session {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -279,7 +298,7 @@ private fun ComposeTestRule.createRecoveryThroughUi(): CharArray = sensitiveUi("
 
 private fun ComposeTestRule.enterRecoveryKey(key: CharArray) = sensitiveUi("enter the synthetic recovery key") {
     field("Recovery key").performScrollTo().performTextReplacement(key.concatToString())
-    onNodeWithText("Recover messages").performScrollTo().assertIsEnabled().performClick()
+    onNodeWithText("Recover account").performScrollTo().assertIsEnabled().performClick()
 }
 
 private inline fun <T> sensitiveUi(action: String, block: () -> T): T = try {
@@ -330,7 +349,8 @@ private suspend fun reportRestoredHistoryDiagnostics(
     repository: MatrixRepository,
     activePeerEvent: String,
     signedOutDeviceEvent: String,
-) {
+    waitForUnknownDevice: Boolean = false,
+): Boolean {
     // Read only the fixture's two event categories, with no app runtime diagnostic surface.
     val timeline = try {
         val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
@@ -340,36 +360,51 @@ private suspend fun reportRestoredHistoryDiagnostics(
     }
     if (timeline == null) {
         reportUiStage("Restored-history diagnostic: no open SDK timeline")
-        return
+        return false
     }
-    for ((source, eventId) in listOf("active peer" to activePeerEvent, "signed-out device" to signedOutDeviceEvent)) {
-        reportUiStage("Restored-history diagnostic for $source: ${timeline.restoredEventCategory(eventId)}")
+    val activePeer = timeline.restoredEventCategory(activePeerEvent)
+    var signedOutDevice = timeline.restoredEventCategory(signedOutDeviceEvent)
+    if (waitForUnknownDevice) {
+        withTimeoutOrNull(6_000) {
+            while (!signedOutDevice.unknownDevice) {
+                delay(250)
+                signedOutDevice = timeline.restoredEventCategory(signedOutDeviceEvent)
+            }
+        }
     }
+    reportUiStage("Restored-history diagnostic for active peer: ${activePeer.description}")
+    reportUiStage("Restored-history diagnostic for signed-out device: ${signedOutDevice.description}")
+    return signedOutDevice.unknownDevice
 }
 
-private suspend fun Timeline.restoredEventCategory(eventId: String): String = withTimeoutOrNull(3_000) {
+private data class RestoredEventCategory(val description: String, val unknownDevice: Boolean = false)
+
+private suspend fun Timeline.restoredEventCategory(eventId: String): RestoredEventCategory = withTimeoutOrNull(3_000) {
     val event = try {
         getEventTimelineItemByEventId(eventId)
     } catch (_: ClientException) {
-        return@withTimeoutOrNull "event absent from SDK timeline"
+        return@withTimeoutOrNull RestoredEventCategory("event absent from SDK timeline")
     }
     try {
         when (val kind = (event.content as? TimelineItemContent.MsgLike)?.content?.kind) {
             is MsgLikeKind.UnableToDecrypt -> {
                 val cause = (kind.msg as? EncryptedMessage.MegolmV1AesSha2)?.cause
-                "unable to decrypt (${cause?.name ?: "unknown scheme"})"
+                RestoredEventCategory(
+                    description = "unable to decrypt (${cause?.name ?: "unknown scheme"})",
+                    unknownDevice = cause == UtdCause.UNKNOWN_DEVICE,
+                )
             }
             is MsgLikeKind.Message -> when (val shield = event.lazyProvider.getShields(true)) {
-                is ShieldState.Red -> "decrypted, strict red shield (${shield.code.name})"
-                is ShieldState.Grey -> "decrypted, strict grey shield (${shield.code.name})"
-                ShieldState.None -> "decrypted, no strict shield"
+                is ShieldState.Red -> RestoredEventCategory("decrypted, strict red shield (${shield.code.name})")
+                is ShieldState.Grey -> RestoredEventCategory("decrypted, strict grey shield (${shield.code.name})")
+                ShieldState.None -> RestoredEventCategory("decrypted, no strict shield")
             }
-            else -> "event present without message content"
+            else -> RestoredEventCategory("event present without message content")
         }
     } finally {
         event.destroy()
     }
-} ?: "SDK lookup timed out"
+} ?: RestoredEventCategory("SDK lookup timed out")
 
 private suspend fun awaitPeer(
     peer: MatrixRepository,

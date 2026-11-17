@@ -22,6 +22,7 @@ internal data class StoredMessengerSession(
     val storeId: String,
     val storeKey: ByteArray,
     val recoveryConfirmed: Boolean = false,
+    val recoveredWithKey: Boolean = false,
 )
 
 internal class MessengerSessionStore(context: Context, namespace: String) {
@@ -76,7 +77,9 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
             )
             val storeKey = Base64.decode(json.getString("sdkKey"), Base64.NO_WRAP)
             check(storeKey.size == 32)
-            return StoredMessengerSession(session, storeId, storeKey, json.optBoolean("recoveryConfirmed", false))
+            return StoredMessengerSession(session, storeId, storeKey,
+                recoveryConfirmed = json.optBoolean("recoveryConfirmed", false),
+                recoveredWithKey = json.optBoolean("recoveredWithKey", false))
         } finally {
             clear.fill(0)
         }
@@ -98,6 +101,7 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
             .put("storeId", value.storeId)
             .put("sdkKey", Base64.encodeToString(value.storeKey, Base64.NO_WRAP))
             .put("recoveryConfirmed", value.recoveryConfirmed)
+            .put("recoveredWithKey", value.recoveredWithKey)
             .toString().encodeToByteArray()
         val encoded = try {
             byteArrayOf(FORMAT_VERSION) + cipher.iv + cipher.doFinal(clear)
@@ -114,11 +118,14 @@ internal class MessengerSessionStore(context: Context, namespace: String) {
         }
     }
 
-    fun updateRecoveryConfirmation(storeId: String, confirmed: Boolean) {
+    fun updateRecoveryConfirmation(storeId: String, confirmed: Boolean, recoveredWithKey: Boolean = false) {
         val saved = requireNotNull(read())
         try {
             check(saved.storeId == storeId)
-            if (saved.recoveryConfirmed != confirmed) write(saved.copy(recoveryConfirmed = confirmed))
+            val recovered = confirmed && (saved.recoveredWithKey || recoveredWithKey)
+            if (saved.recoveryConfirmed != confirmed || saved.recoveredWithKey != recovered) {
+                write(saved.copy(recoveryConfirmed = confirmed, recoveredWithKey = recovered))
+            }
         } finally {
             saved.storeKey.fill(0)
         }

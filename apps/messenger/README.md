@@ -28,7 +28,7 @@ For a remote private test, follow [the server deployment instructions](server/de
 
 Save the recovery key in a password manager or somewhere private and confirm its last four characters before opening messages. On an existing phone, install the update over Messenger and set up recovery while still signed in. Keep the same installation so the app can use its existing keys.
 
-To move phones, save the key and complete **Sign out** on the old phone while it is online. Then use your email code and saved recovery key on the new phone. A second trusted phone keeps the conversation view locked until that phone signs out. If you lose both the recovery key and access to your trusted phone, an email code alone cannot restore encrypted conversations.
+To move phones, save the key and complete **Sign out** on the old phone while it is online. Then use your email code and saved recovery key on the new phone. A second trusted phone keeps the conversation view locked until that phone signs out. Recovery restores the account’s encryption keys. Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them. If you lose both the recovery key and access to your trusted phone, an email code alone cannot restore encrypted conversations.
 
 ## Background alerts
 
