@@ -153,12 +153,17 @@ class MessengerLocalSynapseTest {
             assertEquals("m.room.encrypted", event.getString("type"))
             assertTrue(event.getJSONObject("content").getString("ciphertext").isNotBlank())
             assertFalse("Plaintext reached the homeserver", event.toString().contains(offlineMessage))
+
+            fixture.waitForRoomBackup(auditToken, roomId, eventIds = setOf(received.id))
+            assertTrue("Bob's device token was inactive before fixture logout", fixture.isAuthenticated(auditToken))
+            // Model a server-committed logout whose response never reached the app.
+            fixture.revokeDevice(auditToken)
+            assertFalse("The homeserver still accepts the revoked device token", fixture.isAuthenticated(auditToken))
             bob.signOut()
             assertEquals(MessengerConnection.SignedOut, bob.state.value.connection)
             assertTrue("Signed-out state retained messages", bob.state.value.messages.isEmpty())
             assertTrue("Signed-out state retained rooms", bob.state.value.rooms.isEmpty())
             assertFalse("Signed-out state still enables sending", bob.state.value.canSend)
-            assertFalse("The server still accepts the logged-out device token", fixture.isAuthenticated(auditToken))
             bob.close()
             bob = MatrixRepository(context, sessionNamespace = bobNamespace)
             assertFalse("A logged-out session could be restored", bob.restore())
@@ -448,20 +453,34 @@ internal class LocalSynapseFixture(matrixBase: String, mailboxBase: String, priv
         return key
     }
 
-    suspend fun waitForRoomBackup(token: String, roomId: String) {
+    suspend fun waitForRoomBackup(
+        token: String,
+        roomId: String,
+        eventIds: Set<String>,
+    ) {
+        val sessionIds = eventIds.mapTo(mutableSetOf()) { eventId ->
+            val event = readEvent(token, roomId, eventId)
+            check(event.getString("type") == "m.room.encrypted") { "The synthetic event was not encrypted" }
+            val content = event.getJSONObject("content")
+            check(content.getString("ciphertext").isNotBlank()) { "The synthetic event contained no ciphertext" }
+            content.getString("session_id")
+        }
+        check(sessionIds.size == eventIds.size) { "The synthetic senders did not use distinct key sessions" }
         repeat(40) {
-            val sessions = try {
+            val found = try {
                 val version = request(matrix, "/_matrix/client/v3/room_keys/version", bearer = token).getString("version")
-                request(matrix, "/_matrix/client/v3/room_keys/keys/${segment(roomId)}?version=${segment(version)}", bearer = token)
-                    .getJSONObject("sessions").length()
+                val sessions = request(
+                    matrix, "/_matrix/client/v3/room_keys/keys/${segment(roomId)}?version=${segment(version)}", bearer = token,
+                ).getJSONObject("sessions")
+                sessionIds.all(sessions::has)
             } catch (error: FixtureHttpFailure) {
                 if (error.status != 404 && error.status != 429) throw error
-                0
+                false
             }
-            if (sessions >= 2) return
+            if (found) return
             delay(1_000)
         }
-        error("The synthetic account did not back up both directions of the encrypted conversation")
+        error("The synthetic account did not back up every tested encrypted event's room key")
     }
 
     suspend fun withRawDevice(email: String, verify: suspend (String) -> Unit) {
@@ -480,8 +499,12 @@ internal class LocalSynapseFixture(matrixBase: String, mailboxBase: String, priv
         try {
             verify(token)
         } finally {
-            post(matrix, "/_matrix/client/v3/logout", JSONObject(), token)
+            revokeDevice(token)
         }
+    }
+
+    fun revokeDevice(token: String) {
+        post(matrix, "/_matrix/client/v3/logout", JSONObject(), token)
     }
 
     fun readEvent(token: String, roomId: String, eventId: String): JSONObject = request(

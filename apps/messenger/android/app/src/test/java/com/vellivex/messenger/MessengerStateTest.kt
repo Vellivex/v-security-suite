@@ -69,4 +69,17 @@ class MessengerStateTest {
         body.put("retry_after_ms", Long.MAX_VALUE)
         assertEquals("Too many attempts. Wait before trying again.", messengerRateLimitMessage(body, "not a delay", now))
     }
+
+    @Test
+    fun onlyTypedHardLogoutConfirmsAnAlreadyEndedSession() {
+        val body = JSONObject().put("errcode", "M_UNKNOWN_TOKEN")
+        assertTrue(isHardMatrixLogout(401, body))
+        assertTrue(isHardMatrixLogout(401, body.put("soft_logout", false)))
+        assertFalse(isHardMatrixLogout(401, body.put("soft_logout", true)))
+        assertFalse(isHardMatrixLogout(401, body.put("soft_logout", "false")))
+        assertFalse(isHardMatrixLogout(401, body.put("soft_logout", JSONObject.NULL)))
+        assertFalse(isHardMatrixLogout(403, body.put("soft_logout", false)))
+        assertFalse(isHardMatrixLogout(401, body.put("errcode", "M_FORBIDDEN")))
+        assertFalse(isHardMatrixLogout(401, null))
+    }
 }
