@@ -10,6 +10,7 @@ import {page} from '../server/pages.js';
 const origin = 'https://www.vellivex.com';
 const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
 const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
+const messengerPauseMessage = 'Messenger update in testing. Free download will return after the checks pass.';
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.
 const seller = {name:'Vellivex Test Supplier',addressLines:['1 Example Street','Test City','ZZ1 1ZZ']};
@@ -182,8 +183,9 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   assert.match(main, /^<section id="vellivex-messenger-hero"/);
   assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
   assert.match(main, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
-  assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
-  assert.match(main, /href="\/messenger">Setup guide/);
+  assert.ok(main.includes(messengerPauseMessage));
+  assert.ok(!main.includes(`href="${messengerApkPath}"`));
+  assert.match(main, /href="\/messenger">Update status/);
   assert.match(footer, /^<section id="vellivex-phone-promotion"/);
   assert.match(footer, /New Pixel 9a[\s\S]*£479[\s\S]*Refurbished Pixel 9a[\s\S]*£375/);
   assert.match(footer, /class="footer-links"/);
@@ -192,24 +194,23 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   assert.doesNotMatch(beta, /id="vellivex-phone-promotion"|id="vellivex-messenger-hero"|\/phones-promotion\.css/);
 });
 
-test('Messenger setup and download support public GET and HEAD without trusting request parameters', async () => {
+test('the Messenger guide shows the pause and its public download rejects GET and HEAD without redirecting', async () => {
   const worker = shop();
   const guide = await worker.fetch(request('/messenger'), sellerEnv);
   const guideText = await guide.text();
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
   assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
-  assert.match(guideText, /This is a debug test build/);
-  assert.match(guideText, /Test server settings.*https:\/\/messenger\.vellivex\.com/);
-  assert.match(guideText, /invited email address.*Continue with email.*eight-digit code/);
-  assert.ok(guideText.includes(`href="${messengerApkPath}">Free download</a>`));
+  assert.ok(guideText.includes(messengerPauseMessage));
+  assert.doesNotMatch(guideText, /Test server settings|Continue with email|class="messenger-download"/);
 
   for (const method of ['GET', 'HEAD']) {
-    const redirect = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
-    assert.equal(redirect.status, 302);
-    assert.equal(redirect.headers.get('Location'), messengerApkSource);
-    assert.equal(redirect.headers.get('Cache-Control'), 'no-store');
-    assert.equal(await redirect.text(), '');
+    const paused = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
+    assert.equal(paused.status, 503);
+    assert.equal(paused.headers.get('Location'), null);
+    assert.equal(paused.headers.get('Cache-Control'), 'no-store');
+    assert.equal(paused.headers.get('Retry-After'), '3600');
+    assert.equal(await paused.text(), method === 'HEAD' ? '' : messengerPauseMessage);
   }
   const guideHead = await worker.fetch(request('/messenger', 'HEAD'), sellerEnv);
   assert.equal(guideHead.status, 200);
@@ -223,14 +224,14 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   }
 });
 
-test('Messenger keeps its setup guide available when no public APK target is configured', async () => {
-  for (const target of ['', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
+test('a configured APK source cannot override the Messenger download pause', async () => {
+  for (const target of [messengerApkSource, '', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
     messengerApkSource.replace('github.com', 'fixture.example'), messengerApkSource.replace('Vellivex/', 'other/'),
     messengerApkSource.replace('.apk', '.zip')]) {
     const config = {links, messengerApkSource: target};
     const guide = await html('/messenger', config);
-    assert.match(guide, /APK download is currently unavailable/);
-    assert.doesNotMatch(guide, /Free download/);
+    assert.ok(guide.includes(messengerPauseMessage));
+    assert.doesNotMatch(guide, /class="messenger-download"/);
     const download = await shop(config).fetch(request(messengerApkPath), sellerEnv);
     assert.equal(download.status, 503);
     assert.equal(download.headers.get('Location'), null);

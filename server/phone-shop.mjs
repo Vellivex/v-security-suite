@@ -14,6 +14,8 @@ const MESSENGER_SETUP_PATH = '/messenger';
 const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
 const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/' + MESSENGER_APK_NAME;
+const MESSENGER_DOWNLOAD_PAUSED = true;
+const MESSENGER_PAUSE_MESSAGE = 'Messenger update in testing. Free download will return after the checks pass.';
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
 const PUBLIC_PAGES = new Set(['/','/beta','/source','/trust','/blog','/testing','/feedback','/security','/brand','/roadmap','/privacy','/terms']);
@@ -140,29 +142,29 @@ function messengerHero(downloadAvailable) {
   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
     <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
-    <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
+    <p class="messenger-description">${MESSENGER_DOWNLOAD_PAUSED ? MESSENGER_PAUSE_MESSAGE : 'End-to-end encrypted one-to-one messages with device verification.'}</p>
     <div class="messenger-actions">
       ${downloadAvailable ? messengerDownloadButton() : ''}
-      <a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">Setup guide ${arrow}</a>
+      <a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">${MESSENGER_DOWNLOAD_PAUSED ? 'Update status' : 'Setup guide'} ${arrow}</a>
     </div>
   </section>`;
 }
 function messengerSetup(downloadAvailable) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="Install the Vellivex Messenger Android alpha and sign in with your invitation.">
+    <meta name="description" content="${MESSENGER_DOWNLOAD_PAUSED ? MESSENGER_PAUSE_MESSAGE : 'Install the Vellivex Messenger Android alpha and sign in with your invitation.'}">
     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
     <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
-    <h1>Set up Vellivex Messenger</h1>
-    <p>You’ll need the email address on your invitation and an ARM64 phone running Android 8.0 or later.</p>
+    <h1>${MESSENGER_DOWNLOAD_PAUSED ? 'Vellivex Messenger update' : 'Set up Vellivex Messenger'}</h1>
+    ${MESSENGER_DOWNLOAD_PAUSED ? `<p>${MESSENGER_PAUSE_MESSAGE}</p>` : `<p>You’ll need the email address on your invitation and an ARM64 phone running Android 8.0 or later.</p>
     <p>This is a debug test build. Use test conversations during the alpha.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
     <ol>
       <li>Open the downloaded APK and follow Android’s installation prompts.</li>
       <li>Open Vellivex Messenger. In <strong>Test server settings</strong>, enter <code>https://messenger.vellivex.com</code> as the server address.</li>
       <li>Enter your invited email address and select <strong>Continue with email</strong>. Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
-    </ol>
+    </ol>`}
     </main></body></html>`;
 }
 function catalogue(config) {
@@ -262,7 +264,7 @@ async function shopResponse(body, request, type = 'text/html; charset=utf-8', st
 
 export function withPhoneShop(worker, config = {}) {
   if (typeof worker?.fetch !== 'function') throw new TypeError('An existing Worker is required');
-  const messengerApkUrl = messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
+  const messengerApkUrl = MESSENGER_DOWNLOAD_PAUSED ? null : messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
   return {...worker, async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
@@ -271,6 +273,9 @@ export function withPhoneShop(worker, config = {}) {
         status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
       });
       if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerApkUrl)), request);
+      if (MESSENGER_DOWNLOAD_PAUSED) return new Response(request.method === 'HEAD' ? null : MESSENGER_PAUSE_MESSAGE, {
+        status:503, headers:{...envelope, 'Retry-After':'3600', 'Content-Type':'text/plain; charset=utf-8'},
+      });
       if (!messengerApkUrl) return shopResponse('APK download unavailable', request, 'text/plain; charset=utf-8', 503);
       return new Response(null, {status:302, headers:{...envelope, 'Location':messengerApkUrl}});
     }
