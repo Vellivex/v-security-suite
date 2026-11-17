@@ -356,8 +356,9 @@ private fun ComposeTestRule.prepareRecoveryButton(
             false
         }
         val bounds = onAllNodes(hasText(buttonLabel)).fetchSemanticsNodes().singleOrNull()?.boundsInRoot
+        // InputText retains the exact value; EditableText is masked for recovery keys.
         val value = onAllNodes(hasSetTextAction() and hasText(fieldLabel)).fetchSemanticsNodes()
-            .singleOrNull()?.config?.getOrNull(SemanticsProperties.EditableText)?.text
+            .singleOrNull()?.config?.getOrNull(SemanticsProperties.InputText)?.text
         val state = repository.state.value
         return RecoveryClickSnapshot(window.first, window.second, bounds, displayedAndEnabled,
             value?.length, value == expectedValue, window.third, state.busy, state.userId != null,
@@ -377,7 +378,7 @@ private fun ComposeTestRule.prepareRecoveryButton(
                 runOnIdle { !model.authenticationPending }
         }
         field(fieldLabel).performScrollTo().performTextReplacement(expectedValue)
-        val applied = field(fieldLabel).fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text
+        val applied = field(fieldLabel).fetchSemanticsNode().config.getOrNull(SemanticsProperties.InputText)?.text
         assertTrue("Recovery confirmation input was not applied", applied == expectedValue)
         runOnIdle {
             checkNotNull(ViewCompat.getWindowInsetsController(activity.window.decorView))
