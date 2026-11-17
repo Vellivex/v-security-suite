@@ -25,7 +25,7 @@ on:
         type: string
   pull_request:
     paths:
-      - 'apps/messenger/android/arm64-alpha04-acceptance.json'
+      - 'apps/messenger/android/arm64-alpha05-acceptance.json'
 
 permissions: {}
 
@@ -43,11 +43,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [fresh, upgrade]
+        include:
+          - scenario: fresh
+          - scenario: upgrade-alpha02
+            previous_version: '2'
+            previous_url: 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk'
+            previous_sha256: '592c00d453510b3a1ec9ff73d6f987819a6bfdfd6d7cdb43365bcc36bd108c2b'
+          - scenario: upgrade-alpha04
+            previous_version: '4'
+            previous_url: 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-arm64.apk'
+            previous_sha256: 'a3c215607533f82d7aee623254928b27b5e454e79ef2c074550aff234e8c116a'
     env:
       APK_SCENARIO: ${{ matrix.scenario }}
-      ALPHA02_URL: 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk'
-      ALPHA02_SHA256: '592c00d453510b3a1ec9ff73d6f987819a6bfdfd6d7cdb43365bcc36bd108c2b'
+      PREVIOUS_APP_VERSION: ${{ matrix.previous_version }}
+      PREVIOUS_APP_URL: ${{ matrix.previous_url }}
+      PREVIOUS_APP_SHA256: ${{ matrix.previous_sha256 }}
     steps:
       - name: Fetch public test runner source without repository credentials
         shell: bash
@@ -77,7 +87,7 @@ jobs:
 
           keys = ('app_url', 'app_sha256', 'instrumentation_url', 'instrumentation_sha256', 'signer_sha256')
           if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
-              values = json.loads(Path('apps/messenger/android/arm64-alpha04-acceptance.json').read_text())
+              values = json.loads(Path('apps/messenger/android/arm64-alpha05-acceptance.json').read_text())
           else:
               values = {key: os.environ[key.upper()] for key in keys}
           if set(values) != set(keys) or any(not isinstance(value, str) for value in values.values()):
@@ -106,6 +116,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          case "$APK_SCENARIO:$PREVIOUS_APP_VERSION" in
+            fresh:|upgrade-alpha02:2|upgrade-alpha04:4) ;;
+            *) printf '%s\n' 'Unexpected signed-APK validation scenario.' >&2; exit 1 ;;
+          esac
           export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
           export PATH="$JAVA_HOME/bin:$PATH"
           tools="$ANDROID_HOME/build-tools/36.0.0"
@@ -118,11 +132,11 @@ jobs:
             --retry 3 --connect-timeout 20 --max-time 300 "$INSTRUMENTATION_URL" --output instrumentation.apk
           printf '%s  app.apk\n%s  instrumentation.apk\n' "$APP_SHA256" "$INSTRUMENTATION_SHA256" > SHA256SUMS
           packages=(app.apk instrumentation.apk)
-          if [[ "$APK_SCENARIO" == upgrade ]]; then
+          if [[ -n "$PREVIOUS_APP_VERSION" ]]; then
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-              --retry 3 --connect-timeout 20 --max-time 300 "$ALPHA02_URL" --output alpha02.apk
-            printf '%s  alpha02.apk\n' "$ALPHA02_SHA256" >> SHA256SUMS
-            packages+=(alpha02.apk)
+              --retry 3 --connect-timeout 20 --max-time 300 "$PREVIOUS_APP_URL" --output previous.apk
+            printf '%s  previous.apk\n' "$PREVIOUS_APP_SHA256" >> SHA256SUMS
+            packages+=(previous.apk)
           fi
           sha256sum --check --strict SHA256SUMS
           for package in "${packages[@]}"; do
@@ -132,13 +146,13 @@ jobs:
           done
           app_report=$("$tools/aapt" dump badging app.apk)
           test_report=$("$tools/aapt" dump badging instrumentation.apk)
-          grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='4' versionName='0\.1\.0-alpha04-test'" <<< "$app_report"
+          grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='5' versionName='0\.1\.0-alpha05-test'" <<< "$app_report"
           grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_report"
           grep -Eq "^package: name='com\.vellivex\.messenger\.alpha\.test'" <<< "$test_report"
-          if [[ "$APK_SCENARIO" == upgrade ]]; then
-            alpha02_report=$("$tools/aapt" dump badging alpha02.apk)
-            grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='2' versionName='0\.1\.0-alpha02-test'" <<< "$alpha02_report"
-            grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$alpha02_report"
+          if [[ -n "$PREVIOUS_APP_VERSION" ]]; then
+            previous_report=$("$tools/aapt" dump badging previous.apk)
+            grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='$PREVIOUS_APP_VERSION' versionName='0\.1\.0-alpha0${PREVIOUS_APP_VERSION}-test'" <<< "$previous_report"
+            grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$previous_report"
           fi
           {
             printf 'Validation scenario: %s\n' "$APK_SCENARIO"
@@ -147,9 +161,9 @@ jobs:
             cat SHA256SUMS
             grep -E '^(package:|native-code:)' <<< "$app_report"
             grep -E '^package:' <<< "$test_report"
-            if [[ "$APK_SCENARIO" == upgrade ]]; then
-              printf 'Alpha02 URL: %s\n' "$ALPHA02_URL"
-              grep -E '^(package:|native-code:)' <<< "$alpha02_report"
+            if [[ -n "$PREVIOUS_APP_VERSION" ]]; then
+              printf 'Previous app URL: %s\nPrevious version code: %s\n' "$PREVIOUS_APP_URL" "$PREVIOUS_APP_VERSION"
+              grep -E '^(package:|native-code:)' <<< "$previous_report"
             fi
           } | tee "$RUNNER_TEMP/messenger-arm64-evidence/apk-inputs.txt"
       - name: Enable hardware acceleration on the hosted runner
@@ -172,8 +186,8 @@ jobs:
           export PATH="$JAVA_HOME/bin:$PATH"
           apks="$RUNNER_TEMP/messenger-exact-apks"
           arguments=("$RUNNER_TEMP/messenger-arm64-evidence" "$apks/app.apk" "$apks/instrumentation.apk")
-          if [[ "$APK_SCENARIO" == upgrade ]]; then
-            arguments+=("$apks/alpha02.apk")
+          if [[ -n "$PREVIOUS_APP_VERSION" ]]; then
+            arguments+=("$apks/previous.apk" "$PREVIOUS_APP_VERSION")
           fi
           bash apps/messenger/scripts/run-android-integration.sh "${arguments[@]}"
       - name: Upload APK identity, translation, and Android test evidence

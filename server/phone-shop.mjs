@@ -11,12 +11,13 @@ export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const MESSENGER_SETUP_PATH = '/messenger';
-const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
-const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/' + MESSENGER_APK_NAME;
+const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/' + MESSENGER_APK_NAME;
 const RETIRED_MESSENGER_APK_PATHS = new Set([
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
 ]);
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';

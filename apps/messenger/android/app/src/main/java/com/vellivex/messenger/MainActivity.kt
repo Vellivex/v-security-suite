@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -577,8 +579,13 @@ private fun Inbox(state: MessengerState, profile: () -> Unit, newChat: () -> Uni
 internal fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> Unit) -> Unit, retry: (String) -> Unit, verify: () -> Unit, join: () -> Unit) {
     var draft by remember(state.selectedRoomId) { mutableStateOf("") }
     val list = rememberLazyListState()
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val room = state.selectedRoom
-    LaunchedEffect(state.messages.size) { if (state.messages.isNotEmpty()) list.animateScrollToItem(state.messages.lastIndex + 1) }
+    val latestMessage = state.messages.lastOrNull()
+    // Follow new replies even at the visible-message limit and after the keyboard resizes the list.
+    LaunchedEffect(state.selectedRoomId, state.messages.size, latestMessage, viewportSize) {
+        if (latestMessage != null && viewportSize.height > 0) list.animateScrollToItem(state.messages.size)
+    }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp, 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to messages") }
@@ -594,7 +601,8 @@ internal fun Chat(state: MessengerState, back: () -> Unit, send: (String, () -> 
             Text(RECOVERED_HISTORY_NOTE, color = Muted, fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp))
         }
-        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().testTag("conversation_messages"), contentPadding = PaddingValues(18.dp),
+        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().testTag("conversation_messages")
+            .onSizeChanged { viewportSize = it }, contentPadding = PaddingValues(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(if (room?.encrypted == true) "Messages are end-to-end encrypted. Your server still sees account and conversation metadata."

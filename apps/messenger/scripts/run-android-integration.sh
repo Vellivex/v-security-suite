@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-if [[ $# != 1 && $# != 3 && $# != 4 ]]; then
-  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY [ARM64_APP_APK INSTRUMENTATION_APK [ALPHA02_ARM64_APK]]' >&2
+if [[ $# != 1 && $# != 3 && $# != 5 ]]; then
+  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY [ARM64_APP_APK INSTRUMENTATION_APK [PREVIOUS_ARM64_APK PREVIOUS_VERSION_CODE]]' >&2
   exit 2
 fi
 
@@ -19,9 +19,14 @@ if (( $# >= 3 )); then
   app_apk=$(realpath -e -- "$2")
   test_apk=$(realpath -e -- "$3")
   [[ -s "$app_apk" && -s "$test_apk" ]]
-  if [[ $# == 4 ]]; then
+  if [[ $# == 5 ]]; then
     previous_app_apk=$(realpath -e -- "$4")
     [[ -s "$previous_app_apk" ]]
+    previous_app_version=$5
+    if [[ "$previous_app_version" != 2 && "$previous_app_version" != 4 ]]; then
+      printf '%s\n' 'The upgrade source version must be 2 or 4.' >&2
+      exit 2
+    fi
   fi
   system_image='system-images;android-35;google_apis;x86_64'
   "$sdk_tools/sdkmanager" --install 'platform-tools' 'emulator' "$system_image"
@@ -139,12 +144,12 @@ if (( $# >= 3 )); then
   fi
   printf 'Android 35 x86_64 native bridge: %s\nSupported ABIs: %s\n' \
     "$native_bridge" "$supported_abis" | tee "$evidence_dir/translation.txt"
-  if [[ $# == 4 ]]; then
+  if [[ $# == 5 ]]; then
     "${adb[@]}" install -t --abi arm64-v8a "$previous_app_apk"
-    verify_installed_arm64 2
+    verify_installed_arm64 "$previous_app_version"
   else
     "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
-    verify_installed_arm64 4
+    verify_installed_arm64 5
   fi
 else
   "${adb[@]}" install -t "$app_apk"
@@ -171,14 +176,16 @@ run_instrumentation() {
   fi
 }
 
-if [[ $# == 4 ]]; then
+if [[ $# == 5 ]]; then
   start_synapse upgrade
-  run_instrumentation MessengerOnboardingFlowTest -e messengerMailboxKey "$mailbox_key" -e messengerAlpha02Seed true
+  run_instrumentation MessengerOnboardingFlowTest -e messengerMailboxKey "$mailbox_key" \
+    -e messengerUpgradeSeedVersion "$previous_app_version"
   unset mailbox_key
   "${adb[@]}" shell am force-stop "$test_app"
   "${adb[@]}" install -r -t --abi arm64-v8a "$app_apk"
-  verify_installed_arm64 4
-  run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true -e messengerAlpha02Upgrade true
+  verify_installed_arm64 5
+  run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true \
+    -e messengerUpgradeFromVersion "$previous_app_version"
   exit
 fi
 

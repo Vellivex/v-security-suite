@@ -8,11 +8,12 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
-const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
-const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha04/Vellivex-Messenger-0.1.0-alpha04-arm64.apk';
+const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
+const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
 const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
 ];
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.

@@ -327,6 +327,7 @@ jobs:
         with:
           name: messenger-android-test-evidence-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/messenger-evidence/MessengerChatLayoutTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerOnboardingSmokeTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerLocalSynapseTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerOnboardingFlowTest.log

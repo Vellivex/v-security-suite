@@ -56,8 +56,11 @@ class MessengerOnboardingFlowTest {
     fun signInVerifyAndExchangeMessagesThroughTheUi() = runBlocking<Unit> {
         val fixture = localFixture()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alpha02Seed = InstrumentationRegistry.getArguments().getString("messengerAlpha02Seed") == "true"
-        if (alpha02Seed) assertEquals("Seed the upgrade on the installed alpha02 app", 2L, installedVersionCode())
+        val seedVersion = upgradeSourceVersion("messengerUpgradeSeedVersion")
+        val legacySeed = seedVersion == 2L
+        if (seedVersion != null) {
+            assertEquals("Seed the upgrade on the requested original app", seedVersion, installedVersionCode())
+        }
         val device = (context.applicationContext as MessengerApplication).repository
         val runId = UUID.randomUUID().toString().take(16)
         val peer = MatrixRepository(context, sessionNamespace = "onboarding-ui-$runId")
@@ -66,15 +69,15 @@ class MessengerOnboardingFlowTest {
         var otherRecoveryKey: CharArray? = null
         var leaveSessionForRestart = false
         try {
-            val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, useIme = !alpha02Seed, tryWrongCode = true)
-            if (!alpha02Seed) {
+            val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, useIme = !legacySeed, tryWrongCode = true)
+            if (!legacySeed) {
                 deviceRecoveryKey = compose.createRecoveryThroughUi(device, compose.activity)
             }
             compose.waitForText("Messages")
 
             val deviceId = checkNotNull(device.state.value.userId)
             fixture.signIn(peer, "ui-peer-$runId@example.test")
-            if (!alpha02Seed) otherRecoveryKey = fixture.createRecoveryFor(peer)
+            if (!legacySeed) otherRecoveryKey = fixture.createRecoveryFor(peer)
             val roomId = checkNotNull(peer.createDirectMessage(deviceId)) { "The test peer could not invite the UI account" }
             reportUiStage("Opening the second account's encrypted invitation")
             compose.waitForText("Conversation invitation")
@@ -116,7 +119,9 @@ class MessengerOnboardingFlowTest {
             compose.waitForText(PEER_REPLY)
             compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
 
-            if (!alpha02Seed) {
+            // Upgrade seeds keep the original signed-in session and local message keys.
+            // Fresh installs still exercise the complete sign-out and recovery flow.
+            if (seedVersion == null) {
                 val original = savedSession()
                 val reply = awaitPeer(peer, "the original reply's server acknowledgement") { state ->
                     state.messages.any { it.text == PEER_REPLY && it.delivery == MessengerDelivery.Sent }
@@ -166,7 +171,7 @@ class MessengerOnboardingFlowTest {
                         state.messages.any { it.text == RECOVERED_MESSAGE && it.delivery == MessengerDelivery.Received }
                     }
                     assertTrue("The verified peer could not reply to the recovered device", peer.sendMessage(RECOVERED_REPLY))
-                    compose.waitForDisplayedText(RECOVERED_REPLY)
+                    compose.waitForDisplayedText(RECOVERED_REPLY, compose.activity)
                     compose.onNodeWithText(RECOVERED_REPLY).assertIsDisplayed()
                     compose.assertOriginalRecoveryHistoryHidden(device)
                 } catch (error: AssertionError) {
@@ -207,16 +212,24 @@ class MessengerOnboardingRestartTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val device = (context.applicationContext as MessengerApplication).repository
         assertTrue("Run the UI flow and force-stop the app before this test", args.getString("messengerUiRestart") == "true")
-        val upgraded = args.getString("messengerAlpha02Upgrade") == "true"
-        if (upgraded) {
-            assertEquals("Restore the alpha02 history on the installed alpha04 app", 4L, installedVersionCode())
-            compose.createRecoveryThroughUi(device, compose.activity).fill('\u0000')
+        val upgradeFromVersion = upgradeSourceVersion("messengerUpgradeFromVersion")
+        if (upgradeFromVersion != null) {
+            assertEquals("Restore the original history on the installed alpha05 app", 5L, installedVersionCode())
+            if (upgradeFromVersion == 2L) {
+                compose.createRecoveryThroughUi(device, compose.activity).fill('\u0000')
+            }
         }
         reportUiStage("Restoring the saved session and encrypted conversation")
         compose.waitForText("Messages")
+        if (upgradeFromVersion == 4L) {
+            assertEquals("The alpha04 update did not retain its recovery-ready session",
+                MessengerRecovery.Ready, device.state.value.recovery)
+            compose.onNodeWithText("Secure your account").assertDoesNotExist()
+            compose.onNodeWithText("Recover your account").assertDoesNotExist()
+        }
         compose.waitForText("Verified conversation")
         compose.onNodeWithText("Verified conversation").performClick()
-        if (upgraded) {
+        if (upgradeFromVersion != null) {
             compose.waitForText(PEER_REPLY)
             compose.onNodeWithText(PEER_REPLY).assertIsDisplayed()
             compose.waitForText(UI_MESSAGE)
@@ -436,6 +449,14 @@ private fun installedVersionCode(): Long {
     return PackageInfoCompat.getLongVersionCode(context.packageManager.getPackageInfo(context.packageName, 0))
 }
 
+private fun upgradeSourceVersion(argument: String): Long? =
+    when (InstrumentationRegistry.getArguments().getString(argument)) {
+        null -> null
+        "2" -> 2L
+        "4" -> 4L
+        else -> throw AssertionError("$argument must name supported source version 2 or 4")
+    }
+
 private fun SemanticsNodeInteractionsProvider.field(label: String) = onNode(hasSetTextAction() and hasText(label))
 
 private fun ComposeTestRule.waitForText(value: String, substring: Boolean = false) {
@@ -450,7 +471,7 @@ private fun ComposeTestRule.waitForTextToClear(value: String) {
     waitUntil(15_000) { onAllNodes(hasText(value)).fetchSemanticsNodes().isEmpty() }
 }
 
-private fun ComposeTestRule.waitForDisplayedText(value: String) {
+private fun ComposeTestRule.waitForDisplayedText(value: String, activity: MainActivity) {
     try {
         waitUntil(30_000) {
             try {
@@ -462,11 +483,31 @@ private fun ComposeTestRule.waitForDisplayedText(value: String) {
         }
     } catch (error: ComposeTimeoutException) {
         try {
-            val nodes = onAllNodes(hasText(value)).fetchSemanticsNodes()
-            val bounds = nodes.firstOrNull()?.boundsInRoot
-            reportUiStage("Message visibility diagnostic: matching-nodes=${nodes.size}, " +
-                "left=${bounds?.left}, top=${bounds?.top}, right=${bounds?.right}, bottom=${bounds?.bottom}")
-        } catch (_: Exception) {
+            // One geometry-only snapshot, with no scrolling, retries, text, keys or semantics trees.
+            val messageMatcher = hasText(value)
+            val viewportMatcher = hasTestTag("conversation_messages")
+            val composerMatcher = hasSetTextAction()
+            val nodes = onAllNodes(messageMatcher or viewportMatcher or composerMatcher).fetchSemanticsNodes()
+            val messages = nodes.filter { messageMatcher.matches(it) }
+            val viewports = nodes.filter { viewportMatcher.matches(it) }
+            val composers = nodes.filter { composerMatcher.matches(it) }
+            val viewport = viewports.singleOrNull()
+            val composer = composers.singleOrNull()
+            val windowAndScroll = runOnUiThread {
+                val root = activity.window.decorView
+                val range = viewport?.config?.getOrNull(SemanticsProperties.VerticalScrollAxisRange)
+                // Compose exposes estimated scroll units here, not pixel offsets.
+                "ime-visible=${ViewCompat.getRootWindowInsets(root)?.isVisible(WindowInsetsCompat.Type.ime())}, " +
+                    "root-width=${root.width}, root-height=${root.height}, " +
+                    "scroll-value=${range?.value?.invoke()}, scroll-max=${range?.maxValue?.invoke()}, " +
+                    "scroll-reversed=${range?.reverseScrolling}"
+            }
+            reportUiStage("Message visibility diagnostic: matching-nodes=${messages.size}, " +
+                "message-bounds=${messages.firstOrNull()?.boundsInRoot}, viewport-nodes=${viewports.size}, " +
+                "viewport-bounds=${viewport?.boundsInRoot}, composer-nodes=${composers.size}, " +
+                "composer-bounds=${composer?.boundsInRoot}, " +
+                "composer-focused=${composer?.config?.getOrNull(SemanticsProperties.Focused)}, $windowAndScroll")
+        } catch (_: Throwable) {
             reportUiStage("Message visibility diagnostic unavailable")
         }
         throw AssertionError("The recovered reply did not become visible within 30 seconds", error)
