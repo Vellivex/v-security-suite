@@ -83,7 +83,7 @@ private val Ink = Color(0xFF0C151B)
 private val Surface = Color(0xFF14212B)
 private val Accent = Color(0xFFA5E5ED)
 private val Muted = Color(0xFFAABCC7)
-private const val RECOVERED_HISTORY_NOTE = "Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them."
+private const val RECOVERED_HISTORY_NOTE = "Your recovery key restores your account’s encryption keys. In this alpha, it may not restore any earlier messages."
 
 class MessengerApplication : Application() {
     val repository by lazy { MatrixRepository(this) }
@@ -307,8 +307,8 @@ private fun MessengerApp(model: MessengerViewModel) {
     if (signOut) AlertDialog(onDismissRequest = { signOut = false },
         title = { Text("Sign out of this phone?") },
         text = { Text(if (canUseMessages || state.recovery == MessengerRecovery.OtherDevice)
-            "Signing out removes the session and keys from this phone. Keep your recovery key to restore the account’s encryption keys when you sign in again. $RECOVERED_HISTORY_NOTE"
-            else "Signing out removes the session and encryption keys from this phone. Set up recovery first if you still have access to your keys here. Without it, you could lose access to your encrypted conversations.") },
+            "Signing out removes the session and keys from this phone. Keep your saved recovery key. $RECOVERED_HISTORY_NOTE To update Messenger, stay signed in and install the update over this app to keep these keys."
+            else "Signing out removes the session and encryption keys from this phone. Set up recovery first if you still have access to your keys here, and keep the saved key. $RECOVERED_HISTORY_NOTE") },
         confirmButton = { TextButton(onClick = { signOut = false; model.run { signOut() } }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { signOut = false }) { Text("Keep signed in") } })
     state.verification?.takeIf { canUseMessages }?.let { v -> VerificationDialog(v, state.busy,
@@ -341,7 +341,7 @@ private fun RecoveryGate(state: MessengerState, model: MessengerViewModel, profi
         when (state.recovery) {
             MessengerRecovery.SetupRequired -> {
                 Text("Secure your account", style = MaterialTheme.typography.headlineLarge)
-                Text("Save a recovery key to restore this account’s encryption keys after signing out or moving phones. $RECOVERED_HISTORY_NOTE", color = Muted)
+                Text("Save a recovery key before signing out or moving phones. $RECOVERED_HISTORY_NOTE", color = Muted)
                 if (key == null) {
                     Button(onClick = { model.createRecoveryKey() }, enabled = !busy) { Text("Create recovery key") }
                 } else {
@@ -363,7 +363,7 @@ private fun RecoveryGate(state: MessengerState, model: MessengerViewModel, profi
             }
             MessengerRecovery.KeyRequired -> {
                 Text("Recover your account", style = MaterialTheme.typography.headlineLarge)
-                Text("Enter the recovery key you saved to restore this account’s encryption keys. $RECOVERED_HISTORY_NOTE", color = Muted)
+                Text("Enter the recovery key you saved. $RECOVERED_HISTORY_NOTE", color = Muted)
                 OutlinedTextField(enteredKey, { enteredKey = it.take(192) }, label = { Text("Recovery key") },
                     singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
                     visualTransformation = PasswordVisualTransformation(),
@@ -373,12 +373,12 @@ private fun RecoveryGate(state: MessengerState, model: MessengerViewModel, profi
             }
             MessengerRecovery.NoRecovery -> {
                 Text("Recovery isn’t set up", style = MaterialTheme.typography.headlineLarge)
-                Text("If you have a phone where you’re already signed in, set up recovery there first and save the key. Then sign out on that phone and return here. Email sign-in alone can’t restore your encrypted conversations.", color = Muted)
+                Text("If you have a phone where you’re already signed in, set up recovery there first and save the key. Then sign out on that phone and return here. Email sign-in alone can’t restore your account’s encryption keys. $RECOVERED_HISTORY_NOTE", color = Muted)
                 OutlinedButton(onClick = { model.recheckRecovery() }, enabled = !busy) { Text("Check again") }
             }
             MessengerRecovery.OtherDevice -> {
                 Text("Sign out on your other phone", style = MaterialTheme.typography.headlineLarge)
-                Text("Messenger supports one active phone for an account. Save your recovery key and sign out in Messenger on your other phone before continuing here. If you can’t access that phone, this device stays locked.", color = Muted)
+                Text("Messenger supports one active phone for an account. Save your recovery key and sign out in Messenger on your other phone before continuing here. If you can’t access that phone, this device stays locked. $RECOVERED_HISTORY_NOTE", color = Muted)
                 OutlinedButton(onClick = { model.recheckRecovery() }, enabled = !busy) { Text("Check again") }
             }
             MessengerRecovery.Checking -> {
@@ -675,7 +675,7 @@ private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery:
             HorizontalDivider()
             if (recoveryReady) {
                 Text("Recovery is set up", fontWeight = FontWeight.SemiBold)
-                Text("Keep your saved key to restore the account’s encryption keys after signing out. $RECOVERED_HISTORY_NOTE",
+                Text("Keep your saved key somewhere private. $RECOVERED_HISTORY_NOTE",
                     color = Muted, fontSize = 12.sp)
                 Text(if (alertsRunning) "Background alerts are on" else "Background alerts are off", fontWeight = FontWeight.SemiBold)
                 Text("Keep a visible sync notification to receive generic alerts while the app is closed. Messages and contact names stay out of notifications. Android may pause delivery; reopen Vellivex after a restart or force stop.",
