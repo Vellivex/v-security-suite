@@ -230,7 +230,7 @@ export const PHONE_PROMOTION_CSS = `
 .messenger-setup-content .messenger-platform{margin-top:28px}
 .messenger-setup-content li{margin:0 0 12px}
 .messenger-setup-content code{overflow-wrap:anywhere;color:#a5e5ed}
-#vellivex-phone-promotion{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);align-items:center;gap:24px;margin-top:24px;padding:18px 23px;border:1px solid #34596c;background:#122638;border-radius:6px}
+#vellivex-phone-promotion{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);align-items:center;gap:24px;margin-block:0 28px;padding:18px 23px;border:1px solid #34596c;background:#122638;border-radius:6px}
 #vellivex-phone-promotion .phone-promo-image{display:block;width:100%;height:auto;border-radius:5px}
 #vellivex-phone-promotion h2{font-size:clamp(20px,3vw,28px);line-height:1.2;margin:0;color:#f3f6fb}
 #vellivex-phone-promotion p{font-size:13px;line-height:1.5;margin:6px 0 12px;color:#d2dce7}
@@ -241,7 +241,7 @@ export const PHONE_PROMOTION_CSS = `
 #vellivex-phone-promotion .phone-promo-offer strong{font-size:21px;line-height:1.15}
 #vellivex-phone-promotion .phone-promo-action{color:#a5e5ed;text-decoration:underline;text-underline-offset:.15em}
 @media(max-width:600px){
-  #vellivex-phone-promotion{grid-template-columns:1fr;gap:10px;padding:14px;margin-top:18px}
+  #vellivex-phone-promotion{grid-template-columns:1fr;gap:10px;padding:14px}
   #vellivex-phone-promotion .phone-promo-image{width:min(100%,124px);justify-self:center}
 }`;
 
@@ -333,7 +333,7 @@ export function withPhoneShop(worker, config = {}) {
     body = body.replace(/<nav\b([^>]*)\bid=(['"])navigation\2([^>]*)>([\s\S]*?)<\/nav>/i, (full, before, quote, after, content) => content.includes('data-phone-shop-link') ? full : `<nav${before}id=${quote}navigation${quote}${after}><a href="/phones" data-phone-shop-link>Privacy phones</a>${content}</nav>`);
     if (path === '/') {
       if (!body.includes('id="vellivex-phone-promotion"')) {
-        body = body.replace(/<main\b[^>]*>/i, opening => opening + homepagePromotion());
+        body = body.replace(/<\/main>[\s\S]*?<footer\b[^>]*>/i, opening => opening + homepagePromotion());
       }
       if (!body.includes('id="vellivex-messenger-hero"')) {
         body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(messengerApkUrl)));
