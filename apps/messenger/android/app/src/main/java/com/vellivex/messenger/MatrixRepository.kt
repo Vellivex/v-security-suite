@@ -70,6 +70,7 @@ import org.matrix.rustcomponents.sdk.TimelineItem
 import org.matrix.rustcomponents.sdk.TimelineItemContent
 import org.matrix.rustcomponents.sdk.TimelineListener
 import org.matrix.rustcomponents.sdk.VerificationState
+import uniffi.matrix_sdk.BackupDownloadStrategy
 import uniffi.matrix_sdk_base.EncryptionState
 import uniffi.matrix_sdk_crypto.CollectStrategy
 import uniffi.matrix_sdk_crypto.DecryptionSettings
@@ -197,7 +198,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                     true
                 }
                 if (recovered != true) fail("Recovery timed out. Try again when you are connected.")
-                completeRecovery(c, encryption)
+                completeRecovery(c, encryption, recoveredWithKey = true)
             }
             true
         }
@@ -222,14 +223,15 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
     }
 
-    private suspend fun completeRecovery(c: Connection, encryption: Encryption) {
+    private suspend fun completeRecovery(c: Connection, encryption: Encryption, recoveredWithKey: Boolean = false) {
         val ready = withTimeoutOrNull(E2EE_SETUP_TIMEOUT_MS) {
             while (!encryption.recoveryIsUsable()) delay(250)
             true
         }
         if (ready != true) fail("Your recovery key was accepted, but this phone is still waiting for encryption and backup. Keep your key and try again.")
-        sessionStore.updateRecoveryConfirmation(c.storeId, true)
+        sessionStore.updateRecoveryConfirmation(c.storeId, true, recoveredWithKey)
         c.recoveryConfirmed = true
+        if (recoveredWithKey) mutableState.update { it.copy(recoveredWithKey = true) }
         c.pendingRecoveryKey?.close()
         c.pendingRecoveryKey = null
         refreshStoredRooms(c)
@@ -522,6 +524,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                         .slidingSyncVersionBuilder(SlidingSyncVersionBuilder.NATIVE)
                         .autoEnableCrossSigning(true)
                         .autoEnableBackups(false)
+                        .backupDownloadStrategy(BackupDownloadStrategy.ONE_SHOT)
                         .enableShareHistoryOnInvite(false)
                         .roomKeyRecipientStrategy(CollectStrategy.ONLY_TRUSTED_DEVICES)
                         .decryptionSettings(DecryptionSettings(TrustRequirement.CROSS_SIGNED))
@@ -557,7 +560,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                     challenge = null
                     mutableState.update {
                         it.copy(userId = userId, connection = MessengerConnection.Syncing, pendingSignInEmail = null,
-                            recovery = MessengerRecovery.Checking)
+                            recovery = MessengerRecovery.Checking, recoveredWithKey = recoveryConfirmed && saved.recoveredWithKey)
                     }
                     c.verification.setDelegate(verificationDelegate(c))
                     c.syncObserver = sync.state(object : SyncServiceStateObserver {
