@@ -21,6 +21,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -32,6 +33,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.matrix.rustcomponents.sdk.Client
 import org.matrix.rustcomponents.sdk.ClientException
 import org.matrix.rustcomponents.sdk.EncryptedMessage
 import org.matrix.rustcomponents.sdk.MsgLikeKind
@@ -154,6 +156,10 @@ class MessengerOnboardingFlowTest {
                     compose.waitForText(PEER_REPLY)
                 } catch (error: AssertionError) {
                     reportRestoredHistoryDiagnostics(device, activePeerEvent = reply.id, signedOutDeviceEvent = sent.id)
+                    reportPostRecoveryMessagingDiagnostics(
+                        compose, fixture, device, peer, roomId, returned.accessToken, reply.id, sent.id,
+                    )
+                    // The diagnostics below never turn a failed history assertion into a pass.
                     throw error
                 }
                 assertTrue(
@@ -230,6 +236,8 @@ private const val UI_MESSAGE = "Fictional message sent through the Android inter
 private const val PEER_REPLY = "Fictional reply from the verified second account."
 private const val RECOVERED_MESSAGE = "Fictional encrypted message from the recovered device."
 private const val RECOVERED_REPLY = "Fictional encrypted reply to the recovered device."
+private const val DIAGNOSTIC_REPLY = "Fictional diagnostic reply after account recovery."
+private const val DIAGNOSTIC_MESSAGE = "Fictional diagnostic response from the recovered account."
 private const val RECOVERED_HISTORY_NOTE =
     "Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them."
 
@@ -352,6 +360,7 @@ private suspend fun reportRestoredHistoryDiagnostics(
     waitForUnknownDevice: Boolean = false,
 ): Boolean {
     // Read only the fixture's two event categories, with no app runtime diagnostic surface.
+    reportRecoveryStateDiagnostics(repository)
     val timeline = try {
         val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
         opened?.javaClass?.getDeclaredField("timeline")?.apply { isAccessible = true }?.get(opened) as? Timeline
@@ -375,6 +384,68 @@ private suspend fun reportRestoredHistoryDiagnostics(
     reportUiStage("Restored-history diagnostic for active peer: ${activePeer.description}")
     reportUiStage("Restored-history diagnostic for signed-out device: ${signedOutDevice.description}")
     return signedOutDevice.unknownDevice
+}
+
+private fun reportRecoveryStateDiagnostics(repository: MatrixRepository) {
+    try {
+        val connection = MatrixRepository::class.java.getDeclaredField("connection")
+            .apply { isAccessible = true }.get(repository)
+        val client = connection?.javaClass?.getDeclaredField("client")
+            ?.apply { isAccessible = true }?.get(connection) as? Client
+        client?.encryption()?.use { encryption ->
+            reportUiStage("Recovery state diagnostic: app=${repository.state.value.recovery}, " +
+                "saved-key=${repository.state.value.recoveredWithKey}, sync=${repository.state.value.connection}, " +
+                "SDK recovery=${encryption.recoveryState()}, backup=${encryption.backupState()}, " +
+                "device=${encryption.verificationState()}")
+        }
+        val opened = MatrixRepository::class.java.getDeclaredField("opened").apply { isAccessible = true }.get(repository)
+        val retryCount = if (opened == null) 0 else synchronized(opened) {
+            (opened.javaClass.getDeclaredField("retriedDecryptionSessions")
+                .apply { isAccessible = true }.get(opened) as? Collection<*>)?.size ?: 0
+        }
+        reportUiStage("Recovery retry diagnostic: distinct sessions=$retryCount")
+    } catch (_: Exception) {
+        reportUiStage("Recovery state diagnostic unavailable")
+    }
+}
+
+private suspend fun reportPostRecoveryMessagingDiagnostics(
+    compose: ComposeTestRule,
+    fixture: LocalSynapseFixture,
+    device: MatrixRepository,
+    peer: MatrixRepository,
+    roomId: String,
+    recoveredToken: String,
+    oldPeerEvent: String,
+    signedOutDeviceEvent: String,
+) {
+    try {
+        reportUiStage("Checking new encrypted delivery after the history assertion failed")
+        assertTrue("The diagnostic peer could not send", peer.sendMessage(DIAGNOSTIC_REPLY))
+        compose.waitForText(DIAGNOSTIC_REPLY)
+        compose.onNodeWithText(DIAGNOSTIC_REPLY).assertIsDisplayed()
+        val delivered = awaitPeer(peer, "the diagnostic reply's server acknowledgement") { state ->
+            state.messages.any { it.text == DIAGNOSTIC_REPLY && it.delivery == MessengerDelivery.Sent }
+        }.messages.single { it.text == DIAGNOSTIC_REPLY }
+        val previousSession = fixture.readEvent(recoveredToken, roomId, oldPeerEvent)
+            .getJSONObject("content").getString("session_id")
+        val newSession = fixture.readEvent(recoveredToken, roomId, delivered.id)
+            .getJSONObject("content").getString("session_id")
+        reportUiStage("Recovery peer session diagnostic: same-session=${previousSession == newSession}")
+        compose.field("Write a message").performTextReplacement(DIAGNOSTIC_MESSAGE)
+        compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
+        awaitPeer(peer, "the diagnostic response from the recovered account") { state ->
+            state.messages.any { it.text == DIAGNOSTIC_MESSAGE && it.delivery == MessengerDelivery.Received }
+        }
+        reportUiStage("Recovery delivery diagnostic: new encrypted messages passed in both directions")
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: AssertionError) {
+        reportUiStage("Recovery delivery diagnostic: new encrypted exchange did not complete")
+    } catch (_: Exception) {
+        reportUiStage("Recovery delivery diagnostic: new encrypted exchange could not be checked")
+    }
+    reportRestoredHistoryDiagnostics(device, activePeerEvent = oldPeerEvent, signedOutDeviceEvent = signedOutDeviceEvent)
 }
 
 private data class RestoredEventCategory(val description: String, val unknownDevice: Boolean = false)
