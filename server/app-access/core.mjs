@@ -5,6 +5,7 @@ import { createVerificationMailer } from './mail.mjs';
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 const FLOW_MS = 10 * MINUTE, SESSION_MS = 30 * DAY, HANDOFF_MS = MINUTE;
 const CLEANUP_MS = 10 * MINUTE;
+const VERIFICATION_MAIL_BUDGET = Object.freeze({ daily: 10, monthly: 300 });
 const INTERNAL_ORIGIN = 'https://app-access.internal';
 const SSO_COOKIE = '__Host-vellivex_apps_sso';
 const BROWSER_COOKIE = '__Host-vellivex_apps_browser';
@@ -403,9 +404,9 @@ export async function validateAppCallScope(env, scope, now = Date.now()) {
   return validateAppScope(scope, env, { now, audience: CENTRAL_ORIGIN });
 }
 
-export function createAppAccess({ renderPage = renderAccessPage, assets = accessUiAsset, sendMail, mailTransport = fetch, now = Date.now, budgets = { daily: 90, monthly: 2800 } } = {}) {
-  if (!Number.isSafeInteger(budgets.daily) || budgets.daily < 0 || budgets.daily > 90 ||
-      !Number.isSafeInteger(budgets.monthly) || budgets.monthly < 0 || budgets.monthly > 2800) throw Error('Invalid verification mail budget');
+export function createAppAccess({ renderPage = renderAccessPage, assets = accessUiAsset, sendMail, mailTransport = fetch, now = Date.now, budgets = VERIFICATION_MAIL_BUDGET } = {}) {
+  if (!Number.isSafeInteger(budgets.daily) || budgets.daily < 0 || budgets.daily > VERIFICATION_MAIL_BUDGET.daily ||
+      !Number.isSafeInteger(budgets.monthly) || budgets.monthly < 0 || budgets.monthly > VERIFICATION_MAIL_BUDGET.monthly) throw Error('Invalid verification mail budget');
   return { async fetch(request, env) {
     try {
       const url = new URL(request.url);

@@ -244,7 +244,27 @@ test('persisted free sender budgets stop actual sends and cannot be increased th
   assert.equal((await t.request(f)).status, 202);
   const second = await t.flow(); const denied = await t.request(second, 'another@example.test');
   assert.equal(denied.status, 429); assert.equal(denied.value.error, 'mail_limit'); assert.equal(t.messages.length, 1);
-  assert.throws(() => createAppAccess({ budgets: { daily: 91, monthly: 2800 } }));
+  assert.throws(() => createAppAccess({ budgets: { daily: 11, monthly: 300 } }), /Invalid verification mail budget/);
+  assert.throws(() => createAppAccess({ budgets: { daily: 10, monthly: 301 } }), /Invalid verification mail budget/);
+});
+
+test('website mail defaults enforce both new caps using the existing D1 budget counters', async () => {
+  const now = Date.UTC(2026, 0, 15, 12);
+  for (const {key, cap, expiresAt} of [
+    {key: 'd:2026-01-15', cap: 10, expiresAt: Date.UTC(2026, 0, 16)},
+    {key: 'm:2026-01', cap: 300, expiresAt: Date.UTC(2026, 1, 1)},
+  ]) {
+    const t = fixture();
+    t.clock.now = now;
+    const count = t.db.sql.prepare('SELECT sent FROM va_mail_budget WHERE key=?');
+    t.db.sql.prepare('INSERT INTO va_mail_budget(key,sent,expires_at) VALUES(?,?,?)').run(key, cap - 1, expiresAt);
+    assert.equal((await t.request(await t.flow())).status, 202);
+    const denied = await t.request(await t.flow(), 'another@example.test');
+    assert.equal(denied.status, 429);
+    assert.equal(denied.value.error, 'mail_limit');
+    assert.equal(count.get(key).sent, cap);
+    assert.equal(t.messages.length, 1);
+  }
 });
 
 test('user epoch, disabled state and parent removal invalidate app admission and free Call scope', async () => {
