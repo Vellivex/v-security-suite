@@ -2,7 +2,9 @@ package com.vellivex.messenger
 
 import android.os.Bundle
 import android.os.SystemClock
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.assertIsDisplayed
@@ -19,6 +21,9 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.core.content.pm.PackageInfoCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CancellationException
@@ -63,7 +68,7 @@ class MessengerOnboardingFlowTest {
         try {
             val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, useIme = !alpha02Seed, tryWrongCode = true)
             if (!alpha02Seed) {
-                deviceRecoveryKey = compose.createRecoveryThroughUi(device)
+                deviceRecoveryKey = compose.createRecoveryThroughUi(device, compose.activity)
             }
             compose.waitForText("Messages")
 
@@ -133,7 +138,7 @@ class MessengerOnboardingFlowTest {
 
                 reportUiStage("Rejecting a different valid key, then recovering with the saved key")
                 sensitiveUi("reject the unrelated synthetic recovery key") {
-                    compose.enterRecoveryKey(checkNotNull(otherRecoveryKey))
+                    compose.enterRecoveryKey(checkNotNull(otherRecoveryKey), device, compose.activity)
                     val error = "Could not recover with that key. Check the key and your connection, then try again."
                     compose.waitForText(error)
                     compose.onNodeWithText("Recover your account").assertIsDisplayed()
@@ -142,9 +147,7 @@ class MessengerOnboardingFlowTest {
                 }
                 assertTrue("An incorrect recovery key removed the OTP-authenticated session", savedSession().deviceId == returned.deviceId)
                 sensitiveUi("recover the synthetic account with its saved key") {
-                    compose.waitForRecoveryReady(device) {
-                        compose.enterRecoveryKey(checkNotNull(deviceRecoveryKey))
-                    }
+                    compose.enterRecoveryKey(checkNotNull(deviceRecoveryKey), device, compose.activity, awaitReady = true)
                     compose.waitForText("Messages")
                 }
 
@@ -207,7 +210,7 @@ class MessengerOnboardingRestartTest {
         val upgraded = args.getString("messengerAlpha02Upgrade") == "true"
         if (upgraded) {
             assertEquals("Restore the alpha02 history on the installed alpha04 app", 4L, installedVersionCode())
-            compose.createRecoveryThroughUi(device).fill('\u0000')
+            compose.createRecoveryThroughUi(device, compose.activity).fill('\u0000')
         }
         reportUiStage("Restoring the saved session and encrypted conversation")
         compose.waitForText("Messages")
@@ -276,7 +279,7 @@ private suspend fun ComposeTestRule.signInWithSyntheticMail(
     return requestedAt
 }
 
-private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository): CharArray = sensitiveUi("save the synthetic recovery key") {
+private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository, activity: MainActivity): CharArray = sensitiveUi("save the synthetic recovery key") {
     reportUiStage("Creating and acknowledging a recovery key before opening messages")
     waitForText("Secure your account")
     onNodeWithText("Messages").assertDoesNotExist()
@@ -295,10 +298,8 @@ private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository
         waitForText(error)
         onNodeWithText("Messages").assertDoesNotExist()
         waitForTextToClear(error)
-        field("Last 4 characters").performScrollTo().performTextReplacement(lastFour)
-        waitForRecoveryReady(repository) {
-            onNodeWithText("I've saved my recovery key").performScrollTo().assertIsEnabled().performClick()
-        }
+        val submit = prepareRecoveryButton(activity, repository, "Last 4 characters", lastFour, "I've saved my recovery key")
+        waitForRecoveryReady(repository, submit)
         key
     } catch (failure: Throwable) {
         key.fill('\u0000')
@@ -306,9 +307,106 @@ private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository
     }
 }
 
-private fun ComposeTestRule.enterRecoveryKey(key: CharArray) = sensitiveUi("enter the synthetic recovery key") {
-    field("Recovery key").performScrollTo().performTextReplacement(key.concatToString())
-    onNodeWithText("Recover account").performScrollTo().assertIsEnabled().performClick()
+private fun ComposeTestRule.enterRecoveryKey(
+    key: CharArray,
+    repository: MatrixRepository,
+    activity: MainActivity,
+    awaitReady: Boolean = false,
+) = sensitiveUi("enter the synthetic recovery key") {
+    val submit = prepareRecoveryButton(activity, repository, "Recovery key", key.concatToString(), "Recover account")
+    if (awaitReady) waitForRecoveryReady(repository, submit) else submit()
+}
+
+private data class RecoveryClickSnapshot(
+    val imeVisible: Boolean?,
+    val rootHeight: Int,
+    val bounds: Rect?,
+    val displayedAndEnabled: Boolean,
+    val fieldLength: Int?,
+    val fieldMatchesExpected: Boolean,
+    val authenticationPending: Boolean,
+    val appBusy: Boolean,
+    val userPresent: Boolean,
+    val recovery: MessengerRecovery,
+    val error: RecoveryUiError,
+)
+
+private fun ComposeTestRule.prepareRecoveryButton(
+    activity: MainActivity,
+    repository: MatrixRepository,
+    fieldLabel: String,
+    expectedValue: String,
+    buttonLabel: String,
+): () -> Unit {
+    val model = runOnIdle { ViewModelProvider(activity)[MessengerViewModel::class.java] }
+    assertTrue("Recovery UI and test used different repositories", model.repository === repository)
+    val deadline = SystemClock.elapsedRealtime() + 10_000
+
+    fun snapshot(): RecoveryClickSnapshot {
+        val window = runOnIdle {
+            val root = activity.window.decorView
+            Triple(ViewCompat.getRootWindowInsets(root)?.isVisible(WindowInsetsCompat.Type.ime()),
+                root.height, model.authenticationPending)
+        }
+        val button = onNodeWithText(buttonLabel)
+        val displayedAndEnabled = try {
+            button.assertIsDisplayed().assertIsEnabled()
+            true
+        } catch (_: AssertionError) {
+            false
+        }
+        val bounds = onAllNodes(hasText(buttonLabel)).fetchSemanticsNodes().singleOrNull()?.boundsInRoot
+        val value = onAllNodes(hasSetTextAction() and hasText(fieldLabel)).fetchSemanticsNodes()
+            .singleOrNull()?.config?.getOrNull(SemanticsProperties.EditableText)?.text
+        val state = repository.state.value
+        return RecoveryClickSnapshot(window.first, window.second, bounds, displayedAndEnabled,
+            value?.length, value == expectedValue, window.third, state.busy, state.userId != null,
+            state.recovery, recoveryErrorCategory(state.error))
+    }
+
+    fun report(phase: String) {
+        val evidence = try { snapshot().toString() } catch (_: Throwable) { "safe snapshot unavailable" }
+        reportUiStage("Recovery tap $phase ($fieldLabel): $evidence")
+    }
+
+    try {
+        // The snackbar can disappear before its asynchronous clearError action.
+        // Wait for that natural clear so a repeated validation error is observable.
+        waitUntil(10_000) {
+            repository.state.value.let { it.error == null && !it.busy } &&
+                runOnIdle { !model.authenticationPending }
+        }
+        field(fieldLabel).performScrollTo().performTextReplacement(expectedValue)
+        val applied = field(fieldLabel).fetchSemanticsNode().config.getOrNull(SemanticsProperties.EditableText)?.text
+        assertTrue("Recovery confirmation input was not applied", applied == expectedValue)
+        runOnIdle {
+            checkNotNull(ViewCompat.getWindowInsetsController(activity.window.decorView))
+                .hide(WindowInsetsCompat.Type.ime())
+        }
+        onNodeWithText(buttonLabel).performScrollTo()
+        var geometry: Pair<Rect, Int>? = null
+        var stableSince = SystemClock.elapsedRealtime()
+        waitUntil((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1)) {
+            val current = snapshot()
+            val nextGeometry = current.bounds?.let { it to current.rootHeight }
+            val ready = current.imeVisible == false && current.displayedAndEnabled && current.fieldMatchesExpected &&
+                !current.authenticationPending && !current.appBusy && current.userPresent && current.error == RecoveryUiError.NONE
+            if (!ready || nextGeometry == null || nextGeometry != geometry) {
+                geometry = if (ready) nextGeometry else null
+                stableSince = SystemClock.elapsedRealtime()
+                false
+            } else SystemClock.elapsedRealtime() - stableSince >= 300
+        }
+    } catch (_: Throwable) {
+        report("preparation failed")
+        throw AssertionError("Recovery button did not settle with the expected input within 10 seconds")
+    }
+    report("before")
+    return {
+        // Keep a single real touch. Do not retry or invoke the handler directly.
+        onNodeWithText(buttonLabel).assertIsDisplayed().assertIsEnabled().performClick()
+        report("after")
+    }
 }
 
 private inline fun <T> sensitiveUi(action: String, block: () -> T): T = try {
@@ -421,12 +519,13 @@ private fun reportRecoveryWaitState(repository: MatrixRepository, started: Long,
 }
 
 private enum class RecoveryUiError {
-    NONE, SETUP_TIMEOUT, RECOVERY_TIMEOUT, USABILITY_TIMEOUT, SETUP_FAILED,
+    NONE, CONFIRMATION_MISMATCH, SETUP_TIMEOUT, RECOVERY_TIMEOUT, USABILITY_TIMEOUT, SETUP_FAILED,
     RECOVERY_FAILED, SETTINGS_CHANGED, OTHER_DEVICE, OTHER,
 }
 
 private fun recoveryErrorCategory(message: String?): RecoveryUiError = when (message) {
     null -> RecoveryUiError.NONE
+    "Enter the last four characters of your recovery key exactly as shown." -> RecoveryUiError.CONFIRMATION_MISMATCH
     "Recovery setup timed out. Keep your recovery key and try again." -> RecoveryUiError.SETUP_TIMEOUT
     "Recovery timed out. Try again when you are connected." -> RecoveryUiError.RECOVERY_TIMEOUT
     "Your recovery key was accepted, but this phone is still waiting for encryption and backup. Keep your key and try again." -> RecoveryUiError.USABILITY_TIMEOUT
@@ -451,12 +550,16 @@ private fun ComposeTestRule.assertOriginalRecoveryHistoryHidden(repository: Matr
 }
 
 private suspend fun requireUnavailableOriginalEvents(repository: MatrixRepository, eventIds: Set<String>) {
-    val timeline = checkNotNull(sdkTimeline(repository)) { "The recovered conversation has no SDK timeline" }
     val observed = withTimeoutOrNull(15_000) {
-        while (!eventIds.all { timeline.restoredEventCategory(it).unavailable }) {
+        // Selecting a room renders its header before openRoom has attached its
+        // SDK timeline. Keep timeline acquisition inside the same event budget.
+        while (true) {
+            val timeline = sdkTimeline(repository)
+            if (timeline != null && !repository.state.value.busy &&
+                eventIds.all { timeline.restoredEventCategory(it).unavailable }
+            ) return@withTimeoutOrNull true
             delay(250)
         }
-        true
     }
     assertTrue("The original encrypted events were not present as unavailable SDK messages", observed == true)
 }
