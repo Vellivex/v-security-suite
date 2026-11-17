@@ -160,7 +160,7 @@ function messengerSetup(downloadAvailable) {
     <p class="messenger-platform">Android 8.0+ (ARM64) · Public alpha</p>
     <h1>Set up Vellivex Messenger</h1>
     <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
-    <p>Use test conversations during this alpha.</p>
+    <p>This is an early test build. Use test conversations during this alpha.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
     <h2>Install and sign in</h2>
     <ol>
@@ -176,7 +176,8 @@ function messengerSetup(downloadAvailable) {
     </ol>
     <h2>Sign in again or move to another phone</h2>
     <p>Only one phone can be active at a time. Before moving, save your recovery key, bring your old phone online and choose <strong>Sign out</strong> on that phone first.</p>
-    <p>Sign in again with the same email address and its email code. When you see <strong>Recover your messages</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover messages</strong>. Without your recovery key, your encrypted message history cannot be recovered.</p>
+    <p>Sign in again with the same email address and its email code. When you see <strong>Recover your account</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover account</strong> to restore your account’s encryption keys.</p>
+    <p>After signing out or moving phones, your message history may be incomplete. Some earlier messages may be unavailable if Messenger can no longer verify the device that sent them. Without your recovery key, your encrypted message history cannot be recovered.</p>
     <h2>Start a conversation</h2>
     <ol>
       <li>Open your profile to find and share your Vellivex ID. If you already have your contact’s ID, tap <strong>New conversation</strong> and enter it.</li>
