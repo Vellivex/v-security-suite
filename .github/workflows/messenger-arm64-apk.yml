@@ -40,6 +40,14 @@ jobs:
   signed-arm64-apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [fresh, upgrade]
+    env:
+      APK_SCENARIO: ${{ matrix.scenario }}
+      ALPHA02_URL: 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk'
+      ALPHA02_SHA256: '592c00d453510b3a1ec9ff73d6f987819a6bfdfd6d7cdb43365bcc36bd108c2b'
     steps:
       - name: Fetch public test runner source without repository credentials
         shell: bash
@@ -109,8 +117,15 @@ jobs:
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
             --retry 3 --connect-timeout 20 --max-time 300 "$INSTRUMENTATION_URL" --output instrumentation.apk
           printf '%s  app.apk\n%s  instrumentation.apk\n' "$APP_SHA256" "$INSTRUMENTATION_SHA256" > SHA256SUMS
+          packages=(app.apk instrumentation.apk)
+          if [[ "$APK_SCENARIO" == upgrade ]]; then
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              --retry 3 --connect-timeout 20 --max-time 300 "$ALPHA02_URL" --output alpha02.apk
+            printf '%s  alpha02.apk\n' "$ALPHA02_SHA256" >> SHA256SUMS
+            packages+=(alpha02.apk)
+          fi
           sha256sum --check --strict SHA256SUMS
-          for package in app.apk instrumentation.apk; do
+          for package in "${packages[@]}"; do
             certificate=$("$tools/apksigner" verify --print-certs "$package" | \
               awk -F ': ' '/^Signer #[0-9]+ certificate SHA-256 digest:/ {print tolower($2)}')
             test "$certificate" = "$SIGNER_SHA256"
@@ -120,12 +135,22 @@ jobs:
           grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='3' versionName='0\.1\.0-alpha03-test'" <<< "$app_report"
           grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_report"
           grep -Eq "^package: name='com\.vellivex\.messenger\.alpha\.test'" <<< "$test_report"
+          if [[ "$APK_SCENARIO" == upgrade ]]; then
+            alpha02_report=$("$tools/aapt" dump badging alpha02.apk)
+            grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='2' versionName='0\.1\.0-alpha02-test'" <<< "$alpha02_report"
+            grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$alpha02_report"
+          fi
           {
+            printf 'Validation scenario: %s\n' "$APK_SCENARIO"
             printf 'App URL: %s\nInstrumentation URL: %s\nSigning certificate SHA-256: %s\n' \
               "$APP_URL" "$INSTRUMENTATION_URL" "$SIGNER_SHA256"
             cat SHA256SUMS
             grep -E '^(package:|native-code:)' <<< "$app_report"
             grep -E '^package:' <<< "$test_report"
+            if [[ "$APK_SCENARIO" == upgrade ]]; then
+              printf 'Alpha02 URL: %s\n' "$ALPHA02_URL"
+              grep -E '^(package:|native-code:)' <<< "$alpha02_report"
+            fi
           } | tee "$RUNNER_TEMP/messenger-arm64-evidence/apk-inputs.txt"
       - name: Enable hardware acceleration on the hosted runner
         shell: bash
@@ -145,13 +170,17 @@ jobs:
           set -euo pipefail
           export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
           export PATH="$JAVA_HOME/bin:$PATH"
-          bash apps/messenger/scripts/run-android-integration.sh "$RUNNER_TEMP/messenger-arm64-evidence" \
-            "$RUNNER_TEMP/messenger-exact-apks/app.apk" "$RUNNER_TEMP/messenger-exact-apks/instrumentation.apk"
+          apks="$RUNNER_TEMP/messenger-exact-apks"
+          arguments=("$RUNNER_TEMP/messenger-arm64-evidence" "$apks/app.apk" "$apks/instrumentation.apk")
+          if [[ "$APK_SCENARIO" == upgrade ]]; then
+            arguments+=("$apks/alpha02.apk")
+          fi
+          bash apps/messenger/scripts/run-android-integration.sh "${arguments[@]}"
       - name: Upload APK identity, translation, and Android test evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: messenger-signed-arm64-acceptance-${{ github.run_attempt }}
+          name: messenger-signed-arm64-${{ matrix.scenario }}-acceptance-${{ github.run_attempt }}
           path: ${{ runner.temp }}/messenger-arm64-evidence/
           if-no-files-found: warn
           retention-days: 7
