@@ -1,5 +1,8 @@
 package com.vellivex.messenger
 
+import java.time.Instant
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,5 +46,25 @@ class MessengerStateTest {
         assertFalse(canRenderStrictTimelineText(true, null))
         assertTrue(canRenderStrictTimelineText(true, ShieldState.None))
         assertTrue(canRenderStrictTimelineText(false, null))
+    }
+
+    @Test
+    fun serviceCapacityRequiresATypedMarkerAndNeverDisplaysRemoteText() {
+        val body = JSONObject().put("error", "Untrusted remote text").put("vellivex_capacity_exhausted", true)
+        assertEquals("Vellivex Messenger has reached its sign-in capacity. Try again later.", messengerRateLimitMessage(body, "60"))
+
+        body.put("vellivex_capacity_exhausted", "true")
+        assertEquals("Too many attempts. Try again in 1 minute.", messengerRateLimitMessage(body, "60"))
+    }
+
+    @Test
+    fun rateLimitUsesNumericDelayOrHttpDateWithoutOverflow() {
+        val body = JSONObject().put("retry_after_ms", 2_678_400_000L)
+        val now = Instant.parse("2026-11-17T12:00:00Z")
+        assertEquals("Too many attempts. Try again in 31 days.", messengerRateLimitMessage(body, "60"))
+        assertEquals("Too many attempts. Try again in 2 minutes.", messengerRateLimitMessage(null, "Tue, 17 Nov 2026 12:02:00 GMT", now))
+
+        body.put("retry_after_ms", Long.MAX_VALUE)
+        assertEquals("Too many attempts. Wait before trying again.", messengerRateLimitMessage(body, "not a delay", now))
     }
 }

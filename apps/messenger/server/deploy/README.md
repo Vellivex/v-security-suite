@@ -27,6 +27,19 @@ Choose the HTTPS ingress that matches your host.
 
 Start-up waits for PostgreSQL and Synapse. Check https://messenger.vellivex.com/_matrix/client/versions. Requests to /_synapse/admin and the federation endpoints should receive 404. Public registration and password login are disabled.
 
+## Enable email signup
+
+New and existing deployments default to invitation-only email sign-in. To allow any supported address to sign up by verifying its email code, explicitly enable public signup after checking the shared SMTP account's current usage and free-plan limits.
+
+    python3 "$messenger_tool" --state-dir "$messenger_state" signup --mode public \
+      --day-limit 80 --month-limit 2400
+
+The public defaults allow five attempts per rolling 24 hours and 2,400 per rolling 31 days. The command accepts limits from 1 to 80 per day and 1 to 2,400 per 31 days. It also accepts `--ip-hour-limit` (default 4, maximum 6) and `--email-hour-limit` (default 2, maximum 3). IPv6 requests share a limit within a /64 network. Attempt budgets count failed deliveries. Public signup uses the same code verification, account identities and Matrix login tokens. Synapse's direct registration and password login stay disabled.
+
+These caps cover Messenger code delivery only. Verify the website and any other senders' caps and existing usage before raising them. Keep the SMTP account on its free plan with paid overages disabled. Upgrading an existing broker seeds the aggregate ledger from any challenges present, so the provider's usage remains authoritative for earlier mail. The encrypted backup excludes the email challenge database, including the aggregate ledger. Check provider usage before restoring send capacity on a replacement host.
+
+The command reloads a running service and restores the prior configuration on reload failure. To close public signup, run `signup --mode invite --day-limit 5` on the same state directory. The invite roster, delivery ledger, users and active sessions are preserved. Removing an invitation blocks subsequent email verification for that address in invite mode. Existing Matrix sessions can be revoked separately.
+
 ## Test both phones
 
 Use the same HTTPS homeserver in both Android builds. Register two independently controlled invited addresses for a two-person chat. One owner email alone cannot establish a second conversation participant. Add the exact approved second address through the deployment CLI.

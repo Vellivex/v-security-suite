@@ -5,6 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 import hashlib
 import hmac
+from ipaddress import IPv6Address, ip_address, ip_network
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,8 @@ import time
 CODE_TTL = 600
 RESEND_DELAY = 60
 MAX_ATTEMPTS = 5
+DAY_SECONDS = 24 * 60 * 60
+MONTH_SECONDS = 31 * DAY_SECONDS
 CHALLENGE_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 CODE_PATTERN = re.compile(r"[0-9]{8}\Z")
 LOCAL_PATTERN = re.compile(r"[a-z0-9.!#$%&'*+/=?^_{}|~-]{1,64}\Z")
@@ -28,6 +31,45 @@ class InvalidEmail(Exception):
 
 class RateLimited(Exception):
     pass
+
+
+class CapacityExhausted(RateLimited):
+    def __init__(self, retry_after: int):
+        super().__init__()
+        self.retry_after = retry_after
+
+
+def signup_limits(config: dict, *, development=False) -> tuple[str, dict]:
+    mode = config.get("signup_mode", "invite")
+    if mode not in ("invite", "public") or (development and mode != "invite"):
+        raise ValueError("Public email signup is available only with explicitly configured SMTP mode")
+    public = mode == "public"
+    bounds = {
+        "day_limit": (5, 80) if public else (50, 200 if development else 100),
+        "month_limit": (2400 if public else None, 2400),
+        "ip_hour_limit": (4, 6) if public else (6, 200 if development else 40),
+        "email_hour_limit": (2 if public else 3, 3),
+    }
+    limits = {}
+    for name, (default, maximum) in bounds.items():
+        value = config.get(name, default)
+        if (name not in config and value is None) or (type(value) is int and 1 <= value <= maximum):
+            limits[name] = value
+        else:
+            raise ValueError(f"Messenger {name} must be between 1 and {maximum}")
+    return mode, limits
+
+
+def client_bucket(value: object) -> str:
+    try:
+        address = ip_address(value) if isinstance(value, str) and "%" not in value else None
+    except ValueError:
+        address = None
+    if isinstance(address, IPv6Address):
+        if address.ipv4_mapped:
+            return str(address.ipv4_mapped)
+        return str(ip_network((address, 64), strict=False))
+    return str(address) if address is not None else "unknown"
 
 
 class AddressBudget:
@@ -80,12 +122,15 @@ class Challenge:
 
 
 class EmailState:
-    def __init__(self, database: Path, otp_secret: bytes, identity_secret: bytes, *, ip_hour_limit=6, day_limit=50, now=time.time):
+    def __init__(self, database: Path, otp_secret: bytes, identity_secret: bytes, *,
+                 ip_hour_limit=6, email_hour_limit=3, day_limit=50, month_limit=None, now=time.time):
         self.database = database
         self.otp_secret = otp_secret
         self.identity_secret = identity_secret
         self.ip_hour_limit = ip_hour_limit
+        self.email_hour_limit = email_hour_limit
         self.day_limit = day_limit
+        self.month_limit = month_limit
         self.now = now
         database.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         parent = database.parent.lstat()
@@ -126,6 +171,14 @@ class EmailState:
                 CREATE INDEX IF NOT EXISTS challenge_ip ON challenges(ip_hash, created_at);
                 CREATE INDEX IF NOT EXISTS challenge_time ON challenges(created_at);
             """)
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mail_attempts'").fetchone():
+                db.execute("CREATE TABLE mail_attempts (created_at INTEGER NOT NULL)")
+                db.execute("CREATE INDEX mail_attempt_times ON mail_attempts(created_at)")
+                # Account for still-present requests on upgrade without copying address or challenge data.
+                db.execute("INSERT INTO mail_attempts SELECT created_at FROM challenges WHERE created_at > ?",
+                           (int(self.now()) - MONTH_SECONDS,))
+            self._prune(db, int(self.now()))
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database, timeout=3)
@@ -140,6 +193,27 @@ class EmailState:
     def _code_digest(self, challenge: str, code: str) -> bytes:
         return self._digest("email-code-v1", f"{challenge}:{code}".encode("ascii"))
 
+    @staticmethod
+    def _prune(db, now: int) -> None:
+        db.execute("DELETE FROM challenges WHERE created_at <= ?", (now - DAY_SECONDS,))
+        db.execute("DELETE FROM mail_attempts WHERE created_at <= ?", (now - MONTH_SECONDS,))
+
+    def prune(self) -> None:
+        with closing(self._connect()) as db, db:
+            self._prune(db, int(self.now()))
+
+    @staticmethod
+    def _capacity_wait(db, now: int, period: int, limit: int) -> int:
+        cutoff = now - period
+        count = db.execute("SELECT count(*) FROM mail_attempts WHERE created_at > ?", (cutoff,)).fetchone()[0]
+        if count < limit:
+            return 0
+        next_expiry = db.execute(
+            "SELECT created_at FROM mail_attempts WHERE created_at > ? ORDER BY created_at LIMIT 1 OFFSET ?",
+            (cutoff, count - limit),
+        ).fetchone()[0]
+        return next_expiry + period - now
+
     def issue(self, email: str, client_address: str) -> Challenge:
         now = int(self.now())
         email_bytes = email.encode("ascii")
@@ -148,7 +222,13 @@ class EmailState:
         challenge = Challenge(secrets.token_urlsafe(32), f"{secrets.randbelow(100_000_000):08}", now + CODE_TTL)
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("DELETE FROM challenges WHERE created_at <= ?", (now - 86400,))
+            self._prune(db, now)
+            retry_after = self._capacity_wait(db, now, DAY_SECONDS, self.day_limit)
+            if self.month_limit is not None:
+                retry_after = max(retry_after, self._capacity_wait(db, now, MONTH_SECONDS, self.month_limit))
+            if retry_after:
+                db.commit()
+                raise CapacityExhausted(retry_after)
             email_count, last_request = db.execute(
                 "SELECT count(*), max(created_at) FROM challenges WHERE email_hash = ? AND created_at > ?",
                 (email_hash, now - 3600),
@@ -157,13 +237,12 @@ class EmailState:
                 "SELECT count(*) FROM challenges WHERE ip_hash = ? AND created_at > ?",
                 (ip_hash, now - 3600),
             ).fetchone()[0]
-            total = db.execute("SELECT count(*) FROM challenges").fetchone()[0]
             if (
-                email_count >= 3
+                email_count >= self.email_hour_limit
                 or (last_request is not None and last_request > now - RESEND_DELAY)
                 or ip_count >= self.ip_hour_limit
-                or total >= self.day_limit
             ):
+                db.commit()
                 raise RateLimited
             db.execute(
                 """INSERT INTO challenges
@@ -172,6 +251,7 @@ class EmailState:
                 (challenge.id, email_hash, ip_hash, self.localpart_for(email),
                  self._code_digest(challenge.id, challenge.code), now, challenge.expires_at),
             )
+            db.execute("INSERT INTO mail_attempts VALUES (?)", (now,))
         return challenge
 
     def set_delivery(self, challenge: str, sent: bool) -> None:

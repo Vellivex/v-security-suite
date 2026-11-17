@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-if [[ $# != 1 ]]; then
-  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY' >&2
+if [[ $# != 1 && $# != 3 ]]; then
+  printf '%s\n' 'Usage: bash run-android-integration.sh EVIDENCE_DIRECTORY [ARM64_APP_APK INSTRUMENTATION_APK]' >&2
   exit 2
 fi
 
@@ -15,9 +15,17 @@ evidence_dir=$(cd -- "$evidence_dir" && pwd)
 sdk=${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}
 sdk_tools="$sdk/cmdline-tools/latest/bin"
 system_image='system-images;android-35;default;x86_64'
-"$sdk_tools/sdkmanager" --install \
-  'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0' \
-  'emulator' "$system_image"
+if [[ $# == 3 ]]; then
+  app_apk=$(realpath -e -- "$2")
+  test_apk=$(realpath -e -- "$3")
+  [[ -s "$app_apk" && -s "$test_apk" ]]
+  system_image='system-images;android-35;google_apis;x86_64'
+  "$sdk_tools/sdkmanager" --install 'platform-tools' 'emulator' "$system_image"
+else
+  "$sdk_tools/sdkmanager" --install \
+    'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0' \
+    'emulator' "$system_image"
+fi
 emulator="$sdk/emulator/emulator"
 "$emulator" -accel-check
 
@@ -41,10 +49,18 @@ trap cleanup EXIT
 python3.12 -m venv "$work_dir/venv"
 python="$work_dir/venv/bin/python"
 "$python" -m pip install -r "$messenger_dir/server/requirements.txt"
-(
-  cd -- "$messenger_dir/android"
-  ./gradlew --no-daemon --console=plain assembleDebug assembleDebugAndroidTest
-)
+if [[ $# == 1 ]]; then
+  (
+    cd -- "$messenger_dir/android"
+    ./gradlew --no-daemon --console=plain assembleDebug assembleDebugAndroidTest
+  )
+  apk_dir="$messenger_dir/android/app/build/outputs/apk"
+  app_apk="$apk_dir/debug/app-x86_64-debug.apk"
+  test_apk="$apk_dir/androidTest/debug/app-x86_64-debug-androidTest.apk"
+  if [[ ! -f "$test_apk" ]]; then
+    test_apk="$apk_dir/androidTest/debug/app-debug-androidTest.apk"
+  fi
+fi
 
 export ANDROID_AVD_HOME="$work_dir/avd"
 mkdir -- "$ANDROID_AVD_HOME"
@@ -72,6 +88,9 @@ fi
 "${adb[@]}" shell settings put global window_animation_scale 0
 "${adb[@]}" shell settings put global transition_animation_scale 0
 "${adb[@]}" shell settings put global animator_duration_scale 0
+"${adb[@]}" shell settings put secure show_ime_with_hard_keyboard 1
+"${adb[@]}" shell wm size 720x1280
+"${adb[@]}" shell wm density 320
 
 server_state="$work_dir/synapse"
 "$python" "$messenger_dir/server/dev_server.py" \
@@ -86,23 +105,35 @@ fi
 "${adb[@]}" reverse tcp:8008 tcp:8008
 "${adb[@]}" reverse tcp:8025 tcp:8025
 
-apk_dir="$messenger_dir/android/app/build/outputs/apk"
-test_apk="$apk_dir/androidTest/debug/app-x86_64-debug-androidTest.apk"
-if [[ ! -f "$test_apk" ]]; then
-  test_apk="$apk_dir/androidTest/debug/app-debug-androidTest.apk"
-fi
-"${adb[@]}" install -t "$apk_dir/debug/app-x86_64-debug.apk"
-"${adb[@]}" install -t "$test_apk"
 test_app=com.vellivex.messenger.alpha
+if [[ $# == 3 ]]; then
+  native_bridge=$("${adb[@]}" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')
+  supported_abis=$("${adb[@]}" shell getprop ro.product.cpu.abilist | tr -d '\r')
+  if [[ -z "$native_bridge" || "$native_bridge" == 0 || ",$supported_abis," != *,arm64-v8a,* ]]; then
+    printf '%s\n' 'The Android emulator does not advertise ARM64 translation.' >&2
+    exit 1
+  fi
+  "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
+  package_report=$("${adb[@]}" shell dumpsys package "$test_app" | tr -d '\r')
+  grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' <<< "$package_report"
+  printf 'Android 35 x86_64 native bridge: %s\nSupported ABIs: %s\n%s primaryCpuAbi: arm64-v8a\n' \
+    "$native_bridge" "$supported_abis" "$test_app" | tee "$evidence_dir/translation.txt"
+else
+  "${adb[@]}" install -t "$app_apk"
+fi
+"${adb[@]}" install -t "$test_apk"
 runner="$test_app.test/androidx.test.runner.AndroidJUnitRunner"
 
 run_instrumentation() {
   local test_class=$1
   shift
   local result="$evidence_dir/$test_class.log"
-  timeout 8m "${adb[@]}" shell am instrument -w -r \
+  if ! timeout 8m "${adb[@]}" shell am instrument -w -r \
     -e class "com.vellivex.messenger.$test_class" -e disableAnalytics true "$@" "$runner" \
-    | tr -d '\r' | tee "$result"
+    | tr -d '\r' | tee "$result"; then
+    printf 'Android instrumentation did not complete: %s\n' "$test_class" >&2
+    return 1
+  fi
   # The shell command can exit zero even if the runner ignored or failed a test.
   if ! grep -Fqx 'INSTRUMENTATION_STATUS_CODE: 0' "$result" ||
      ! grep -Fqx 'INSTRUMENTATION_CODE: -1' "$result" ||
@@ -118,6 +149,13 @@ run_instrumentation MessengerOnboardingSmokeTest || overall_status=1
 mailbox_key=$(<"$server_state/mailbox-key")
 test -n "$mailbox_key"
 run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key" || overall_status=1
+if ! run_instrumentation MessengerOnboardingFlowTest -e messengerMailboxKey "$mailbox_key"; then
+  overall_status=1
+elif ! "${adb[@]}" shell am force-stop "$test_app"; then
+  overall_status=1
+else
+  run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true || overall_status=1
+fi
 unset mailbox_key
 
 screenshot=vellivex-alpha-onboarding.png

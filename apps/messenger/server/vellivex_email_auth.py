@@ -20,7 +20,8 @@ from synapse.module_api.errors import ConfigError
 from twisted.internet.defer import DeferredSemaphore
 
 from vellivex_email_state import (
-    CODE_TTL, AddressBudget, Challenge, EmailState, InvalidEmail, RateLimited, normalize_email,
+    CODE_TTL, AddressBudget, CapacityExhausted, Challenge, EmailState, InvalidEmail, RateLimited,
+    client_bucket, normalize_email, signup_limits,
 )
 
 TOKEN_LIFETIME_MS = 60_000
@@ -101,7 +102,7 @@ def require_fields(request, fields: set[str]) -> dict:
 
 
 def admit(request, budget: AddressBudget) -> str:
-    address = str(getattr(request.getClientAddress(), "host", "unknown"))
+    address = client_bucket(getattr(request.getClientAddress(), "host", None))
     try:
         budget.admit(address)
     except RateLimited:
@@ -131,6 +132,16 @@ class RequestCode(DirectServeJsonResource):
         run = self.module.api.defer_to_thread
         try:
             challenge = await run(self.module.state.issue, email, address)
+        except CapacityExhausted as error:
+            if self.module.invited_emails is not None or self.module.dev:
+                raise SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED) from None
+            request.setHeader(b"Retry-After", str(error.retry_after).encode("ascii"))
+            return 429, {
+                "errcode": Codes.LIMIT_EXCEEDED,
+                "error": "Messenger has reached its sign-in code limit. Try again later.",
+                "retry_after_ms": error.retry_after * 1000,
+                "vellivex_capacity_exhausted": True,
+            }
         except RateLimited:
             raise SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED) from None
         await self.module.mail_slots.acquire()
@@ -196,6 +207,10 @@ class EmailCodeModule:
         if mode not in {"dev", "smtp"}:
             raise ConfigError("Messenger auth mode must be explicitly dev or smtp")
         try:
+            signup_mode, limits = signup_limits(config, development=mode == "dev")
+        except ValueError as error:
+            raise ConfigError(str(error)) from None
+        try:
             otp_secret = bytes.fromhex(private_text(config["otp_secret_file"]))
             identity_secret = bytes.fromhex(private_text(config["identity_secret_file"]))
             database = Path(config["database"])
@@ -207,9 +222,12 @@ class EmailCodeModule:
             else:
                 if "mailbox" in config:
                     raise ConfigError("Messenger SMTP configuration must not include a dev mailbox")
-                invited = frozenset(normalize_email(line) for line in private_text(config["invited_emails_file"]).splitlines() if line.strip())
-                if not invited:
-                    raise ConfigError("Messenger SMTP mode requires at least one invited address")
+                invited = None
+                if signup_mode == "invite":
+                    invited = frozenset(normalize_email(line) for line in
+                                        private_text(config["invited_emails_file"]).splitlines() if line.strip())
+                    if not invited:
+                        raise ConfigError("Messenger SMTP invite mode requires at least one invited address")
                 username = config.get("smtp_username")
                 password_path = config.get("smtp_password_file")
                 if bool(username) != bool(password_path):
@@ -225,11 +243,7 @@ class EmailCodeModule:
             "dev": mode == "dev",
             "mailer": mailer,
             "invited_emails": invited,
-            "state": EmailState(
-                database, otp_secret, identity_secret,
-                ip_hour_limit=bounded_int(config, "ip_hour_limit", 6, 200 if mode == "dev" else 40),
-                day_limit=bounded_int(config, "day_limit", 50, 200 if mode == "dev" else 100),
-            ),
+            "state": EmailState(database, otp_secret, identity_secret, **limits),
         }
 
     def __init__(self, config: dict, api: ModuleApi):
@@ -245,3 +259,4 @@ class EmailCodeModule:
         self.mail_slots = DeferredSemaphore(2)
         api.register_web_resource(REQUEST_PATH, RequestCode(self))
         api.register_web_resource(VERIFY_PATH, VerifyCode(self))
+        api.looping_background_call(api.defer_to_thread, 60_000, self.state.prune, desc="vellivex_email_expiry")

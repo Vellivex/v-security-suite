@@ -87,18 +87,23 @@ def mailbox_handler(directory: Path, key: str):
             if not hmac.compare_digest(supplied, expected):
                 self.send_error(403)
                 return
-            challenge = self.path.removeprefix("/")
-            if not CHALLENGE_PATTERN.fullmatch(challenge):
-                self.send_error(404)
-                return
-            try:
-                data = (directory / (challenge + ".json")).read_bytes()
-                if json.loads(data)["expires_at"] <= time.time():
+            if self.path == "/":
+                # UI tests can identify a message without inspecting the app's private state.
+                ids = sorted(path.stem for path in directory.glob("*.json") if CHALLENGE_PATTERN.fullmatch(path.stem))
+                data = json.dumps({"challenge_ids": ids}).encode()
+            else:
+                challenge = self.path.removeprefix("/")
+                if not CHALLENGE_PATTERN.fullmatch(challenge):
                     self.send_error(404)
                     return
-            except (OSError, ValueError, KeyError):
-                self.send_error(404)
-                return
+                try:
+                    data = (directory / (challenge + ".json")).read_bytes()
+                    if json.loads(data)["expires_at"] <= time.time():
+                        self.send_error(404)
+                        return
+                except (OSError, ValueError, KeyError):
+                    self.send_error(404)
+                    return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")

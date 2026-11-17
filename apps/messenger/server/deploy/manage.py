@@ -21,7 +21,7 @@ from tempfile import TemporaryDirectory
 BUNDLE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BUNDLE.parent))
 
-from vellivex_email_state import InvalidEmail, normalize_email
+from vellivex_email_state import InvalidEmail, normalize_email, signup_limits
 
 OWNER_EMAIL = "v@vellivex.com"
 STABLE_FILES = ("identity-secret", "synapse-signing.key", "macaroon-secret", "invited-emails")
@@ -32,11 +32,12 @@ ACTIVE_STATES = {"paused", "restarting", "running"}
 COMPOSE_STATES = STOPPED_STATES | ACTIVE_STATES | {"removing"}
 
 
-def private_read(path: Path) -> str:
+def private_read(path: Path, *, strip=True) -> str:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "r", encoding="utf-8") as handle:
+    with os.fdopen(fd, "r", encoding="utf-8", newline="") as handle:
         check_private(os.fstat(handle.fileno()), stat.S_ISREG, path)
-        return handle.read().strip()
+        contents = handle.read()
+        return contents.strip() if strip else contents
 
 
 def check_private(info, is_kind, path):
@@ -134,6 +135,7 @@ def config_for(domain: str, postgres_password: str, smtp_host: str, smtp_sender:
             "module": "vellivex_email_auth.EmailCodeModule",
             "config": {
                 "mode": "smtp",
+                "signup_mode": "invite",
                 "database": "/data/email.sqlite",
                 "otp_secret_file": "/data/otp-secret",
                 "identity_secret_file": "/data/identity-secret",
@@ -293,9 +295,52 @@ class Stack:
         if updated != old:
             atomic_write(path, "\n".join(sorted(updated)) + "\n")
             if self.running("synapse"):
-                self.compose("restart", "synapse")
-                self.compose("up", "-d", "--wait")
+                self.reload_synapse()
         print(f"Private beta invite list contains {len(updated)} address(es)")
+
+    def reload_synapse(self) -> None:
+        self.compose("restart", "synapse")
+        self.compose("up", "-d", "--wait")
+
+    def signup(self, mode: str, *, day_limit=None, month_limit=None, ip_hour_limit=None, email_hour_limit=None) -> None:
+        path = self.state / "synapse" / "homeserver.yaml"
+        original = private_read(path, strip=False)
+        config = json.loads(original)
+        matching = [module.get("config") for module in config.get("modules", [])
+                    if isinstance(module, dict) and module.get("module") == "vellivex_email_auth.EmailCodeModule"]
+        if len(matching) != 1 or not isinstance(matching[0], dict) or matching[0].get("mode") != "smtp":
+            raise ValueError("Expected one configured Messenger SMTP email module")
+        email_module = matching[0]
+        overrides = dict(day_limit=day_limit, month_limit=month_limit,
+                         ip_hour_limit=ip_hour_limit, email_hour_limit=email_hour_limit)
+        requested = {name: value for name, value in overrides.items() if value is not None}
+        if mode == "invite" or email_module.get("signup_mode") == "public":
+            requested = {**{name: email_module[name] for name in overrides if name in email_module}, **requested}
+        _, limits = signup_limits({"signup_mode": mode, **requested})
+        if mode == "invite":
+            invite_file = self.state / "synapse" / "invited-emails"
+            if not parse_addresses([line for line in private_read(invite_file).splitlines() if line.strip()]):
+                raise ValueError("Invite mode requires at least one invited address")
+        replacement = {"signup_mode": mode, **{name: limit for name, limit in limits.items() if limit is not None}}
+        if all(email_module.get(name) == value for name, value in replacement.items()):
+            return
+        states = self.service_states("synapse")
+        if states & {"paused", "removing"}:
+            raise ValueError("Unpause Synapse or let Docker finish removing it before changing signup")
+        email_module.update(replacement)
+        write_config(path, config)
+        if states & ACTIVE_STATES:
+            try:
+                self.reload_synapse()
+            except (OSError, subprocess.CalledProcessError, KeyboardInterrupt):
+                atomic_write(path, original)
+                try:
+                    self.reload_synapse()
+                except (OSError, subprocess.CalledProcessError):
+                    print("Previous signup configuration restored, but Synapse did not become healthy.", file=sys.stderr)
+                raise
+        print(f"Messenger signup mode: {mode}. Code attempts: {limits['day_limit']} per rolling 24 hours."
+              + (f" {limits['month_limit']} per rolling 31 days." if limits["month_limit"] is not None else ""))
 
     def unit(self) -> str:
         def argument(value):
@@ -470,6 +515,12 @@ def main() -> int:
         commands.add_parser(name)
     additions = commands.add_parser("invite")
     additions.add_argument("email", nargs="+")
+    signup = commands.add_parser("signup", help="Configure email signup for an existing deployment")
+    signup.add_argument("--mode", required=True, choices=["invite", "public"])
+    signup.add_argument("--day-limit", type=int)
+    signup.add_argument("--month-limit", type=int)
+    signup.add_argument("--ip-hour-limit", type=int)
+    signup.add_argument("--email-hour-limit", type=int)
     save = commands.add_parser("backup")
     save.add_argument("output", type=Path)
     save.add_argument("--recipient", required=True)
@@ -497,6 +548,9 @@ def main() -> int:
                     print(stack.unit(), end="")
                 case "invite":
                     stack.invite(options.email)
+                case "signup":
+                    stack.signup(options.mode, day_limit=options.day_limit, month_limit=options.month_limit,
+                                 ip_hour_limit=options.ip_hour_limit, email_hour_limit=options.email_hour_limit)
                 case "backup":
                     backup(stack, options.output.absolute(), options.recipient)
                 case "restore":
