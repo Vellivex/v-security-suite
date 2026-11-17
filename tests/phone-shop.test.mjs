@@ -8,6 +8,8 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
+const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
+const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.
 const seller = {name:'Vellivex Test Supplier',addressLines:['1 Example Street','Test City','ZZ1 1ZZ']};
@@ -154,6 +156,8 @@ test('public homepage promotion is idempotent and preserves existing content and
   assert.equal(await second.text(),text);
   assert.equal((text.match(/data-phone-shop-link/g)||[]).length,1);
   assert.equal((text.match(/id="vellivex-phone-promotion"/g)||[]).length,1);
+  assert.equal((text.match(/id="vellivex-messenger-hero"/g)||[]).length,1);
+  assert.equal((text.match(/href="\/phones-promotion\.css"/g)||[]).length,1);
   assert.match(text,/<h2 id="vellivex-phone-promotion-title">Vellivex Privacy Phones<\/h2>/);
   assert.match(text,/Paid preorders with tracked UK delivery included within 14 days of payment/);
   assert.match(text,/<img class="phone-promo-image" src="\/media\/pixel-9a-obsidian\.jpg"/);
@@ -166,6 +170,64 @@ test('public homepage promotion is idempotent and preserves existing content and
   assert.equal(first.headers.get('X-Existing'),'yes');
   assert.equal(first.headers.get('ETag'),null);
   assert.equal(first.headers.get('Content-Length'),null);
+});
+
+test('the homepage offers the Messenger APK before both existing phone options', async () => {
+  const worker = shop({links}, {fetch: () => new Response(page('/'), {
+    headers: {'Content-Type': 'text/html; charset=utf-8'},
+  })});
+  const text = await (await worker.fetch(request('/'), sellerEnv)).text();
+  assert.match(text, /<main\b[^>]*><section id="vellivex-messenger-hero"/);
+  assert.ok(text.indexOf('id="vellivex-messenger-hero"') < text.indexOf('id="vellivex-phone-promotion"'));
+  assert.match(text, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
+  assert.ok(text.includes(`href="${messengerApkPath}">Free download</a>`));
+  assert.match(text, /href="\/messenger">Setup guide/);
+  assert.match(text, /New Pixel 9a[\s\S]*£479[\s\S]*Refurbished Pixel 9a[\s\S]*£375/);
+});
+
+test('Messenger setup and download support public GET and HEAD without trusting request parameters', async () => {
+  const worker = shop();
+  const guide = await worker.fetch(request('/messenger'), sellerEnv);
+  const guideText = await guide.text();
+  assert.equal(guide.status, 200);
+  assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
+  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Invite-only alpha/);
+  assert.match(guideText, /This is a debug test build/);
+  assert.match(guideText, /Test server settings.*https:\/\/messenger\.vellivex\.com/);
+  assert.match(guideText, /invited email address.*Continue with email.*eight-digit code/);
+  assert.ok(guideText.includes(`href="${messengerApkPath}">Free download</a>`));
+
+  for (const method of ['GET', 'HEAD']) {
+    const redirect = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
+    assert.equal(redirect.status, 302);
+    assert.equal(redirect.headers.get('Location'), messengerApkSource);
+    assert.equal(redirect.headers.get('Cache-Control'), 'no-store');
+    assert.equal(await redirect.text(), '');
+  }
+  const guideHead = await worker.fetch(request('/messenger', 'HEAD'), sellerEnv);
+  assert.equal(guideHead.status, 200);
+  assert.equal(await guideHead.text(), '');
+  for (const path of ['/messenger', messengerApkPath]) {
+    const post = await worker.fetch(request(path, 'POST'), sellerEnv);
+    assert.equal(post.status, 405);
+    assert.equal(post.headers.get('Allow'), 'GET, HEAD');
+    const offHost = await worker.fetch(request(path, 'GET', 'https://other.example'), sellerEnv);
+    assert.equal(await offHost.text(), 'Preserved application');
+  }
+});
+
+test('Messenger keeps its setup guide available when no public APK target is configured', async () => {
+  for (const target of ['', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
+    messengerApkSource.replace('github.com', 'fixture.example'), messengerApkSource.replace('Vellivex/', 'other/'),
+    messengerApkSource.replace('.apk', '.zip')]) {
+    const config = {links, messengerApkSource: target};
+    const guide = await html('/messenger', config);
+    assert.match(guide, /APK download is currently unavailable/);
+    assert.doesNotMatch(guide, /Free download/);
+    const download = await shop(config).fetch(request(messengerApkPath), sellerEnv);
+    assert.equal(download.status, 503);
+    assert.equal(download.headers.get('Location'), null);
+  }
 });
 
 test('sitemap adds only public phone pages and thanks cannot assert payment success',async()=>{

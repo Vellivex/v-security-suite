@@ -10,6 +10,10 @@ const CANONICAL_ORIGIN = 'https://www.vellivex.com';
 export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
+const MESSENGER_SETUP_PATH = '/messenger';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha02-arm64.apk';
+const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
+const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha02/' + MESSENGER_APK_NAME;
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
 const PUBLIC_PAGES = new Set(['/','/beta','/source','/trust','/blog','/testing','/feedback','/security','/brand','/roadmap','/privacy','/terms']);
@@ -19,6 +23,12 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp
 function paymentLink(value) {
   try { const u = new URL(value); return u.origin === 'https://buy.stripe.com' && !u.username && !u.password && !u.search && !u.hash && /^\/[A-Za-z0-9_]+$/.test(u.pathname) ? u.href : null; }
   catch { return null; }
+}
+function messengerApkLink(value) {
+  try {
+    const url = new URL(value);
+    return url.href === MESSENGER_APK_SOURCE ? url.href : null;
+  } catch { return null; }
 }
 function validatedSeller(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -123,6 +133,38 @@ function homepagePromotion() {
     </div>
   </section>`;
 }
+function messengerDownloadButton() {
+  return `<a class="messenger-download" href="${MESSENGER_APK_PATH}">Free download</a>`;
+}
+function messengerHero(downloadAvailable) {
+  return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
+    <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
+    <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
+    <div class="messenger-actions">
+      ${downloadAvailable ? messengerDownloadButton() : ''}
+      <a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">Setup guide ${arrow}</a>
+    </div>
+  </section>`;
+}
+function messengerSetup(downloadAvailable) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="Install the Vellivex Messenger Android alpha and sign in with your invitation.">
+    <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
+    <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
+    <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Invite-only alpha</p>
+    <h1>Set up Vellivex Messenger</h1>
+    <p>You’ll need the email address on your invitation and an ARM64 phone running Android 8.0 or later.</p>
+    <p>This is a debug test build. Use test conversations during the alpha.</p>
+    ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
+    <ol>
+      <li>Open the downloaded APK and follow Android’s installation prompts.</li>
+      <li>Open Vellivex Messenger. In <strong>Test server settings</strong>, enter <code>https://messenger.vellivex.com</code> as the server address.</li>
+      <li>Enter your invited email address and select <strong>Continue with email</strong>. Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
+    </ol>
+    </main></body></html>`;
+}
 function catalogue(config) {
   return layout('GrapheneOS phones UK — Pixel 9a from £375', `<div class="ps-wrap"><nav class="ps-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><span>Privacy phones</span></nav><section class="ps-hero"><div class="ps-hero-copy"><p class="ps-kicker"><span class="ps-status-dot"></span> VELLIVEX PRIVACY PHONES</p><h1>Your phone.<br><em>Your boundaries.</em></h1><p class="ps-lead">A Google Pixel, thoughtfully prepared with GrapheneOS, encrypted messaging and your Vellivex toolkit. Choose new or refurbished. Make it yours.</p><div class="ps-actions"><a class="ps-button" href="#choose">Choose your phone ${arrow}</a><a class="ps-text-link" href="#included">See what’s included <span aria-hidden="true">↓</span></a></div><p class="ps-hero-note">From £375 · UK delivery included · No Vellivex subscription required</p></div>${illustration()}</section><div class="ps-benefits"><div><span>01</span> Official GrapheneOS</div><div><span>02</span> New or refurbished</div><div><span>03</span> UK delivery in two weeks</div></div><section class="ps-section" id="choose"><div class="ps-section-heading"><div><p class="ps-kicker">THE SAME CARE. TWO WAYS TO START.</p><h2>Choose your Pixel.</h2></div><p>Both options include the same software setup. Your phone is prepared after you order, with UK delivery within two weeks of payment.</p></div><div class="ps-products">${PHONE_PRODUCTS.map(p=>productCard(p,config)).join('')}</div><p class="ps-pricing-note">Prices are in GBP. Vellivex is not VAT registered; no VAT is added. SIM, mobile service and a mains charger are not included. A compatible charging cable is included.</p><div class="ps-international"><div><h3>Outside the UK?</h3><p>International delivery takes longer. Contact us for a destination-specific delivery estimate, shipping price and any applicable import charges before paying.</p></div><a class="ps-text-link" href="${enquiry}">Get an international quote ${arrow}</a></div></section><section class="ps-section ps-divider" id="included"><div class="ps-section-heading"><div><p class="ps-kicker">PREPARED WITH PURPOSE</p><h2>Less setup.<br>More control.</h2></div><p>A considered starting point for everyday privacy, with clear instructions and honest limits.</p></div><div class="ps-included-grid"><article><span class="ps-feature-icon">◇</span><h3>A hardened foundation</h3><p>Official GrapheneOS, with the bootloader relocked, verified boot checked and security updates enabled.</p></article><article><span class="ps-feature-icon">◌</span><h3>Encrypted conversations</h3><p>Signal for end-to-end encrypted Signal messages and calls. You register your own account and choose your own credentials.</p></article><article><span class="ps-feature-icon">${mark}</span><h3>The Vellivex toolkit</h3><p>Access all 11 Vellivex apps through a dedicated hub, with supported installations and shortcuts. Email verification is required for our apps.</p></article><article><span class="ps-feature-icon">↗</span><h3>A clear handover</h3><p>Guidance for checking your installation, setting your unlock code and restoring the app bundle after a factory reset. Setup help at v@vellivex.com.</p></article></div><div class="ps-app-note"><strong>About the Vellivex apps</strong><p>Our apps are beta and include web apps as well as Android software. VNumber is a public shared SMS inbox, not private messaging. VPhone provider calling and SMS are currently disabled. The phone price covers the handset and preparation; it does not activate paid app or telephone services.</p><a href="/trust">Read the current app limitations ${arrow}</a></div></section><section class="ps-section ps-divider"><div class="ps-process-heading"><p class="ps-kicker">FROM ORDER TO YOUR DOOR</p><h2>Ready for your next chapter.</h2></div><ol class="ps-process"><li><span>01</span><h3>Choose & preorder</h3><p>Choose the handset condition and pay securely through Stripe. UK checkout collects your delivery address.</p></li><li><span>02</span><h3>We prepare your phone</h3><p>We source the handset, install the official software and prepare your setup guide.</p></li><li><span>03</span><h3>You take control</h3><p>Receive your phone within two weeks in the UK. Set your own code, accounts and recovery information.</p></li></ol></section><section class="ps-section ps-divider ps-faq-layout" id="questions"><div><p class="ps-kicker">BEFORE YOU ORDER</p><h2>Good questions.<br>Clear answers.</h2><p>Need something else?<br><a href="mailto:v@vellivex.com">Speak to Vellivex ${arrow}</a></p></div><div class="ps-faqs"><details><summary>Is every call and message encrypted?</summary><p>Signal-to-Signal messages and calls are end-to-end encrypted. Ordinary carrier calls and SMS are not made end-to-end encrypted by this phone setup. No phone is unhackable or untraceable.</p></details><details><summary>Do you keep my passwords or control my phone?</summary><p>No. You create your own unlock code, account registrations and recovery information. We do not retain your passwords, encryption keys or remote administrator access.</p></details><details><summary>Should I verify or reset a preconfigured phone?</summary><p>GrapheneOS recommends verifying the boot key and factory-resetting a preconfigured phone before use, followed by checking with Auditor. A reset removes separately installed apps. We provide instructions for verification and restoring your Vellivex setup. <a href="https://grapheneos.org/faq#preinstalled-devices" rel="external">Read the GrapheneOS guidance ${arrow}</a></p></details><details><summary>Will my usual apps and network work?</summary><p>Compatibility varies by app and network, including banking, contactless payment and managed-work apps. Contact us before ordering if a specific app, SIM or accessory is essential. Mobile service is purchased separately.</p></details><details><summary>What does refurbished mean?</summary><p>A previously owned, fully working Pixel 9a with at least 80% battery health. Cosmetic wear may be visible. It receives the same software preparation as the new option. Refurbished does not mean factory new or sealed.</p></details><details><summary>When will it arrive, and can I return it?</summary><p>UK delivery is within 14 calendar days of payment. International orders need a separate quote and take longer. UK consumers can notify us of cancellation within 14 days after delivery, then have another 14 days to return the phone. Faulty-goods rights are unaffected. <a href="/phones/terms">Full delivery and returns terms ${arrow}</a></p></details></div></section><aside class="ps-reading"><p class="ps-kicker">A PRACTICAL STARTING POINT</p><h2>What makes a privacy phone?</h2><p>Our buying guide explains GrapheneOS, encrypted messaging, customer-owned keys and the choice between new and refurbished.</p><a class="ps-text-link" href="${PHONE_LAUNCH_PATH}">Read the privacy phone guide ${arrow}</a></aside></div>`, '/phones', 'Buy a Pixel 9a with official GrapheneOS: new £479 or refurbished £375. Signal and Vellivex app access included. Paid preorders with free two-week UK delivery.', shopSchema(config));
 }
@@ -174,6 +216,20 @@ export const PHONE_SHOP_CSS = `
 `;
 
 export const PHONE_PROMOTION_CSS = `
+#vellivex-messenger-hero{margin-top:24px;padding:clamp(20px,5vw,48px);border:1px solid #35677a;border-radius:12px;background:linear-gradient(112deg,#14354a,#0f1f30 80%);color:#f3f6fb}
+#vellivex-messenger-hero h2,.messenger-setup h1{margin:0 0 10px;font-size:clamp(32px,5vw,52px);line-height:1.05;letter-spacing:-.035em}
+.messenger-platform{color:#a5e5ed;font-size:14px;margin:0 0 12px}
+.messenger-description{color:#d2dce7;margin:0;font-size:clamp(16px,2.2vw,20px);line-height:1.55}
+.messenger-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px;margin-top:22px}
+.messenger-download{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:6px;background:#a5e5ed;color:#07161b;font-weight:700;text-decoration:none}
+.messenger-download:hover{background:#d3f4f8;color:#07161b}
+.messenger-guide-link{color:#a5e5ed;text-decoration:underline;text-underline-offset:.2em}
+.messenger-guide-link:focus-visible,.messenger-download:focus-visible{outline:2px solid #f3f6fb;outline-offset:3px}
+.messenger-setup{margin:0;background:#0a101b;color:#f3f6fb;font:16px/1.6 system-ui,sans-serif}
+.messenger-setup-content{max-width:640px;margin:auto;padding:32px 20px}
+.messenger-setup-content .messenger-platform{margin-top:28px}
+.messenger-setup-content li{margin:0 0 12px}
+.messenger-setup-content code{overflow-wrap:anywhere;color:#a5e5ed}
 #vellivex-phone-promotion{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);align-items:center;gap:24px;margin-top:24px;padding:18px 23px;border:1px solid #34596c;background:#122638;border-radius:6px}
 #vellivex-phone-promotion .phone-promo-image{display:block;width:100%;height:auto;border-radius:5px}
 #vellivex-phone-promotion h2{font-size:clamp(20px,3vw,28px);line-height:1.2;margin:0;color:#f3f6fb}
@@ -206,9 +262,18 @@ async function shopResponse(body, request, type = 'text/html; charset=utf-8', st
 
 export function withPhoneShop(worker, config = {}) {
   if (typeof worker?.fetch !== 'function') throw new TypeError('An existing Worker is required');
+  const messengerApkUrl = messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
   return {...worker, async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
+    if (path === MESSENGER_SETUP_PATH || path === MESSENGER_APK_PATH) {
+      if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {
+        status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
+      });
+      if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerApkUrl)), request);
+      if (!messengerApkUrl) return shopResponse('APK download unavailable', request, 'text/plain; charset=utf-8', 503);
+      return new Response(null, {status:302, headers:{...envelope, 'Location':messengerApkUrl}});
+    }
     const media = phoneMediaResponse(request);
     if (media) return media;
     if (SHOP_PATHS.has(path)) {
@@ -266,9 +331,16 @@ export function withPhoneShop(worker, config = {}) {
     let body = await response.text();
     // Only the established public navigation is extended. App documents and auth responses never enter this branch.
     body = body.replace(/<nav\b([^>]*)\bid=(['"])navigation\2([^>]*)>([\s\S]*?)<\/nav>/i, (full, before, quote, after, content) => content.includes('data-phone-shop-link') ? full : `<nav${before}id=${quote}navigation${quote}${after}><a href="/phones" data-phone-shop-link>Privacy phones</a>${content}</nav>`);
-    if (path === '/' && !body.includes('id="vellivex-phone-promotion"')) {
-      body = body.replace(/<main\b[^>]*>/i, opening => opening + homepagePromotion());
-      body = body.replace('</head>', '<link rel="stylesheet" href="/phones-promotion.css"></head>');
+    if (path === '/') {
+      if (!body.includes('id="vellivex-phone-promotion"')) {
+        body = body.replace(/<main\b[^>]*>/i, opening => opening + homepagePromotion());
+      }
+      if (!body.includes('id="vellivex-messenger-hero"')) {
+        body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(messengerApkUrl)));
+      }
+      if (!body.includes('href="/phones-promotion.css"')) {
+        body = body.replace('</head>', '<link rel="stylesheet" href="/phones-promotion.css"></head>');
+      }
     }
     if (path === '/blog' && !body.includes('id="vellivex-phone-launch-post"')) {
       const card = `<article class="product" id="vellivex-phone-launch-post"><span class="tag">Privacy phones · Buying guide</span><h2><a href="${PHONE_LAUNCH_PATH}">GrapheneOS privacy phones in the UK</a></h2><p>Meet the new and refurbished Vellivex Pixel 9a. Understand the software, encrypted messaging, customer-owned keys and two-week UK delivery.</p><p class="fine">Vellivex · 12 November 2026</p><a class="text-link" href="${PHONE_LAUNCH_PATH}">Read the buying guide ↗</a></article>`;
