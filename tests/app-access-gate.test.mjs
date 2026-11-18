@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {CENTRAL_ORIGIN, APP_AUDIENCES, LEGACY_APP_ORIGINS, allowedAudience, validReturnPath, classifyAppRequest} from '../server/app-access/registry.mjs';
 import {APP_COOKIE, FLOW_COOKIE_PREFIX, AppAccessUnavailable, createAppAccessGate, validateAppAccess, markAuthorizedAppDocument, validAccessToken} from '../server/app-access/gate.mjs';
+import {withAppAccess} from '../server/app-access/entry.mjs';
 
 const token = n => Buffer.alloc(32, n).toString('base64url');
 const hash = async value => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))).toString('base64url');
@@ -125,6 +126,95 @@ test('bootstrap keeps invitation only in same-origin sessionStorage and prevents
   assert.ok(run.navigations[0].endsWith('#_'));
   assert.equal(run.navigations[0].includes('fictional-private-key'), false);
   assert.equal(h.calls.length, 0);
+});
+test('VVault GET and HEAD bootstraps advertise only the public same-origin manifest while retaining sign-in', async () => {
+  const h = harness(), secret = '#fictional-private-vault-fragment';
+  for (const origin of ['https://www.vellivex.com', 'https://vellivex.com']) {
+    for (const path of ['/apps/vault', '/apps/vault/']) {
+      for (const method of ['GET', 'HEAD']) {
+        const page = await h.gate.handle(req(path, {}, method, origin), {}), html = await page.text();
+        assert.equal(page.status, 200);
+        assert.equal(page.headers.get('Cache-Control'), 'no-store');
+        assert.equal(page.headers.get('X-Vellivex-App-Access'), 'required');
+        assert.equal(page.headers.get('Set-Cookie'), null);
+        assert.equal(page.headers.get('Location'), null);
+        const policy = page.headers.get('Content-Security-Policy');
+        assert.match(policy, /^default-src 'none';/);
+        assert.match(policy, /(?:^|; )manifest-src 'self';/);
+        assert.match(policy, /script-src 'nonce-/);
+        if (method === 'HEAD') { assert.equal(html, ''); continue; }
+        assert.deepEqual([...html.matchAll(/<link\b[^>]*>/g)].map(match => match[0]), ['<link rel="manifest" href="/manifest.webmanifest">']);
+        assert.doesNotMatch(html, /navigator\.serviceWorker|installOfflineTools|\/sw\.js/);
+        const run = executePage(html, {fragment: secret});
+        const next = new URL(run.navigations[0], origin);
+        assert.equal(next.origin, origin);
+        assert.equal(next.pathname, '/__access/start');
+        assert.equal(next.searchParams.get('next'), '/apps/vault');
+        assert.equal(next.hash, '#_');
+        assert.equal(run.navigations[0].includes(secret), false);
+        assert.equal(JSON.parse([...run.saved.data.values()][0]).fragment, secret);
+        assert.equal(run.history[0][2], '/apps/vault#_');
+      }
+    }
+    assert.equal(await h.gate.handle(req('/manifest.webmanifest', {}, 'GET', origin), {}), null);
+  }
+  assert.equal(h.calls.length, 0);
+});
+test('other app gates, offline sources, downloads and return pages do not advertise the VVault manifest', async () => {
+  const h = harness(), site = 'https://www.vellivex.com';
+  const entries = [
+    ...['/apps/guard', '/apps/relay', '/apps/cipher', '/apps/cipher/vault', '/apps/cipher/relay', '/apps/mail', '/apps/sms',
+      '/offline/vault', '/offline/relay', '/offline/cipher/vault', '/offline/cipher/relay', '/downloads/VGuard-0.1.4-candidate.apk'].map(path => [site, path]),
+    [site, '/__access/return?state=' + token(1) + '&next=%2Fapps%2Fvault'],
+    [CENTRAL_ORIGIN, '/call.html'], ['https://vphone.vellivex.com', '/'], ['https://vdecoy.vellivex.com', '/'],
+    [ORIGIN, '/'], ['https://private.vellivex.com', '/live'],
+  ];
+  for (const [origin, path] of entries) {
+    const page = await h.gate.handle(req(path, {}, 'GET', origin), {});
+    assert.equal(page.headers.get('X-Vellivex-App-Access'), 'required');
+    assert.doesNotMatch(page.headers.get('Content-Security-Policy'), /manifest-src/);
+    assert.doesNotMatch(await page.text(), /rel="manifest"|manifest\.webmanifest/);
+  }
+  assert.equal(h.calls.length, 0);
+});
+test('VVault metadata cannot admit unregistered origins or alternate development hosts', async () => {
+  let dispatched = 0;
+  const worker = withAppAccess({fetch() { dispatched++; throw Error('untrusted origin reached app'); }},
+    {origins: ['https://www.vellivex.com', 'https://vellivex.com']});
+  for (const origin of ['http://www.vellivex.com', 'https://www.vellivex.com:8443', 'https://www.vellivex.com.evil.test',
+    'https://unlisted.vellivex.com', 'https://vphone.vellivex.com', 'https://vellivex-site-migration.vellivex-call.workers.dev']) {
+    for (const method of ['GET', 'HEAD']) {
+      const page = await worker.fetch(req('/apps/vault', {}, method, origin), {});
+      assert.equal(page.status, 403);
+      assert.equal(page.headers.get('X-Vellivex-App-Access'), 'required');
+      assert.equal(page.headers.get('Set-Cookie'), null);
+      assert.doesNotMatch(page.headers.get('Content-Security-Policy'), /manifest-src/);
+      assert.doesNotMatch(await page.text(), /rel="manifest"/);
+    }
+  }
+  assert.equal(dispatched, 0);
+});
+test('VVault manifest discovery still requires valid, unexpired broker admission to reach app documents', async () => {
+  const site = 'https://www.vellivex.com';
+  const h = harness({reply: (path, data) => {
+    assert.equal(path, '/__app_access/validate');
+    assert.equal(data.audience, site);
+    if (data.sessionToken === token(2)) return json({error: 'invalid'}, 401);
+    if (data.sessionToken === token(4)) throw Error('unavailable');
+    return json({valid: true, scope: {id: token(13), epoch: 1, session: token(14), appAccess: true}, expiresAt: data.sessionToken === token(3) ? NOW - 1 : NOW + 3600_000});
+  }});
+  for (const method of ['GET', 'HEAD']) {
+    for (const [session, expectedStatus] of [[null, 200], ['bad', 200], [token(2), 200], [token(3), 503], [token(4), 503], [token(12), null]]) {
+      const before = h.calls.length;
+      const result = await h.gate.handle(req('/apps/vault', session ? {Cookie: APP_COOKIE + '=' + session} : {}, method, site), {});
+      assert.equal(h.calls.length - before, session && session !== 'bad' ? 1 : 0);
+      if (expectedStatus === null) { assert.equal(result, null); continue; }
+      assert.equal(result.status, expectedStatus);
+      assert.equal(result.headers.get('X-Vellivex-App-Access'), 'required');
+      assert.equal(result.headers.get('Cache-Control'), 'no-store');
+      assert.equal(result.headers.get('Set-Cookie'), null);
+    }
+  }
 });
 test('prepare is same-origin and returns HttpOnly per-flow verifier with exact central handoff', async () => {
   const h = harness(), flow = await startFlow(h);

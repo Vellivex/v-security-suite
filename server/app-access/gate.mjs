@@ -109,15 +109,18 @@ export async function validateAppAccess(request, env, {broker, now = Date.now} =
       !Number.isSafeInteger(data.expiresAt) || data.expiresAt <= now()) throw new AppAccessUnavailable();
   return Object.freeze({...scope});
 }
-function scriptPage(script, message) {
+function scriptPage(script, message, {manifest = false} = {}) {
   const nonce = randomToken();
-  const policy = `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`;
-  return response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vellivex · Email sign-in</title><style nonce="${nonce}">body{margin:0;padding:3rem 1.5rem;background:#0a101b;color:#edf6ff;font:18px system-ui}main{max-width:34rem;margin:10vh auto}p{line-height:1.6;color:#c4d6e5}strong{color:#b5dded}</style><main><strong>VELLIVEX</strong><h1>Email access for every app.</h1><p id="status">${message}</p><noscript>Enable JavaScript to continue securely with email.</noscript></main><script nonce="${nonce}">${script}</script></html>`, 200, {'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': policy});
+  const policy = `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; ${manifest ? "manifest-src 'self'; " : ''}base-uri 'none'; frame-ancestors 'none'; form-action 'none'`;
+  const metadata = manifest ? '<link rel="manifest" href="/manifest.webmanifest">' : '';
+  return response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vellivex · Email sign-in</title>${metadata}<style nonce="${nonce}">body{margin:0;padding:3rem 1.5rem;background:#0a101b;color:#edf6ff;font:18px system-ui}main{max-width:34rem;margin:10vh auto}p{line-height:1.6;color:#c4d6e5}strong{color:#b5dded}</style><main><strong>VELLIVEX</strong><h1>Email access for every app.</h1><p id="status">${message}</p><noscript>Enable JavaScript to continue securely with email.</noscript></main><script nonce="${nonce}">${script}</script></html>`, 200, {'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': policy});
 }
 function bootstrap(path) {
   const state = randomToken();
   const target = '/__access/start?state=' + state + '&next=' + encodeURIComponent(path) + '#_';
-  return scriptPage(`(()=>{const state=${JSON.stringify(state)},path=${JSON.stringify(path)},key='vellivex-access-fragment:'+state;try{const fragment=location.hash==='#_'?'':location.hash;if(fragment.length>65536)throw Error();sessionStorage.setItem(key,JSON.stringify({path,fragment}));history.replaceState(null,'',path+'#_');location.replace(${JSON.stringify(target)});}catch{document.getElementById('status').textContent='Your browser could not preserve this invitation. Allow temporary site storage, then reopen the original invitation.';}})();`, 'Opening your email sign-in…');
+  // The VVault entry can advertise its public manifest without granting access
+  // to app documents or registering the optional offline service worker.
+  return scriptPage(`(()=>{const state=${JSON.stringify(state)},path=${JSON.stringify(path)},key='vellivex-access-fragment:'+state;try{const fragment=location.hash==='#_'?'':location.hash;if(fragment.length>65536)throw Error();sessionStorage.setItem(key,JSON.stringify({path,fragment}));history.replaceState(null,'',path+'#_');location.replace(${JSON.stringify(target)});}catch{document.getElementById('status').textContent='Your browser could not preserve this invitation. Allow temporary site storage, then reopen the original invitation.';}})();`, 'Opening your email sign-in…', {manifest: path === '/apps/vault'});
 }
 function returnPage(state, path) {
   return scriptPage(`(()=>{const key='vellivex-access-fragment:'+${JSON.stringify(state)},path=${JSON.stringify(path)};try{let fragment='';const raw=sessionStorage.getItem(key);if(raw!==null){const saved=JSON.parse(raw);if(!saved||saved.path!==path||typeof saved.fragment!=='string'||saved.fragment.length>65536||saved.fragment&&!saved.fragment.startsWith('#'))throw Error();fragment=saved.fragment;sessionStorage.removeItem(key);}location.replace(path+(fragment||'#_'));}catch{document.getElementById('status').textContent='Sign-in is complete, but this browser could not restore the invitation. Reopen your original app link.';}})();`, 'Returning to your app…');
