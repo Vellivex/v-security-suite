@@ -9,6 +9,7 @@ const top=['AGENTS.md','LICENSE','NOTICE','README.md','SECURITY.md','CONTRIBUTIN
 const release=['VGuard-Setup.txt','VGuard-Test-Report.txt','RELEASE-NOTES.txt','VGuard-0.1.3-Build-Report.json','VGuard-0.1.3-Package-Verification.txt','VGuard-0.1.3-Security-Notes.txt'];
 const other=['VGuard-0.1.3-candidate.apk','VGuard-0.1.1-Source-GPL.zip','VGuard-0.1.2-Source-GPL.zip'];
 const android = 'apps/messenger/android';
+const uiDriver = 'apps/messenger/android-app-to-app';
 const sdk = 'apps/messenger/sdk';
 const gradleWrapper = `${android}/gradle/wrapper/gradle-wrapper.jar`;
 const gradleWrapperFile = new URL(`../${gradleWrapper}`, import.meta.url);
@@ -62,6 +63,8 @@ test('source archive packages reviewed Messenger source and omits local runtime 
   'apps/messenger/NOTICE', `${android}/.gitattributes`, `${android}/gradle.properties`,
   `${android}/gradle/wrapper/gradle-wrapper.properties`, `${android}/gradlew`, `${android}/gradlew.bat`,
   `${android}/app/build.gradle.kts`, `${android}/app/src/main/Example.kt`,
+  `${uiDriver}/settings.gradle.kts`, `${uiDriver}/build.gradle.kts`, `${uiDriver}/gradle.properties`,
+  `${uiDriver}/app/src/androidTest/Example.kt`,
   `${sdk}/README.md`, `${sdk}/build.sh`, `${sdk}/peer-device-verification.patch`, `${sdk}/sources.json`,
  ];
  for (const path of reviewed) await addReviewedFile(t.root, path, 'synthetic public source');
@@ -69,6 +72,7 @@ test('source archive packages reviewed Messenger source and omits local runtime 
  const runtimeFiles = [
   `${android}/.gradle/cache.bin`, `${android}/.kotlin/session`, `${android}/.venv/bin/python`,
   `${android}/.runtime/auth.db`, `${sdk}/build/vellivex-matrix-sdk-26.11.05-vellivex.1.aar`,
+  `${uiDriver}/.gradle/cache.bin`, `${uiDriver}/app/build/outputs/apk/debug/app-debug.apk`,
   `${sdk}/build/upstream/Cargo.toml`, `${sdk}/build/jni/arm64-v8a/libmatrix_sdk_ffi.so`,
  ];
  for (const path of runtimeFiles) {
@@ -125,6 +129,8 @@ test('source archive refuses local properties and binary files disguised as Mess
  for (const [path, contents, error] of [
   [`${android}/app/LOCAL.PROPERTIES`, 'sdk.dir=/private/path', /Private\/runtime input is forbidden/],
   [`${android}/app/src/main/Private.kt`, Buffer.from([0, 1, 2]), /Unexpected binary Messenger input/],
+  [`${uiDriver}/app/LOCAL.PROPERTIES`, 'sdk.dir=/private/path', /Private\/runtime input is forbidden/],
+  [`${uiDriver}/app/src/androidTest/Private.kt`, Buffer.from([0, 1, 2]), /Unexpected binary Messenger input/],
  ]) await checked(async t => {
   await addReviewedFile(t.root, path, contents);
   const result = t.run();

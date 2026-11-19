@@ -1,0 +1,123 @@
+name: Vellivex Messenger two-app acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/messenger/android-app-to-app/**'
+      - 'apps/messenger/scripts/app-to-app-coordinator.py'
+      - 'apps/messenger/scripts/run-android-app-to-app.sh'
+      - '.github/workflows/messenger-app-to-app.yml'
+
+permissions: {}
+
+concurrency:
+  group: messenger-two-app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  two-installed-apps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Fetch public test source without repository credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Prepare Android tools and verify the released Alpha05 installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+          mkdir -p "$RUNNER_TEMP/messenger-two-app-inputs" "$RUNNER_TEMP/messenger-two-app-evidence"
+          python3.12 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          expected_url = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/Vellivex-Messenger-0.1.0-alpha05-arm64.apk'
+          expected_hash = '6a4a72c3ad0c08ac74afa17af145a80f40fd4287ff7dabe77ef114c401366fef'
+          expected_signer = '3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
+          manifest = json.loads(Path('apps/messenger/android/arm64-alpha05-acceptance.json').read_text())
+          if (manifest['app_url'], manifest['app_sha256'], manifest['signer_sha256']) != (expected_url, expected_hash, expected_signer):
+              raise SystemExit('This two-app acceptance test is pinned to the original signed Alpha05 release.')
+          target = Path(os.environ['RUNNER_TEMP']) / 'messenger-two-app-inputs/app.apk'
+          subprocess.run([
+              'curl', '--fail', '--silent', '--show-error', '--location', '--proto', '=https',
+              '--proto-redir', '=https', '--retry', '3', '--connect-timeout', '20', '--max-time', '300',
+              expected_url, '--output', str(target),
+          ], check=True)
+          actual = hashlib.sha256(target.read_bytes()).hexdigest()
+          if actual != expected_hash:
+              raise SystemExit('The downloaded application is not the accepted Alpha05 installer.')
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'messenger-two-app-evidence/input.json'
+          evidence.write_text(json.dumps({
+              'source_commit': os.environ['CHECK_SHA'],
+              'app_url': expected_url,
+              'app_sha256': actual,
+              'app_bytes': target.stat().st_size,
+              'expected_app_signer_sha256': expected_signer,
+              'method': 'Two installed original applications controlled by a separate UiAutomator package',
+              'backend': 'Disposable local Synapse with synthetic example.test email addresses',
+              'live_service': False,
+              'physical_devices': False,
+          }, indent=2) + '\n')
+          print(f'Original Alpha05 download verified: {actual}')
+          PY
+
+      - name: Build the independent UI driver without the application signing key
+        working-directory: apps/messenger/android-app-to-app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ../android/gradlew --no-daemon --console=plain --max-workers=2 \
+            :app:assembleDebug :app:assembleDebugAndroidTest
+
+      - name: Enable hardware acceleration on the hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -c /dev/kvm ]]; then
+            echo '::error::This runner has no KVM device for the two Android emulators.'
+            exit 1
+          fi
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
+
+      - name: Operate both installed apps through their full interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          driver=apps/messenger/android-app-to-app/app/build/outputs/apk
+          bash apps/messenger/scripts/run-android-app-to-app.sh \
+            "$RUNNER_TEMP/messenger-two-app-evidence/execution" \
+            "$RUNNER_TEMP/messenger-two-app-inputs/app.apk" \
+            "$driver/debug/app-debug.apk" \
+            "$driver/androidTest/debug/app-debug-androidTest.apk"
+
+      - name: Retain sanitized two-app test evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-two-installed-apps-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/messenger-two-app-evidence/
+          if-no-files-found: warn
+          retention-days: 14

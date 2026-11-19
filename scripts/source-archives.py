@@ -18,6 +18,7 @@ source_suffixes = {'.md', '.txt', '.json', '.js', '.mjs', '.cjs', '.ts', '.java'
 public_hooks = {'scripts/git-hooks/pre-commit', 'scripts/git-hooks/pre-push'}
 messenger_root = 'apps/messenger/'
 messenger_android = messenger_root + 'android/'
+messenger_ui_driver = messenger_root + 'android-app-to-app/'
 gradle_launcher = messenger_android + 'gradlew'
 gradle_wrapper = messenger_android + 'gradle/wrapper/gradle-wrapper.jar'
 # Embedded gradle-wrapper.jar from the verified Gradle 8.14.3 binary distribution.
@@ -26,6 +27,7 @@ messenger_text_files = {
     messenger_root + 'NOTICE',
     messenger_android + '.gitattributes',
     messenger_android + 'gradle.properties',
+    messenger_ui_driver + 'gradle.properties',
     messenger_android + 'gradle/wrapper/gradle-wrapper.properties',
     gradle_launcher,
     gradle_launcher + '.bat',
@@ -70,7 +72,7 @@ def source_candidate(path):
     suffix = path.suffix.lower()
     if lower.startswith('.env') or lower == 'local.properties' or suffix in private_suffixes or private_name.search(lower):
         raise RuntimeError(f'Private/runtime input is forbidden: {name}')
-    kotlin = name.startswith(messenger_android) and suffix in {'.kt', '.kts'}
+    kotlin = name.startswith((messenger_android, messenger_ui_driver)) and suffix in {'.kt', '.kts'}
     if not (
         suffix in source_suffixes or kotlin or name in messenger_text_files or name == gradle_wrapper
         or name in top_files or name in public_hooks or path.name == '.gitignore'
