@@ -106,12 +106,18 @@ clickable inbox button from its observed UI structure, click it once, and requir
 the real **Start a conversation** dialog to appear. It must fail if the target
 is missing or ambiguous. This permits the remaining functional checks without
 claiming that the button is accessible or modifying the released application.
+Compose UI 1.9.4 can export a clickable control as a generic view with a separate,
+non-clickable Button-role child. The driver must establish that relationship
+from the actual UI nodes instead of assuming that the clickable node itself has
+the Button class. The third run's strict Button-class selector found no matching
+control; it did not tap a control or establish message delivery.
 An application fix should give the icon or button the explicit accessibility
 description **New conversation** and be verified in a separately identified
 build.
 
-Primary references: [Android component documentation](https://developer.android.com/reference/kotlin/androidx/compose/material3/ExtendedFloatingActionButton.composable)
-and the [Material3 1.4.0 source archive](https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.4.0/material3-android-1.4.0-sources.jar).
+Primary references: [Android component documentation](https://developer.android.com/reference/kotlin/androidx/compose/material3/ExtendedFloatingActionButton.composable),
+the [Material3 1.4.0 source archive](https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.4.0/material3-android-1.4.0-sources.jar),
+and the [Compose UI 1.9.4 source archive](https://dl.google.com/dl/android/maven2/androidx/compose/ui/ui-android/1.9.4/ui-android-1.9.4-sources.jar).
 
 ## Limits
 

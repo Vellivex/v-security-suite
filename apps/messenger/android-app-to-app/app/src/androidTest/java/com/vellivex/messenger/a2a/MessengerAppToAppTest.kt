@@ -451,7 +451,10 @@ class MessengerAppToAppTest {
             lastAction = "find-unnamed-new-conversation"
             // Alpha05 uses Material3 1.4.0's icon/text FAB overload. That overload clears the
             // text's semantics and the app supplied a null icon description. The visible FAB
-            // therefore has Button role but no accessible name. Observe its actual UI node;
+            // therefore has Button role but no accessible name. Compose UI 1.9.4 can expose
+            // the click action on a View parent and Button role on a nonclickable fake child.
+            // Require that actual parent/child shape; never accept an arbitrary anonymous View.
+            // Observe its actual UI node;
             // never substitute a hardcoded coordinate or an app-internal action.
             waitValue("unique unnamed new-conversation button in the empty inbox") {
                 val candidates = unnamedNewConversationButtons()
@@ -486,19 +489,41 @@ class MessengerAppToAppTest {
             visible("Start a conversation") || visible("Your Vellivex ID") || visible("Conversation invitation") ||
             visible("Verify your contact to start chatting") || visible("Verified conversation") || hasDescription("Send message")
         ) return emptyList()
-        fun unnamed(node: UiObject2, depth: Int = 0): Boolean =
-            node.text.isNullOrBlank() && node.contentDescription.isNullOrBlank() &&
-                if (depth < 8) node.children.all { unnamed(it, depth + 1) } else node.children.isEmpty()
-        return device.findObjects(By.pkg(APP).clazz("android.widget.Button").enabled(true).clickable(true))
-            .filter { !it.visibleBounds.isEmpty && unnamed(it) }
+        return device.findObjects(By.pkg(APP).enabled(true).clickable(true))
+            .filter { node -> !node.visibleBounds.isEmpty && isUnnamed(node) &&
+                (node.className == "android.widget.Button" ||
+                    (node.className == "android.view.View" && nonclickableButtonChildren(node).isNotEmpty())) }
+    }
+
+    private fun isUnnamed(node: UiObject2, depth: Int = 0): Boolean =
+        node.text.isNullOrBlank() && node.contentDescription.isNullOrBlank() &&
+            if (depth < 8) node.children.all { isUnnamed(it, depth + 1) } else node.children.isEmpty()
+
+    private fun nonclickableButtonChildren(parent: UiObject2): List<UiObject2> {
+        val result = mutableListOf<UiObject2>()
+        val parentBounds = parent.visibleBounds
+        fun visit(node: UiObject2, depth: Int) {
+            if (depth > 8) return
+            for (child in node.children) {
+                if (child.className == "android.widget.Button" && !child.isClickable &&
+                    !child.visibleBounds.isEmpty && parentBounds.contains(child.visibleBounds) && isUnnamed(child)
+                ) result.add(child)
+                visit(child, depth + 1)
+            }
+        }
+        visit(parent, 0)
+        return result
     }
 
     private fun reportObservedControl(node: UiObject2, channel: String) {
         require(channel in setOf("text", "anonymous-button"))
         val bounds = node.visibleBounds
-        val message = "Two-app control $role $phase: expected=new-conversation channel=$channel role=button " +
+        val parentRole = if (node.className == "android.widget.Button") "button" else "view"
+        val roleChild = nonclickableButtonChildren(node).firstOrNull()?.visibleBounds
+        val message = "Two-app control $role $phase: expected=new-conversation channel=$channel role=$parentRole " +
             "enabled=${node.isEnabled} clickable=${node.isClickable} " +
             "bounds=${bounds.left},${bounds.top},${bounds.right},${bounds.bottom} " +
+            "role-child=${roleChild != null} child-bounds=${roleChild?.left ?: 0},${roleChild?.top ?: 0},${roleChild?.right ?: 0},${roleChild?.bottom ?: 0} " +
             "screen=${device.displayWidth},${device.displayHeight}\n"
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
     }
@@ -562,6 +587,7 @@ class MessengerAppToAppTest {
             "dialog=$dialog error=$error empty-inbox=$emptyInbox room-row=$roomRow composer=$composer editable-count=$editableCount\n"
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
         runCatching { reportTargetDiagnostics() }
+        runCatching { reportEmptyInboxStructure() }
     }
 
     private fun reportTargetDiagnostics() {
@@ -588,6 +614,53 @@ class MessengerAppToAppTest {
             "bounds=${bounds?.left ?: 0},${bounds?.top ?: 0},${bounds?.right ?: 0},${bounds?.bottom ?: 0} " +
             "role=$roleName focus-app=$focus ime=$ime\n"
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
+    }
+
+    private fun reportEmptyInboxStructure() {
+        if (expectedControl != ExpectedControl.NewConversation) return
+        fun visible(value: String) = device.findObject(By.pkg(APP).text(value))?.visibleBounds?.isEmpty == false
+        val messages = visible("Messages")
+        val empty = visible("Your people. Your space.")
+        val profile = visible("Your Vellivex ID")
+        val dialog = visible("Start a conversation")
+        // This structural inventory is intentionally restricted to the known empty inbox.
+        // It contains no node text, descriptions, IDs, editor values, or full hierarchy.
+        if (!messages || !empty || profile || dialog) return
+        val shareId = visible("Share my ID")
+        val room = visible("Conversation invitation") || visible("Verify your contact to start chatting") || visible("Verified conversation")
+        val composer = hasDescription("Send message")
+        val clickable = device.findObjects(By.pkg(APP).clickable(true))
+        val buttons = device.findObjects(By.pkg(APP).clazz("android.widget.Button"))
+        val activeButtons = buttons.filter { it.isEnabled && it.isClickable && !it.visibleBounds.isEmpty }
+        val activeViews = clickable.filter { it.className == "android.view.View" && it.isEnabled && !it.visibleBounds.isEmpty }
+        val summary = "Two-app structure $role $phase: messages=$messages empty-inbox=$empty share-id=$shareId " +
+            "profile-dialog=$profile new-chat-dialog=$dialog room-row=$room composer=$composer " +
+            "app-clickable-count=${clickable.size} button-count=${buttons.size} " +
+            "button-visible-count=${buttons.count { !it.visibleBounds.isEmpty }} button-clickable-count=${activeButtons.size} " +
+            "view-clickable-count=${activeViews.size} anonymous-button-count=${activeButtons.count { isUnnamed(it) }} " +
+            "anonymous-view-count=${activeViews.count { isUnnamed(it) }} " +
+            "role-child-view-count=${activeViews.count { isUnnamed(it) && nonclickableButtonChildren(it).isNotEmpty() }} " +
+            "truncated=${clickable.size > 20 || buttons.size > 20}\n"
+        instrumentation.sendStatus(0, Bundle().apply { putString("stream", summary) })
+        for ((kind, nodes) in listOf("clickable" to clickable, "button" to buttons)) {
+            nodes.take(20).forEachIndexed { index, node ->
+                val bounds = node.visibleBounds
+                val classRole = when (node.className) {
+                    "android.widget.Button" -> "button"
+                    "android.widget.ImageButton" -> "image-button"
+                    "android.widget.EditText" -> "editor"
+                    "android.widget.TextView" -> "text"
+                    "android.view.View" -> "view"
+                    else -> "other"
+                }
+                val record = "Two-app node $role $phase: kind=$kind index=$index role=$classRole " +
+                    "enabled=${node.isEnabled} clickable=${node.isClickable} visible=${!bounds.isEmpty} " +
+                    "text-present=${!node.text.isNullOrBlank()} description-present=${!node.contentDescription.isNullOrBlank()} " +
+                    "named-descendants=${node.children.any { !isUnnamed(it) }} role-children=${nonclickableButtonChildren(node).size} " +
+                    "bounds=${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}\n"
+                instrumentation.sendStatus(0, Bundle().apply { putString("stream", record) })
+            }
+        }
     }
 
     private fun firstMessage(from: String) = "Fictional $from to peer $runId."
