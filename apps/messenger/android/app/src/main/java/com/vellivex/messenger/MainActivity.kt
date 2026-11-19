@@ -570,7 +570,7 @@ private fun Inbox(state: MessengerState, profile: () -> Unit, newChat: () -> Uni
                 }
             }
             ExtendedFloatingActionButton(onClick = newChat, containerColor = Accent, contentColor = Ink,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp), icon = { Icon(Icons.Outlined.Edit, null) }, text = { Text("New conversation") })
+                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp), icon = { Icon(Icons.Outlined.Edit, "New conversation") }, text = { Text("New conversation") })
         }
     }
 }
