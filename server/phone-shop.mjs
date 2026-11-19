@@ -11,14 +11,16 @@ export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const MESSENGER_SETUP_PATH = '/messenger';
-const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha07-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
-const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/' + MESSENGER_APK_NAME;
+const MESSENGER_APK_BYTES = 57525706;
+const MESSENGER_APK_SHA256 = '4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5';
 const RETIRED_MESSENGER_APK_PATHS = new Set([
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk',
 ]);
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
@@ -30,11 +32,77 @@ function paymentLink(value) {
   try { const u = new URL(value); return u.origin === 'https://buy.stripe.com' && !u.username && !u.password && !u.search && !u.hash && /^\/[A-Za-z0-9_]+$/.test(u.pathname) ? u.href : null; }
   catch { return null; }
 }
-function messengerApkLink(value) {
+function messengerReleaseBucket(env) {
+  const bucket = env?.MESSENGER_RELEASES;
+  return typeof bucket?.get === 'function' && typeof bucket?.head === 'function' ? bucket : null;
+}
+function messengerReleaseMatches(object) {
+  return object?.key === MESSENGER_APK_NAME && object.size === MESSENGER_APK_BYTES &&
+    object.customMetadata?.sha256 === MESSENGER_APK_SHA256;
+}
+function messengerByteRange(value) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return null;
+    const length = Math.min(suffix, MESSENGER_APK_BYTES);
+    return {offset: MESSENGER_APK_BYTES - length, length};
+  }
+  const offset = Number(match[1]);
+  const last = match[2] ? Number(match[2]) : MESSENGER_APK_BYTES - 1;
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(last) ||
+    offset >= MESSENGER_APK_BYTES || last < offset) return null;
+  return {offset, length: Math.min(last, MESSENGER_APK_BYTES - 1) - offset + 1};
+}
+async function messengerApkResponse(request, bucket) {
+  const unavailable = () => new Response(request.method === 'HEAD' ? null : 'APK download unavailable', {
+    status: 503, headers: {...envelope, 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60'},
+  });
+  if (!bucket) return unavailable();
   try {
-    const url = new URL(value);
-    return url.href === MESSENGER_APK_SOURCE ? url.href : null;
-  } catch { return null; }
+    // Only this pinned public release is addressable. Never derive a storage key
+    // from a query parameter, arbitrary pathname or caller-supplied URL.
+    const metadata = await bucket.head(MESSENGER_APK_NAME);
+    if (!messengerReleaseMatches(metadata)) return unavailable();
+    const etag = '"sha256-' + MESSENGER_APK_SHA256 + '"';
+    const headers = new Headers({...envelope,
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Disposition': 'attachment; filename="' + MESSENGER_APK_NAME + '"',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Accept-Ranges': 'bytes', 'ETag': etag, 'X-Content-SHA256': MESSENGER_APK_SHA256,
+    });
+    const unchanged = request.headers.get('If-None-Match');
+    if (unchanged && unchanged.split(',').some(value => value.trim().replace(/^W\//, '') === etag || value.trim() === '*')) {
+      return new Response(null, {status: 304, headers});
+    }
+    if (request.method === 'HEAD') {
+      headers.set('Content-Length', String(MESSENGER_APK_BYTES));
+      return new Response(null, {status: 200, headers});
+    }
+    const requestedRange = request.headers.get('Range');
+    const ifRange = request.headers.get('If-Range');
+    const useRange = requestedRange && (!ifRange || ifRange === etag);
+    const range = useRange ? messengerByteRange(requestedRange) : null;
+    if (useRange && !range) {
+      return new Response(null, {status: 416, headers: {...envelope,
+        'Content-Range': 'bytes */' + MESSENGER_APK_BYTES, 'Accept-Ranges': 'bytes',
+      }});
+    }
+    const object = await bucket.get(MESSENGER_APK_NAME, {
+      onlyIf: {etagMatches: metadata.etag}, ...(range ? {range} : {}),
+    });
+    if (!messengerReleaseMatches(object) || !object.body ||
+      (range && (object.range?.offset !== range.offset || object.range?.length !== range.length))) {
+      await object?.body?.cancel?.();
+      return unavailable();
+    }
+    headers.set('Content-Length', String(range ? range.length : MESSENGER_APK_BYTES));
+    if (range) headers.set('Content-Range', `bytes ${range.offset}-${range.offset + range.length - 1}/${MESSENGER_APK_BYTES}`);
+    return new Response(object.body, {status: range ? 206 : 200, headers});
+  } catch {
+    return unavailable();
+  }
 }
 function validatedSeller(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -144,7 +212,7 @@ function messengerDownloadButton() {
 }
 function messengerHero(downloadAvailable) {
   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Email signup</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha07 test build · Email signup</p>
     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
     <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
     <div class="messenger-actions">
@@ -159,17 +227,18 @@ function messengerSetup(downloadAvailable) {
     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Email signup</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha07 test build · Email signup</p>
     <h1>Set up Vellivex Messenger</h1>
     <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
-    <p>This is an early test build. Use test conversations during this alpha.</p>
+    <p>Alpha07 is available for phone testing. Use test conversations during this alpha.</p>
     <p>Signup is open. Verify your email in the app to create your account; no invitation is required. For setup help, contact <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
     <p>Testing on physical phones and an independent security review are not complete.</p>
+    <p>Live email sign-in, messaging between two phones and updating a signed-in installation still need to be verified for this exact installer.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
     <p><strong>Message history warning:</strong> In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone.</p>
     <h2>Install and sign in</h2>
     <ol>
-      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong> to keep your existing installation, session and message keys. Keep the app signed in. Do not uninstall it or sign out before updating.</li>
+      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong>. Keep the app signed in. Do not uninstall it, clear its app data or sign out before updating: the existing installation holds your session and message keys.</li>
       <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your email address and tap <strong>Continue with email</strong>.</li>
       <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>. Check your spam or junk folder if the email has not arrived.</li>
     </ol>
@@ -289,7 +358,6 @@ async function shopResponse(body, request, type = 'text/html; charset=utf-8', st
 
 export function withPhoneShop(worker, config = {}) {
   if (typeof worker?.fetch !== 'function') throw new TypeError('An existing Worker is required');
-  const messengerApkUrl = messengerApkLink(config.messengerApkSource ?? MESSENGER_APK_SOURCE);
   return {...worker, async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
@@ -298,10 +366,9 @@ export function withPhoneShop(worker, config = {}) {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {
         status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
       });
-      if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerApkUrl)), request);
+      if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerReleaseBucket(env))), request);
       if (retiredMessengerApk) return new Response(null, {status:303, headers:{...envelope, 'Location':MESSENGER_SETUP_PATH}});
-      if (!messengerApkUrl) return shopResponse('APK download unavailable', request, 'text/plain; charset=utf-8', 503);
-      return new Response(null, {status:302, headers:{...envelope, 'Location':messengerApkUrl}});
+      return messengerApkResponse(request, messengerReleaseBucket(env));
     }
     const media = phoneMediaResponse(request);
     if (media) return media;
@@ -365,7 +432,7 @@ export function withPhoneShop(worker, config = {}) {
         body = body.replace(/<\/main>[\s\S]*?<footer\b[^>]*>/i, opening => opening + homepagePromotion());
       }
       if (!body.includes('id="vellivex-messenger-hero"')) {
-        body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(messengerApkUrl)));
+        body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(messengerReleaseBucket(env))));
       }
       if (!body.includes('href="/phones-promotion.css"')) {
         body = body.replace('</head>', '<link rel="stylesheet" href="/phones-promotion.css"></head>');
