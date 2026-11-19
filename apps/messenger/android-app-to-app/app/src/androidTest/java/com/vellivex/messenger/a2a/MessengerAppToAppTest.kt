@@ -53,6 +53,7 @@ class MessengerAppToAppTest {
             coordinator.post("finish", JSONObject().put("phase", phase))
             stage("$phase-complete")
         } catch (failure: Throwable) {
+            runCatching { reportFailureDiagnostics(failure) }
             runCatching { coordinator.post("failure", JSONObject().put("phase", phase)) }
             // UIAutomator exceptions can include editable text. Never attach their raw causes.
             throw AssertionError("Two-app UI acceptance failed for role $role in $phase; last safe checkpoint: $lastStage")
@@ -60,6 +61,7 @@ class MessengerAppToAppTest {
     }
 
     private var lastStage = "launch"
+    private var lastAction = "launch"
 
     private fun freshExchange() {
         waitText("Continue with email")
@@ -87,18 +89,30 @@ class MessengerAppToAppTest {
 
         if (role == "A") {
             // Invalid contacts must fail without opening a room or enabling the composer.
-            for (invalid in listOf("not-a-contact", publicId, "@fictional:other.example.test")) {
+            for ((inputCase, invalid) in listOf("malformed" to "not-a-contact", "self" to publicId,
+                "foreign" to "@fictional:other.example.test")) {
+                stage("invalid-$inputCase-start")
+                lastAction = "wait-contact-error-clear"
                 waitValue("previous input error to clear") {
                     if (!hasText("Enter another account ID on this messaging service.")) true else null
                 }
+                stage("invalid-$inputCase-before-open")
                 clickText("New conversation")
+                stage("invalid-$inputCase-open-tapped")
                 setOnlyField(invalid)
+                stage("invalid-$inputCase-field-set")
+                stage("invalid-$inputCase-before-submit")
                 clickText("Continue")
+                stage("invalid-$inputCase-submit-tapped")
                 waitText("Enter another account ID on this messaging service.")
+                stage("invalid-$inputCase-error-visible")
                 waitText("Your people. Your space.")
+                stage("invalid-$inputCase-empty-inbox-visible")
+                lastAction = "assert-invalid-contact-blocked"
                 assertFalse("Invalid contact opened a composer", hasDescription("Send message"))
                 assertFalse("Invalid contact created a room", hasText("Verify your contact to start chatting"))
                 assertFalse("Invalid contact created an invitation", hasText("Conversation invitation"))
+                stage("invalid-$inputCase-blocked")
             }
             stage("invalid-self-and-foreign-contact-blocked")
             clickText("New conversation")
@@ -340,6 +354,7 @@ class MessengerAppToAppTest {
     }
 
     private fun assertSecureWindow() {
+        lastAction = "check-secure-window"
         val windows = device.executeShellCommand("dumpsys window")
         val focus = Regex("(?m)^\\s*mCurrentFocus=Window\\{([^\\r\\n]+)\\}").find(windows)?.groupValues?.get(1)
         assertTrue("The focused window must belong to the release app", focus?.contains(APP) == true)
@@ -360,6 +375,7 @@ class MessengerAppToAppTest {
         .filter { !it.visibleBounds.isEmpty }
 
     private fun labelledField(label: String): UiObject2 {
+        lastAction = "find-labelled-field"
         if (device.findObject(By.pkg(APP).text(label))?.visibleBounds?.isEmpty != false) {
             runCatching { UiScrollable(UiSelector().packageName(APP).scrollable(true)).scrollTextIntoView(label) }
         }
@@ -374,19 +390,32 @@ class MessengerAppToAppTest {
     }
 
     private fun setOnlyField(value: String) {
+        lastAction = "set-single-editable-field"
         val editor = waitValue("single visible editable field") { editableFields().singleOrNull() }
         editor.text = value
     }
 
-    private fun waitText(value: String, substring: Boolean = false): UiObject2 = waitValue("visible expected screen text") {
-        device.findObject(if (substring) By.pkg(APP).textContains(value) else By.pkg(APP).text(value))
-            ?.takeIf { !it.visibleBounds.isEmpty }
+    private fun waitText(value: String, substring: Boolean = false): UiObject2 {
+        lastAction = when (value) {
+            "Enter another account ID on this messaging service." -> "wait-contact-error"
+            "Your people. Your space." -> "wait-empty-inbox"
+            else -> "wait-screen-text"
+        }
+        return waitValue("visible expected screen text") {
+            device.findObject(if (substring) By.pkg(APP).textContains(value) else By.pkg(APP).text(value))
+                ?.takeIf { !it.visibleBounds.isEmpty }
+        }
     }
 
     private fun hasText(value: String): Boolean = device.hasObject(By.pkg(APP).text(value))
     private fun hasDescription(value: String): Boolean = device.hasObject(By.pkg(APP).desc(value))
 
     private fun clickText(value: String) {
+        lastAction = when (value) {
+            "New conversation" -> "tap-new-conversation"
+            "Continue" -> "tap-contact-continue"
+            else -> "tap-text-control"
+        }
         val node = device.findObject(By.pkg(APP).text(value))?.takeIf { !it.visibleBounds.isEmpty } ?: run {
             runCatching { UiScrollable(UiSelector().packageName(APP).scrollable(true)).scrollTextIntoView(value) }
             waitText(value)
@@ -396,6 +425,7 @@ class MessengerAppToAppTest {
     }
 
     private fun clickDescription(value: String) {
+        lastAction = "tap-described-control"
         val node = waitValue("visible described control") { device.findObject(By.pkg(APP).desc(value)) }
         assertTrue("Expected UI control is disabled", node.isEnabled)
         node.click()
@@ -414,6 +444,35 @@ class MessengerAppToAppTest {
         lastStage = name
         coordinator.post("checkpoint", JSONObject().put("name", name).put("phase", phase))
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", "Two-app $role $phase: $name\n") })
+    }
+
+    private fun reportFailureDiagnostics(failure: Throwable) {
+        val category = when (failure) {
+            is androidx.test.uiautomator.StaleObjectException -> "stale-ui"
+            is androidx.test.uiautomator.UiObjectNotFoundException -> "missing-ui"
+            is java.net.SocketTimeoutException -> "network-timeout"
+            is java.io.IOException -> "network-io"
+            is AssertionError -> "assertion"
+            is IllegalArgumentException -> "argument"
+            is IllegalStateException -> "state"
+            else -> "other"
+        }
+        val line = failure.stackTrace.firstOrNull {
+            it.className.startsWith("com.vellivex.messenger.a2a.") && it.fileName == "MessengerAppToAppTest.kt"
+        }?.lineNumber?.coerceAtLeast(0) ?: 0
+        fun flag(read: () -> Boolean): String = runCatching(read).fold({ it.toString() }, { "unavailable" })
+        fun visible(value: String): Boolean = device.findObject(By.pkg(APP).text(value))
+            ?.visibleBounds?.isEmpty == false
+        val dialog = flag { visible("Start a conversation") }
+        val error = flag { visible("Enter another account ID on this messaging service.") }
+        val emptyInbox = flag { visible("Your people. Your space.") }
+        val roomRow = flag { visible("Verify your contact to start chatting") || visible("Conversation invitation") || visible("Verified conversation") }
+        val composer = flag { device.findObject(By.pkg(APP).desc("Send message"))?.visibleBounds?.isEmpty == false }
+        val editableCount = runCatching { editableFields().size }.getOrDefault(-1)
+        val safeAction = lastAction.takeIf { it.matches(Regex("[a-z0-9-]{1,80}")) } ?: "unknown"
+        val message = "Two-app diagnostic $role $phase: category=$category action=$safeAction line=$line " +
+            "dialog=$dialog error=$error empty-inbox=$emptyInbox room-row=$roomRow composer=$composer editable-count=$editableCount\n"
+        instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
     }
 
     private fun firstMessage(from: String) = "Fictional $from to peer $runId."

@@ -234,7 +234,7 @@ sanitise_result() {
   "$python" - "$1" "$2" <<'PY'
 import pathlib, re, sys
 raw = pathlib.Path(sys.argv[1]).read_text(errors='replace').replace('\r', '')
-allowed = re.compile(r'^(?:INSTRUMENTATION_STATUS: stream=)?Two-app [AB] (?:fresh|restart): [a-z0-9-]+$|^INSTRUMENTATION_(?:STATUS_)?CODE: -?[0-9]+$|^OK \(1 test\)$|^FAILURES!!!$|^Tests run: [0-9]+,  Failures: [0-9]+$|^java\.lang\.AssertionError: Two-app UI acceptance failed for role [AB] in (?:fresh|restart); last safe checkpoint: [a-z0-9-]+$')
+allowed = re.compile(r'^(?:INSTRUMENTATION_STATUS: stream=)?Two-app [AB] (?:fresh|restart): [a-z0-9-]+$|^(?:INSTRUMENTATION_STATUS: stream=)?Two-app diagnostic [AB] (?:fresh|restart): category=(?:stale-ui|missing-ui|network-timeout|network-io|assertion|argument|state|other) action=[a-z0-9-]{1,80} line=[0-9]+ dialog=(?:true|false|unavailable) error=(?:true|false|unavailable) empty-inbox=(?:true|false|unavailable) room-row=(?:true|false|unavailable) composer=(?:true|false|unavailable) editable-count=-?[0-9]+$|^INSTRUMENTATION_(?:STATUS_)?CODE: -?[0-9]+$|^OK \(1 test\)$|^FAILURES!!!$|^Tests run: [0-9]+,  Failures: [0-9]+$|^java\.lang\.AssertionError: Two-app UI acceptance failed for role [AB] in (?:fresh|restart); last safe checkpoint: [a-z0-9-]+$')
 lines = [line for line in raw.splitlines() if allowed.fullmatch(line)]
 pathlib.Path(sys.argv[2]).write_text('\n'.join(lines) + '\n')
 passed = 'OK (1 test)' in raw.splitlines() and 'INSTRUMENTATION_CODE: -1' in raw.splitlines() and 'INSTRUMENTATION_STATUS_CODE: 0' in raw.splitlines() and not re.search(r'^INSTRUMENTATION_STATUS_CODE: -[0-9]+$', raw, re.M)
