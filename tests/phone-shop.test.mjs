@@ -8,12 +8,13 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
-const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
-const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
+const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
+const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
 const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
 ];
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.
@@ -186,7 +187,7 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   const footer = text.match(/<\/main>\s*<footer\b[^>]*>([\s\S]*?)<\/footer>/)?.[1] ?? '';
   assert.match(main, /^<section id="vellivex-messenger-hero"/);
   assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
-  assert.match(main, /Android 8\.0\+ \(ARM64\) · Test alpha · Invite-only sign-in/);
+  assert.match(main, /Android 8\.0\+ \(ARM64\) · Test alpha · Email signup/);
   assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
   assert.match(main, /href="\/messenger">Setup guide/);
   for (const path of retiredMessengerApkPaths) assert.ok(!main.includes(path));
@@ -204,18 +205,18 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   const guideText = await guide.text();
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
-  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Test alpha · Invite-only sign-in/);
-  assert.match(guideText, /You’ll need an invited email address you can access/);
+  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Test alpha · Email signup/);
+  assert.match(guideText, /You’ll need an email address you can access/);
   assert.match(guideText, /This is an early test build\. Use test conversations during this alpha/);
-  assert.match(guideText, /Downloading the app does not grant access to the messaging service/);
-  assert.match(guideText, /To request an invitation, contact <a href="mailto:v@vellivex\.com">v@vellivex\.com<\/a>/);
+  assert.match(guideText, /Signup is open\. Verify your email in the app to create your account; no invitation is required/);
+  assert.match(guideText, /For setup help, contact <a href="mailto:v@vellivex\.com">v@vellivex\.com<\/a>/);
   assert.match(guideText, /Testing on physical phones and an independent security review are not complete/);
   assert.match(guideText, /Message history warning:[\s\S]*In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone/);
   assert.match(guideText, /install it over the existing app and choose <strong>Update<\/strong>/);
   assert.match(guideText, /<strong>Update<\/strong> to keep your existing installation, session and message keys/);
   assert.match(guideText, /Keep the app signed in\. Do not uninstall it or sign out before updating/);
   assert.match(guideText, /connects to the Vellivex messaging service automatically.*Continue with email/);
-  assert.match(guideText, /Enter your invited email address and tap <strong>Continue with email<\/strong>/);
+  assert.match(guideText, /Enter your email address and tap <strong>Continue with email<\/strong>/);
   assert.match(guideText, /eight-digit code from your inbox.*Open Vellivex/);
   assert.match(guideText, /Secure your account[\s\S]*Create recovery key[\s\S]*Set up recovery[\s\S]*Save the key somewhere private/);
   assert.match(guideText, /Last 4 characters[\s\S]*I've saved my recovery key[\s\S]*before starting a conversation/);

@@ -11,13 +11,14 @@ export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const MESSENGER_SETUP_PATH = '/messenger';
-const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha05-arm64.apk';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
-const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/' + MESSENGER_APK_NAME;
+const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/' + MESSENGER_APK_NAME;
 const RETIRED_MESSENGER_APK_PATHS = new Set([
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
 ]);
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
@@ -143,7 +144,7 @@ function messengerDownloadButton() {
 }
 function messengerHero(downloadAvailable) {
   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Invite-only sign-in</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Email signup</p>
     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
     <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
     <div class="messenger-actions">
@@ -154,23 +155,23 @@ function messengerHero(downloadAvailable) {
 }
 function messengerSetup(downloadAvailable) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="Install the Vellivex Messenger test alpha on Android. Sign-in requires an invited email address; downloading the app does not grant access.">
+    <meta name="description" content="Download the free Vellivex Messenger test alpha for Android. Sign up with your email, save your recovery key and verify your contacts before chatting.">
     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Invite-only sign-in</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Email signup</p>
     <h1>Set up Vellivex Messenger</h1>
-    <p>You’ll need an invited email address you can access and an ARM64 phone running Android 8.0 or later.</p>
+    <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
     <p>This is an early test build. Use test conversations during this alpha.</p>
-    <p>Downloading the app does not grant access to the messaging service. To request an invitation, contact <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
+    <p>Signup is open. Verify your email in the app to create your account; no invitation is required. For setup help, contact <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
     <p>Testing on physical phones and an independent security review are not complete.</p>
     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
     <p><strong>Message history warning:</strong> In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone.</p>
     <h2>Install and sign in</h2>
     <ol>
       <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong> to keep your existing installation, session and message keys. Keep the app signed in. Do not uninstall it or sign out before updating.</li>
-      <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your invited email address and tap <strong>Continue with email</strong>.</li>
-      <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
+      <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your email address and tap <strong>Continue with email</strong>.</li>
+      <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>. Check your spam or junk folder if the email has not arrived.</li>
     </ol>
     <h2>Save your recovery key before chatting</h2>
     <ol>
