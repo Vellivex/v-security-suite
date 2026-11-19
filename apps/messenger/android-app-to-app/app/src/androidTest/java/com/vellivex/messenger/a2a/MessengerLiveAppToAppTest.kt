@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.vellivex.messenger.a2a
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -38,6 +39,7 @@ class MessengerLiveAppToAppTest {
     private val role = requireNotNull(arguments.getString("messengerA2aRole")).also { require(it in setOf("A", "B")) }
     private val peerRole = if (role == "A") "B" else "A"
     private val phase = requireNotNull(arguments.getString("messengerA2aPhase")).also { require(it in setOf("fresh", "restart")) }
+    private val releaseProfile = ReleaseProfile.from(arguments.getString("messengerLiveReleaseProfile"))
     private val coordinator = LiveCoordinator(
         requireNotNull(arguments.getString("messengerA2aCoordinator")),
         requireNotNull(arguments.getString("messengerA2aKey")), role,
@@ -48,6 +50,7 @@ class MessengerLiveAppToAppTest {
     fun twoInstalledAppsUseTheirVisibleInterfaces() {
         Configurator.getInstance().waitForIdleTimeout = 500
         try {
+            if (releaseProfile == ReleaseProfile.Alpha07Release) assertNormalReleasePackage()
             launchMessenger()
             if (phase == "fresh") freshExchange() else restartExchange()
             assertSecureWindow()
@@ -64,6 +67,19 @@ class MessengerLiveAppToAppTest {
     private var lastStage = "launch"
     private var lastAction = "launch"
     private var expectedControl = ExpectedControl.TextControl
+
+    private enum class ReleaseProfile(val argument: String) {
+        Alpha06Test("alpha06-test"),
+        Alpha07Release("alpha07-release");
+
+        companion object {
+            fun from(value: String?): ReleaseProfile = when (value) {
+                null, Alpha06Test.argument -> Alpha06Test
+                Alpha07Release.argument -> Alpha07Release
+                else -> throw IllegalArgumentException("Unsupported live release profile")
+            }
+        }
+    }
 
     private enum class ExpectedControl(val token: String, val label: String? = null) {
         NewConversation("new-conversation", "New conversation"),
@@ -207,6 +223,7 @@ class MessengerLiveAppToAppTest {
         waitText("Sign out of this phone?")
         clickText("Sign out")
         waitText("Continue with email")
+        if (releaseProfile == ReleaseProfile.Alpha07Release) assertNormalReleaseSignInSurface()
         stage("disposable-live-session-signed-out")
     }
 
@@ -217,11 +234,16 @@ class MessengerLiveAppToAppTest {
         waitText("Enter a valid email address.")
         stage("invalid-email-blocked")
         setOnlyField(coordinator.awaitEmail())
-        clickText("Test server settings")
-        assertEquals("The released app must retain its default production HTTPS service",
-            "https://messenger.vellivex.com", labelledField("Server address").text.trimEnd('/'))
-        clickText("Test server settings")
-        stage("default-production-https-confirmed")
+        when (releaseProfile) {
+            ReleaseProfile.Alpha06Test -> {
+                clickText("Test server settings")
+                assertEquals("The released app must retain its default production HTTPS service",
+                    "https://messenger.vellivex.com", labelledField("Server address").text.trimEnd('/'))
+                clickText("Test server settings")
+                stage("default-production-https-confirmed")
+            }
+            ReleaseProfile.Alpha07Release -> assertNormalReleaseSignInSurface()
+        }
         coordinator.post("mail/begin")
         clickText("Continue with email")
         stage("email-request-clicked")
@@ -262,6 +284,27 @@ class MessengerLiveAppToAppTest {
             key.fill('\u0000')
         }
         stage("email-code-and-recovery-setup-through-ui")
+    }
+
+    @Suppress("DEPRECATION") // The integer PackageManager APIs also support the harness's API-26 minimum.
+    private fun assertNormalReleasePackage() {
+        val manager = instrumentation.targetContext.packageManager
+        val installed = manager.getPackageInfo(APP, 0)
+        val application = manager.getApplicationInfo(APP, 0)
+        assertEquals("The Alpha07 profile requires its exact installed package", APP, installed.packageName)
+        assertEquals("The Alpha07 profile requires version code 7", 7, installed.versionCode)
+        assertEquals("The Alpha07 profile requires its normal release version", "0.1.0-alpha07", installed.versionName)
+        assertEquals("A normal release must not be debuggable", 0, application.flags and ApplicationInfo.FLAG_DEBUGGABLE)
+        stage("normal-release-package-confirmed")
+    }
+
+    private fun assertNormalReleaseSignInSurface() {
+        assertFalse("A normal release must not expose test-server settings", hasText("Test server settings"))
+        assertFalse("A normal release must not expose a test-server action", hasDescription("Test server settings"))
+        assertFalse("A normal release must not expose a server-address editor", hasText("Server address"))
+        // The runner separately requires reviewed production-origin build evidence bound to
+        // the exact APK hash. Settings absence does not by itself establish that endpoint.
+        stage("normal-release-settings-absent")
     }
 
     private fun compareUiCodes(round: String, initiator: String, reject: Boolean) {
