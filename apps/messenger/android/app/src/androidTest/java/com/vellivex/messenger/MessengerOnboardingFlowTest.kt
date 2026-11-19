@@ -69,7 +69,8 @@ class MessengerOnboardingFlowTest {
         var otherRecoveryKey: CharArray? = null
         var leaveSessionForRestart = false
         try {
-            val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, useIme = !legacySeed, tryWrongCode = true)
+            val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, compose.activity,
+                useIme = !legacySeed, tryWrongCode = true)
             if (!legacySeed) {
                 deviceRecoveryKey = compose.createRecoveryThroughUi(device, compose.activity)
             }
@@ -135,7 +136,7 @@ class MessengerOnboardingFlowTest {
 
                 val wait = firstRequestAt + 62_000 - SystemClock.elapsedRealtime()
                 if (wait > 0) delay(wait)
-                compose.signInWithSyntheticMail(fixture, email, useIme = true)
+                compose.signInWithSyntheticMail(fixture, email, compose.activity, useIme = true)
                 compose.waitForText("Recover your account")
                 val returned = savedSession()
                 assertTrue("The same email did not return to the same Matrix account", returned.userId == original.userId)
@@ -267,6 +268,7 @@ private fun savedSession(): org.matrix.rustcomponents.sdk.Session {
 private suspend fun ComposeTestRule.signInWithSyntheticMail(
     fixture: LocalSynapseFixture,
     email: String,
+    activity: MainActivity,
     useIme: Boolean,
     tryWrongCode: Boolean = false,
 ): Long {
@@ -276,8 +278,19 @@ private suspend fun ComposeTestRule.signInWithSyntheticMail(
     val existingCodes = fixture.challengeIds()
     field("Email address").performScrollTo().performTextReplacement(email)
     reportUiStage("Requesting the synthetic sign-in code")
-    onNodeWithText("Continue with email").performScrollTo().assertIsEnabled().performClick()
-    val validCode = fixture.nextCode(existingCodes)
+    val submit = onNodeWithText("Continue with email").performScrollTo()
+    val requestStarted = SystemClock.elapsedRealtime()
+    reportSignInRequestState(activity, email, fixture.matrix, requestStarted, SignInRequestPhase.BEFORE_CLICK)
+    // Preserve one genuine UI click and the fixture's original mailbox wait.
+    submit.assertIsEnabled().performClick()
+    reportSignInRequestState(activity, email, fixture.matrix, requestStarted, SignInRequestPhase.AFTER_CLICK)
+    val validCode = try {
+        fixture.nextCode(existingCodes)
+    } catch (failure: Throwable) {
+        // Capture before the enclosing flow signs out and the activity is torn down.
+        reportSignInRequestState(activity, email, fixture.matrix, requestStarted, SignInRequestPhase.MAILBOX_FAILURE)
+        throw failure
+    }
     val requestedAt = SystemClock.elapsedRealtime()
     waitForText("Eight-digit email code")
     if (tryWrongCode) {
@@ -290,6 +303,105 @@ private suspend fun ComposeTestRule.signInWithSyntheticMail(
     codeField.performTextReplacement(validCode)
     if (useIme) codeField.performImeAction() else onNodeWithText("Open Vellivex").performScrollTo().performClick()
     return requestedAt
+}
+
+private enum class SignInRequestPhase { BEFORE_CLICK, AFTER_CLICK, MAILBOX_FAILURE }
+
+private fun ComposeTestRule.reportSignInRequestState(
+    activity: MainActivity,
+    expectedEmail: String,
+    expectedServer: String,
+    started: Long,
+    phase: SignInRequestPhase,
+) {
+    val snapshotStarted = SystemClock.elapsedRealtime()
+    try {
+        val buttons = onAllNodes(hasText("Continue with email")).fetchSemanticsNodes()
+        val button = buttons.singleOrNull()
+        val emailMatches = onAllNodes(hasSetTextAction() and hasText("Email address")).fetchSemanticsNodes()
+            .singleOrNull()?.config?.getOrNull(SemanticsProperties.InputText)?.text == expectedEmail
+        val serverMatches = onAllNodes(hasSetTextAction() and hasText("Server address")).fetchSemanticsNodes()
+            .singleOrNull()?.config?.getOrNull(SemanticsProperties.InputText)?.text == expectedServer
+        val displayed = try {
+            onNodeWithText("Continue with email").assertIsDisplayed()
+            true
+        } catch (_: AssertionError) {
+            false
+        }
+        val windowAndState = runOnUiThread {
+            val root = activity.window.decorView
+            val insets = ViewCompat.getRootWindowInsets(root)
+            val ime = insets?.getInsets(WindowInsetsCompat.Type.ime())
+            val model = try {
+                ViewModelProvider(activity)[MessengerViewModel::class.java]
+            } catch (_: Throwable) {
+                null
+            }
+            // Older installed APKs may lack a getter. Keep their geometry and all other observations.
+            val modelState = if (model == null) {
+                "model-state=unavailable"
+            } else {
+                val error = try {
+                    signInErrorCategory(model.signInInputError, model.repository.state.value.error)
+                } catch (_: Throwable) {
+                    SignInUiError.UNAVAILABLE
+                }
+                "model-email-matches=${safeSignInFlag { model.signInEmail == expectedEmail }}, " +
+                    "model-server-matches=${safeSignInFlag { model.serverAddress == expectedServer }}, " +
+                    "authentication-pending=${safeSignInFlag { model.authenticationPending }}, " +
+                    "app-busy=${safeSignInFlag { model.repository.state.value.busy }}, " +
+                    "code-requested=${safeSignInFlag { model.repository.state.value.codeRequested }}, " +
+                    "user-present=${safeSignInFlag { model.repository.state.value.userId != null }}, " +
+                    "error=${error.name}"
+            }
+            // Only fixed labels, booleans, geometry and an allowlisted error category leave this block.
+            "ime-visible=${insets?.isVisible(WindowInsetsCompat.Type.ime())}, " +
+                "ime-left=${ime?.left}, ime-top=${ime?.top}, ime-right=${ime?.right}, ime-bottom=${ime?.bottom}, " +
+                "root-width=${root.width}, root-height=${root.height}, " +
+                modelState
+        }
+        reportUiStage("Sign-in request ${phase.name}: elapsed-ms=${SystemClock.elapsedRealtime() - started}, " +
+            "capture-ms=${SystemClock.elapsedRealtime() - snapshotStarted}, " +
+            "email-field-matches=$emailMatches, server-field-matches=$serverMatches, " +
+            "button-count=${buttons.size}, button-enabled=${button != null && button.config.getOrNull(SemanticsProperties.Disabled) == null}, " +
+            "button-displayed=$displayed, button-bounds=${button?.boundsInRoot}, $windowAndState")
+    } catch (_: Throwable) {
+        // Neither a diagnostic exception nor its potentially sensitive message may replace the test result.
+        try {
+            reportUiStage("Sign-in request ${phase.name}: safe diagnostic unavailable")
+        } catch (_: Throwable) {
+            // Reporting is best-effort; retain the original click or mailbox outcome.
+        }
+    }
+}
+
+private inline fun safeSignInFlag(read: () -> Boolean): String = try {
+    if (read()) "true" else "false"
+} catch (_: Throwable) {
+    "unavailable"
+}
+
+private enum class SignInUiError {
+    NONE, EMAIL_INPUT, SERVICE_INPUT, CODE_INPUT, SAVED_SESSION, REQUEST_FAILED, SERVICE_FAILED,
+    RATE_LIMIT, CAPACITY_LIMIT, OTHER, UNAVAILABLE,
+}
+
+private fun signInErrorCategory(input: SignInInputError?, message: String?): SignInUiError = when (input) {
+    SignInInputError.Email -> SignInUiError.EMAIL_INPUT
+    SignInInputError.Server -> SignInUiError.SERVICE_INPUT
+    SignInInputError.Code -> SignInUiError.CODE_INPUT
+    null -> when {
+        message == null -> SignInUiError.NONE
+        message == "Enter a valid email address." -> SignInUiError.EMAIL_INPUT
+        message == "Enter a valid HTTPS service address." ||
+            message == "Enter the HTTPS address of the Vellivex messaging service." -> SignInUiError.SERVICE_INPUT
+        message == "Restore or sign out of the saved session before starting another sign-in." -> SignInUiError.SAVED_SESSION
+        message == "Could not request a sign-in code. Check the service address and connection." -> SignInUiError.REQUEST_FAILED
+        message == "The messaging service could not complete that request." -> SignInUiError.SERVICE_FAILED
+        message == "Vellivex Messenger has reached its sign-in capacity. Try again later." -> SignInUiError.CAPACITY_LIMIT
+        message.startsWith("Too many attempts.") -> SignInUiError.RATE_LIMIT
+        else -> SignInUiError.OTHER
+    }
 }
 
 private fun ComposeTestRule.createRecoveryThroughUi(repository: MatrixRepository, activity: MainActivity): CharArray = sensitiveUi("save the synthetic recovery key") {
