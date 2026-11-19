@@ -1,7 +1,8 @@
 # Two installed Android apps
 
-This acceptance test operates two separately installed copies of the original
-Alpha05 Android application. Each participant has its own emulator, application
+This acceptance test operates two separately installed copies of a pinned,
+signed Android release. Alpha06 is selected by default; Alpha05 remains available
+for replay of its original release inputs. Each participant has its own emulator, application
 process, account, device keys and application storage. A separately signed
 UiAutomator package drives the controls exposed by the installed application's
 interface. It does not import Messenger classes, read its session database, or
@@ -14,7 +15,14 @@ together. Keep the two kinds of evidence distinct.
 
 ## Application identity
 
-The new workflow is pinned to these original release inputs:
+The default release inputs are in
+[`arm64-alpha06-acceptance.json`](../android/arm64-alpha06-acceptance.json).
+They identify version `0.1.0-alpha06-test`, code `6`, package
+`com.vellivex.messenger.alpha`, the ARM64 installer, the synthetic instrumentation
+APK, both exact SHA-256 values and the unchanged signing identity. Changing the
+selected manifest never relaxes the package, signer, ABI or version checks.
+
+The unchanged historical Alpha05 inputs are:
 
 | Item | Value |
 | --- | --- |
@@ -46,13 +54,13 @@ cd apps/messenger/android-app-to-app
   :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-From the repository root, pass the original released application and both
+From the repository root, pass the exact selected release application and both
 driver APKs to the runner:
 
 ```sh
 bash apps/messenger/scripts/run-android-app-to-app.sh \
   /absolute/path/to/evidence \
-  /absolute/path/to/Vellivex-Messenger-0.1.0-alpha05-arm64.apk \
+  /absolute/path/to/Vellivex-Messenger-0.1.0-alpha06-arm64.apk \
   apps/messenger/android-app-to-app/app/build/outputs/apk/debug/app-debug.apk \
   apps/messenger/android-app-to-app/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
@@ -63,6 +71,17 @@ two arguments select two existing, freshly created test emulators. Never point
 it at an owner's or customer's installed application. The acceptance workflow
 uses standard public GitHub-hosted runners and does not require a paid testing
 provider.
+
+The workflow's `acceptance_alpha` choice selects `alpha06` or `alpha05`.
+For a local Alpha05 replay, set `MESSENGER_ACCEPTANCE_ALPHA=alpha05` when invoking
+the runner and supply the original Alpha05 APK. Alpha05's manifest and checksum
+remain unchanged. Evidence records the selected release; historical passes do
+not transfer to a new installer.
+
+Draft pull requests do not run the release-download acceptance jobs. They become
+eligible when marked ready for review, once the exact assets are available.
+Manual dispatch remains available for either reviewed release. A skipped draft
+job is not a passing release check.
 
 ## What the evidence means
 
@@ -111,9 +130,12 @@ non-clickable Button-role child. The driver must establish that relationship
 from the actual UI nodes instead of assuming that the clickable node itself has
 the Button class. The third run's strict Button-class selector found no matching
 control; it did not tap a control or establish message delivery.
-An application fix should give the icon or button the explicit accessibility
-description **New conversation** and be verified in a separately identified
-build.
+Alpha06 gives the icon the explicit accessibility description **New conversation**.
+When testing Alpha06, the driver requires a unique visible, enabled, clickable
+control with that exact description and records the description-based selection.
+The anonymous-control fallback is allowed only for historical Alpha05. Thus an
+Alpha06 pass must exercise the actual accessible control; it cannot inherit the
+old workaround. This does not replace a physical TalkBack review.
 
 Primary references: [Android component documentation](https://developer.android.com/reference/kotlin/androidx/compose/material3/ExtendedFloatingActionButton.composable),
 the [Material3 1.4.0 source archive](https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.4.0/material3-android-1.4.0-sources.jar),

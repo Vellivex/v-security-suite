@@ -2,12 +2,22 @@ name: Vellivex Messenger two-app acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      acceptance_alpha:
+        description: Reviewed signed-release manifest to exercise
+        required: true
+        type: choice
+        default: alpha06
+        options: [alpha06, alpha05]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'apps/messenger/android-app-to-app/**'
       - 'apps/messenger/scripts/app-to-app-coordinator.py'
       - 'apps/messenger/scripts/run-android-app-to-app.sh'
       - '.github/workflows/messenger-app-to-app.yml'
+      - 'apps/messenger/android/arm64-alpha05-acceptance.json'
+      - 'apps/messenger/android/arm64-alpha06-acceptance.json'
 
 permissions: {}
 
@@ -17,9 +27,11 @@ concurrency:
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  MESSENGER_ACCEPTANCE_ALPHA: ${{ inputs.acceptance_alpha || 'alpha06' }}
 
 jobs:
   two-installed-apps:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -33,7 +45,7 @@ jobs:
           git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
 
-      - name: Prepare Android tools and verify the released Alpha05 installer
+      - name: Prepare Android tools and verify the exact selected release
         shell: bash
         run: |
           set -euo pipefail
@@ -49,14 +61,20 @@ jobs:
           import json
           import os
           from pathlib import Path
+          import re
           import subprocess
 
-          expected_url = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/Vellivex-Messenger-0.1.0-alpha05-arm64.apk'
-          expected_hash = '6a4a72c3ad0c08ac74afa17af145a80f40fd4287ff7dabe77ef114c401366fef'
+          alpha = os.environ['MESSENGER_ACCEPTANCE_ALPHA']
+          if alpha not in ('alpha05', 'alpha06'):
+              raise SystemExit('Select the reviewed Alpha05 or Alpha06 release manifest.')
+          expected_url = f'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-{alpha}/Vellivex-Messenger-0.1.0-{alpha}-arm64.apk'
           expected_signer = '3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
-          manifest = json.loads(Path('apps/messenger/android/arm64-alpha05-acceptance.json').read_text())
-          if (manifest['app_url'], manifest['app_sha256'], manifest['signer_sha256']) != (expected_url, expected_hash, expected_signer):
-              raise SystemExit('This two-app acceptance test is pinned to the original signed Alpha05 release.')
+          manifest = json.loads(Path(f'apps/messenger/android/arm64-{alpha}-acceptance.json').read_text())
+          expected_hash = manifest['app_sha256']
+          if (manifest['app_url'], manifest['signer_sha256']) != (expected_url, expected_signer) or not re.fullmatch('[0-9a-f]{64}', expected_hash):
+              raise SystemExit('The test requires the exact selected release and original signer.')
+          if alpha == 'alpha05' and expected_hash != '6a4a72c3ad0c08ac74afa17af145a80f40fd4287ff7dabe77ef114c401366fef':
+              raise SystemExit('Historical Alpha05 must remain the original installer.')
           target = Path(os.environ['RUNNER_TEMP']) / 'messenger-two-app-inputs/app.apk'
           subprocess.run([
               'curl', '--fail', '--silent', '--show-error', '--location', '--proto', '=https',
@@ -65,10 +83,11 @@ jobs:
           ], check=True)
           actual = hashlib.sha256(target.read_bytes()).hexdigest()
           if actual != expected_hash:
-              raise SystemExit('The downloaded application is not the accepted Alpha05 installer.')
+              raise SystemExit('The downloaded application is not the exact pinned release installer.')
           evidence = Path(os.environ['RUNNER_TEMP']) / 'messenger-two-app-evidence/input.json'
           evidence.write_text(json.dumps({
               'source_commit': os.environ['CHECK_SHA'],
+              'acceptance_alpha': alpha,
               'app_url': expected_url,
               'app_sha256': actual,
               'app_bytes': target.stat().st_size,
@@ -78,7 +97,7 @@ jobs:
               'live_service': False,
               'physical_devices': False,
           }, indent=2) + '\n')
-          print(f'Original Alpha05 download verified: {actual}')
+          print(f'Exact {alpha} download verified: {actual}')
           PY
 
       - name: Build the independent UI driver without the application signing key
@@ -117,7 +136,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: messenger-two-installed-apps-${{ github.run_attempt }}
+          name: messenger-two-installed-apps-${{ env.MESSENGER_ACCEPTANCE_ALPHA }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/messenger-two-app-evidence/
           if-no-files-found: warn
           retention-days: 14

@@ -37,6 +37,8 @@ class MessengerAppToAppTest {
     private val role = requireNotNull(arguments.getString("messengerA2aRole")).also { require(it in setOf("A", "B")) }
     private val peerRole = if (role == "A") "B" else "A"
     private val phase = requireNotNull(arguments.getString("messengerA2aPhase")).also { require(it in setOf("fresh", "restart")) }
+    private val appVersion = requireNotNull(arguments.getString("messengerA2aAppVersion"))
+        .also { require(it in setOf("5", "6")) }.toInt()
     private val coordinator = Coordinator(
         requireNotNull(arguments.getString("messengerA2aCoordinator")),
         requireNotNull(arguments.getString("messengerA2aKey")), role,
@@ -446,8 +448,16 @@ class MessengerAppToAppTest {
     }
 
     private fun clickNewConversation() {
-        val named = device.findObject(By.pkg(APP).text("New conversation"))?.takeIf { !it.visibleBounds.isEmpty }
+        val described = if (appVersion == 6) {
+            lastAction = "find-accessible-new-conversation"
+            waitValue("unique accessible new-conversation button") {
+                device.findObjects(By.pkg(APP).desc("New conversation").enabled(true).clickable(true))
+                    .filter { !it.visibleBounds.isEmpty }.singleOrNull()
+            }.also { stage("accessible-new-conversation-control-observed") }
+        } else null
+        val named = described ?: device.findObject(By.pkg(APP).text("New conversation"))?.takeIf { !it.visibleBounds.isEmpty }
         val node = named ?: run {
+            assertEquals("Anonymous-control fallback is restricted to historical Alpha05", 5, appVersion)
             lastAction = "find-unnamed-new-conversation"
             // Alpha05 uses Material3 1.4.0's icon/text FAB overload. That overload clears the
             // text's semantics and the app supplied a null icon description. The visible FAB
@@ -472,7 +482,7 @@ class MessengerAppToAppTest {
         }
         assertTrue("Expected new-conversation control is disabled", node.isEnabled)
         assertTrue("Expected new-conversation control is not clickable", node.isClickable)
-        reportObservedControl(node, if (named == null) "anonymous-button" else "text")
+        reportObservedControl(node, if (described != null) "description" else if (named == null) "anonymous-button" else "text")
         lastAction = "tap-new-conversation"
         node.click()
         waitText("Start a conversation")
@@ -516,7 +526,7 @@ class MessengerAppToAppTest {
     }
 
     private fun reportObservedControl(node: UiObject2, channel: String) {
-        require(channel in setOf("text", "anonymous-button"))
+        require(channel in setOf("text", "description", "anonymous-button"))
         val bounds = node.visibleBounds
         val parentRole = if (node.className == "android.widget.Button") "button" else "view"
         val roleChild = nonclickableButtonChildren(node).firstOrNull()?.visibleBounds

@@ -7,6 +7,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasSetTextAction
@@ -46,6 +47,8 @@ import org.matrix.rustcomponents.sdk.ShieldState
 import org.matrix.rustcomponents.sdk.Timeline
 import org.matrix.rustcomponents.sdk.TimelineItemContent
 import java.util.UUID
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 
 @RunWith(AndroidJUnit4::class)
 class MessengerOnboardingFlowTest {
@@ -75,6 +78,10 @@ class MessengerOnboardingFlowTest {
                 deviceRecoveryKey = compose.createRecoveryThroughUi(device, compose.activity)
             }
             compose.waitForText("Messages")
+            if (installedVersionCode() == 6L) {
+                compose.onNodeWithContentDescription("New conversation")
+                    .assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+            }
 
             val deviceId = checkNotNull(device.state.value.userId)
             fixture.signIn(peer, "ui-peer-$runId@example.test")
@@ -188,6 +195,12 @@ class MessengerOnboardingFlowTest {
                 compose.onNodeWithContentDescription("Back to messages").performClick()
                 compose.waitForText("Messages")
             }
+            if (seedVersion == 5L) {
+                val fingerprintFile = upgradeStateFile()
+                assertFalse("Use a fresh Alpha05 upgrade fixture", fingerprintFile.exists())
+                fingerprintFile.writeText(savedSessionFingerprint())
+                reportUiStage("Retaining the original session, device and local key fingerprint for update")
+            }
             leaveSessionForRestart = true
         } finally {
             deviceRecoveryKey?.fill('\u0000')
@@ -215,18 +228,34 @@ class MessengerOnboardingRestartTest {
         assertTrue("Run the UI flow and force-stop the app before this test", args.getString("messengerUiRestart") == "true")
         val upgradeFromVersion = upgradeSourceVersion("messengerUpgradeFromVersion")
         if (upgradeFromVersion != null) {
-            assertEquals("Restore the original history on the installed alpha05 app", 5L, installedVersionCode())
+            val expectedVersion = when (args.getString("messengerUpgradeTargetVersion")) {
+                "5" -> 5L
+                "6" -> 6L
+                else -> throw AssertionError("Name supported upgrade target version 5 or 6")
+            }
+            assertTrue("The upgrade must install a later version", expectedVersion > upgradeFromVersion)
+            assertEquals("Restore original history on the exact selected update", expectedVersion, installedVersionCode())
             if (upgradeFromVersion == 2L) {
                 compose.createRecoveryThroughUi(device, compose.activity).fill('\u0000')
             }
         }
         reportUiStage("Restoring the saved session and encrypted conversation")
         compose.waitForText("Messages")
-        if (upgradeFromVersion == 4L) {
-            assertEquals("The alpha04 update did not retain its recovery-ready session",
+        if (upgradeFromVersion == 4L || upgradeFromVersion == 5L) {
+            assertEquals("The update did not retain its recovery-ready session",
                 MessengerRecovery.Ready, device.state.value.recovery)
             compose.onNodeWithText("Secure your account").assertDoesNotExist()
             compose.onNodeWithText("Recover your account").assertDoesNotExist()
+        }
+        if (upgradeFromVersion == 5L) {
+            val fingerprintFile = upgradeStateFile()
+            assertTrue("The original Alpha05 session evidence is missing", fingerprintFile.isFile)
+            assertTrue("The update replaced the original session, device or local store key",
+                savedSessionFingerprint() == fingerprintFile.readText())
+            assertTrue("Could not remove the completed synthetic upgrade fingerprint", fingerprintFile.delete())
+            compose.onNodeWithContentDescription("New conversation")
+                .assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+            reportUiStage("Confirmed the original session, device and local key survived the update")
         }
         compose.waitForText("Verified conversation")
         compose.onNodeWithText("Verified conversation").performClick()
@@ -263,6 +292,28 @@ private fun savedSession(): org.matrix.rustcomponents.sdk.Session {
     val record = checkNotNull(MessengerSessionStore(context, "default").read()) { "The local Matrix session was missing" }
     record.storeKey.fill(0)
     return record.session
+}
+
+/** Only a one-way fingerprint of synthetic test state crosses the update boundary. */
+private fun upgradeStateFile() = InstrumentationRegistry.getInstrumentation()
+    .context.filesDir.resolve("alpha05-upgrade-state.sha256")
+
+private fun savedSessionFingerprint(): String {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val record = checkNotNull(MessengerSessionStore(context, "default").read()) { "The original session was missing" }
+    val digest = MessageDigest.getInstance("SHA-256")
+    try {
+        for (value in listOf(record.session.userId, record.session.deviceId, record.session.accessToken)) {
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            digest.update(ByteBuffer.allocate(4).putInt(bytes.size).array())
+            digest.update(bytes)
+            bytes.fill(0)
+        }
+        digest.update(record.storeKey)
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    } finally {
+        record.storeKey.fill(0)
+    }
 }
 
 private suspend fun ComposeTestRule.signInWithSyntheticMail(
@@ -566,7 +617,8 @@ private fun upgradeSourceVersion(argument: String): Long? =
         null -> null
         "2" -> 2L
         "4" -> 4L
-        else -> throw AssertionError("$argument must name supported source version 2 or 4")
+        "5" -> 5L
+        else -> throw AssertionError("$argument must name supported source version 2, 4 or 5")
     }
 
 private fun SemanticsNodeInteractionsProvider.field(label: String) = onNode(hasSetTextAction() and hasText(label))

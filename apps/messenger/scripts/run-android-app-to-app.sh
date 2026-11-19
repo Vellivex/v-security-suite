@@ -3,11 +3,17 @@
 set -euo pipefail
 
 if [[ $# != 4 && $# != 6 ]]; then
-  printf '%s\n' 'Usage: run-android-app-to-app.sh EVIDENCE_DIRECTORY EXACT_ALPHA05_APK HARNESS_APP_APK HARNESS_TEST_APK [SERIAL_A SERIAL_B]' >&2
+  printf '%s\n' 'Usage: run-android-app-to-app.sh EVIDENCE_DIRECTORY EXACT_RELEASE_APK HARNESS_APP_APK HARNESS_TEST_APK [SERIAL_A SERIAL_B]' >&2
   exit 2
 fi
 
 messenger_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+acceptance_alpha=${MESSENGER_ACCEPTANCE_ALPHA:-alpha06}
+case "$acceptance_alpha" in
+  alpha05) expected_version=5 ;;
+  alpha06) expected_version=6 ;;
+  *) printf '%s\n' 'MESSENGER_ACCEPTANCE_ALPHA must be alpha05 or alpha06.' >&2; exit 2 ;;
+esac
 evidence_dir=$1
 mkdir -p -- "$evidence_dir"
 evidence_dir=$(cd -- "$evidence_dir" && pwd)
@@ -52,19 +58,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$python_bin" - "$messenger_dir/android/arm64-alpha05-acceptance.json" "$app_apk" "$work_dir/expected-signer" "$evidence_dir/apk-identity.json" <<'PY'
-import hashlib, json, pathlib, sys
+"$python_bin" - "$messenger_dir/android/arm64-$acceptance_alpha-acceptance.json" "$app_apk" "$work_dir/expected-signer" "$evidence_dir/apk-identity.json" <<'PY'
+import hashlib, json, pathlib, re, sys
 manifest_path, app_path, signer_path, report_path = map(pathlib.Path, sys.argv[1:])
 manifest = json.loads(manifest_path.read_text())
+alpha = {'arm64-alpha05-acceptance.json': 'alpha05', 'arm64-alpha06-acceptance.json': 'alpha06'}[manifest_path.name]
+expected_url = f'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-{alpha}/Vellivex-Messenger-0.1.0-{alpha}-arm64.apk'
+if manifest['app_url'] != expected_url or not re.fullmatch('[0-9a-f]{64}', manifest['app_sha256']):
+    raise SystemExit('The selected manifest must pin the exact reviewed release asset.')
+if manifest['signer_sha256'] != '3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2':
+    raise SystemExit('The Messenger signing identity must remain unchanged.')
+if alpha == 'alpha05' and manifest['app_sha256'] != '6a4a72c3ad0c08ac74afa17af145a80f40fd4287ff7dabe77ef114c401366fef':
+    raise SystemExit('Historical Alpha05 must remain the original installer.')
 digest = hashlib.sha256(app_path.read_bytes()).hexdigest()
 if digest != manifest['app_sha256']:
-    raise SystemExit('The app is not the exact pinned signed Alpha05 APK.')
+    raise SystemExit('The app is not the exact pinned signed release APK.')
 signer_path.write_text(manifest['signer_sha256'])
 signer_path.chmod(0o600)
 pathlib.Path(report_path).write_text(json.dumps({
     'app_sha256': digest, 'app_bytes': app_path.stat().st_size,
     'expected_signer_sha256': manifest['signer_sha256'],
     'release_url': manifest['app_url'],
+    'acceptance_alpha': alpha, 'version_code': {'alpha05': 5, 'alpha06': 6}[alpha],
 }, indent=2) + '\n')
 PY
 expected_signer=$(<"$work_dir/expected-signer")
@@ -81,7 +96,7 @@ test_signer=$(signer_for "$test_apk")
 app_badging=$("$build_tools/aapt" dump badging "$app_apk")
 harness_badging=$("$build_tools/aapt" dump badging "$harness_apk")
 test_badging=$("$build_tools/aapt" dump badging "$test_apk")
-grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='5' versionName='0\.1\.0-alpha05-test'" <<< "$app_badging"
+grep -Fq "package: name='com.vellivex.messenger.alpha' versionCode='$expected_version' versionName='0.1.0-$acceptance_alpha-test'" <<< "$app_badging"
 grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a' " <<< "$harness_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a\.test' " <<< "$test_badging"
@@ -166,9 +181,9 @@ for serial in "$serial_a" "$serial_b"; do
   "$adb" -s "$serial" install -r -t "$test_apk" >/dev/null
   "$adb" -s "$serial" shell dumpsys package com.vellivex.messenger.alpha >"$work_dir/package-$serial.txt"
   grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' "$work_dir/package-$serial.txt"
-  grep -Eq '^[[:space:]]*versionCode=5([[:space:]]|$)' "$work_dir/package-$serial.txt"
+  grep -Eq "^[[:space:]]*versionCode=$expected_version([[:space:]]|$)" "$work_dir/package-$serial.txt"
   "$adb" -s "$serial" shell settings get secure android_id >"$work_dir/android-id-$serial"
-  printf '%s versionCode=5 primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
+  printf '%s versionCode=%s primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$expected_version" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
 done
 "$python_bin" - "$work_dir/android-id-$serial_a" "$work_dir/android-id-$serial_b" "$evidence_dir/device-separation.json" <<'PY'
 import hashlib, json, pathlib, sys
@@ -241,7 +256,7 @@ allowed = re.compile(
     prefix + r'[AB] (?:fresh|restart): [a-z0-9-]+$|'
     + prefix + r'diagnostic [AB] (?:fresh|restart): category=(?:stale-ui|missing-ui|network-timeout|network-io|assertion|argument|state|other) action=[a-z0-9-]{1,80} line=[0-9]+ expected=' + target
     + r' caller=(?:fresh-exchange|restart-exchange|sign-in|verification|unknown) caller-line=[0-9]+ dialog=' + boolean + r' error=' + boolean + r' empty-inbox=' + boolean + r' room-row=' + boolean + r' composer=' + boolean + r' editable-count=-?[0-9]+$|'
-    + prefix + r'control [AB] (?:fresh|restart): expected=new-conversation channel=(?:text|anonymous-button) role=(?:button|view) enabled=(?:true|false) clickable=(?:true|false) bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+ role-child=(?:true|false) child-bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+ screen=[0-9]+,[0-9]+$|'
+    + prefix + r'control [AB] (?:fresh|restart): expected=new-conversation channel=(?:text|description|anonymous-button) role=(?:button|view) enabled=(?:true|false) clickable=(?:true|false) bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+ role-child=(?:true|false) child-bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+ screen=[0-9]+,[0-9]+$|'
     + prefix + r'target [AB] (?:fresh|restart): expected=' + target + r' text-count=[0-9]+ description-count=[0-9]+ anonymous-count=[0-9]+ bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+ role=(?:button|editor|text|view|none|other) focus-app=' + boolean + r' ime=' + boolean + r'$|'
     + prefix + r'structure [AB] (?:fresh|restart): messages=(?:true|false) empty-inbox=(?:true|false) share-id=(?:true|false) profile-dialog=(?:true|false) new-chat-dialog=(?:true|false) room-row=(?:true|false) composer=(?:true|false) app-clickable-count=[0-9]+ button-count=[0-9]+ button-visible-count=[0-9]+ button-clickable-count=[0-9]+ view-clickable-count=[0-9]+ anonymous-button-count=[0-9]+ anonymous-view-count=[0-9]+ role-child-view-count=[0-9]+ truncated=(?:true|false)$|'
     + prefix + r'node [AB] (?:fresh|restart): kind=(?:clickable|button) index=[0-9]+ role=(?:button|image-button|editor|text|view|other) enabled=(?:true|false) clickable=(?:true|false) visible=(?:true|false) text-present=(?:true|false) description-present=(?:true|false) named-descendants=(?:true|false) role-children=[0-9]+ bounds=-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+$|'
@@ -263,6 +278,7 @@ run_phase() {
     timeout 15m "$adb" -s "$serial" shell am instrument -w -r \
       -e class com.vellivex.messenger.a2a.MessengerAppToAppTest \
       -e disableAnalytics true -e messengerA2aRole "$role" -e messengerA2aPhase "$phase" \
+      -e messengerA2aAppVersion "$expected_version" \
       -e messengerA2aCoordinator http://127.0.0.1:8030 -e messengerA2aKey "$coordinator_key" \
       -e messengerA2aRunId "$run_id" "$runner" >"$work_dir/$phase-$role.log" 2>&1 &
     pids+=("$!")

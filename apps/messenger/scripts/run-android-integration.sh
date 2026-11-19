@@ -8,6 +8,12 @@ if [[ $# != 1 && $# != 3 && $# != 5 ]]; then
 fi
 
 messenger_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+acceptance_alpha=${MESSENGER_ACCEPTANCE_ALPHA:-alpha06}
+case "$acceptance_alpha" in
+  alpha05) target_app_version=5 ;;
+  alpha06) target_app_version=6 ;;
+  *) printf '%s\n' 'MESSENGER_ACCEPTANCE_ALPHA must be alpha05 or alpha06.' >&2; exit 2 ;;
+esac
 evidence_dir=$1
 mkdir -p -- "$evidence_dir"
 evidence_dir=$(cd -- "$evidence_dir" && pwd)
@@ -23,8 +29,9 @@ if (( $# >= 3 )); then
     previous_app_apk=$(realpath -e -- "$4")
     [[ -s "$previous_app_apk" ]]
     previous_app_version=$5
-    if [[ "$previous_app_version" != 2 && "$previous_app_version" != 4 ]]; then
-      printf '%s\n' 'The upgrade source version must be 2 or 4.' >&2
+    if [[ "$previous_app_version" != 2 && "$previous_app_version" != 4 && "$previous_app_version" != 5 ]] ||
+       (( previous_app_version >= target_app_version )); then
+      printf '%s\n' 'The upgrade source must be supported version 2, 4 or 5 and older than the selected target.' >&2
       exit 2
     fi
   fi
@@ -149,7 +156,7 @@ if (( $# >= 3 )); then
     verify_installed_arm64 "$previous_app_version"
   else
     "${adb[@]}" install -t --abi arm64-v8a "$app_apk"
-    verify_installed_arm64 5
+    verify_installed_arm64 "$target_app_version"
   fi
 else
   "${adb[@]}" install -t "$app_apk"
@@ -183,9 +190,9 @@ if [[ $# == 5 ]]; then
   unset mailbox_key
   "${adb[@]}" shell am force-stop "$test_app"
   "${adb[@]}" install -r -t --abi arm64-v8a "$app_apk"
-  verify_installed_arm64 5
+  verify_installed_arm64 "$target_app_version"
   run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true \
-    -e messengerUpgradeFromVersion "$previous_app_version"
+    -e messengerUpgradeFromVersion "$previous_app_version" -e messengerUpgradeTargetVersion "$target_app_version"
   exit
 fi
 
