@@ -8,18 +8,41 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
-const messengerApkPath = '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
-const messengerApkSource = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/Vellivex-Messenger-0.1.0-alpha06-arm64.apk';
+const messengerApkName = 'Vellivex-Messenger-0.1.0-alpha07-arm64.apk';
+const messengerApkPath = '/downloads/' + messengerApkName;
+const messengerApkBytes = 57525706;
+const messengerApkSha256 = '4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5';
 const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk',
 ];
+function releaseBucket(overrides = {}) {
+  const metadata = {key:messengerApkName, size:messengerApkBytes, etag:'fixture-upload',
+    customMetadata:{sha256:messengerApkSha256}};
+  const calls = [];
+  return {calls,
+    async head(key) { calls.push(['head',key]); return {...metadata}; },
+    async get(key, options) {
+      calls.push(['get',key,options]);
+      const range = options?.range;
+      let remaining = range?.length ?? messengerApkBytes;
+      const body = new ReadableStream({pull(controller) {
+        const length = Math.min(remaining, 65536);
+        controller.enqueue(new Uint8Array(length));
+        remaining -= length;
+        if (!remaining) controller.close();
+      }});
+      return {...metadata, ...(range ? {range} : {}), body};
+    }, ...overrides,
+  };
+}
 const links = {new:'https://buy.stripe.com/fixtureNew',refurb:'https://buy.stripe.com/fixtureRefurb'};
 // Synthetic correspondence address: never a real owner or customer's details.
 const seller = {name:'Vellivex Test Supplier',addressLines:['1 Example Street','Test City','ZZ1 1ZZ']};
-const sellerEnv = {PHONE_SHOP_SELLER_JSON:JSON.stringify(seller)};
+const sellerEnv = {PHONE_SHOP_SELLER_JSON:JSON.stringify(seller), MESSENGER_RELEASES:releaseBucket()};
 const request = (path, method='GET', host=origin) => new Request(host + path,{method});
 const fallback = () => new Response('Preserved application',{headers:{'Content-Type':'text/plain','X-Existing':'yes'}});
 const shop = (config={links}, original={fetch:fallback}) => withPhoneShop(original, config);
@@ -187,7 +210,7 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   const footer = text.match(/<\/main>\s*<footer\b[^>]*>([\s\S]*?)<\/footer>/)?.[1] ?? '';
   assert.match(main, /^<section id="vellivex-messenger-hero"/);
   assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
-  assert.match(main, /Android 8\.0\+ \(ARM64\) · Test alpha · Email signup/);
+  assert.match(main, /Android 8\.0\+ \(ARM64\) · Alpha07 test build · Email signup/);
   assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
   assert.match(main, /href="\/messenger">Setup guide/);
   for (const path of retiredMessengerApkPaths) assert.ok(!main.includes(path));
@@ -205,16 +228,17 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   const guideText = await guide.text();
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
-  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Test alpha · Email signup/);
+  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Alpha07 test build · Email signup/);
   assert.match(guideText, /You’ll need an email address you can access/);
-  assert.match(guideText, /This is an early test build\. Use test conversations during this alpha/);
+  assert.match(guideText, /Alpha07 is available for phone testing\. Use test conversations during this alpha/);
   assert.match(guideText, /Signup is open\. Verify your email in the app to create your account; no invitation is required/);
   assert.match(guideText, /For setup help, contact <a href="mailto:v@vellivex\.com">v@vellivex\.com<\/a>/);
   assert.match(guideText, /Testing on physical phones and an independent security review are not complete/);
+  assert.match(guideText, /Live email sign-in, messaging between two phones and updating a signed-in installation still need to be verified for this exact installer/);
   assert.match(guideText, /Message history warning:[\s\S]*In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone/);
   assert.match(guideText, /install it over the existing app and choose <strong>Update<\/strong>/);
-  assert.match(guideText, /<strong>Update<\/strong> to keep your existing installation, session and message keys/);
-  assert.match(guideText, /Keep the app signed in\. Do not uninstall it or sign out before updating/);
+  assert.match(guideText, /Keep the app signed in\. Do not uninstall it, clear its app data or sign out before updating/);
+  assert.match(guideText, /the existing installation holds your session and message keys/);
   assert.match(guideText, /connects to the Vellivex messaging service automatically.*Continue with email/);
   assert.match(guideText, /Enter your email address and tap <strong>Continue with email<\/strong>/);
   assert.match(guideText, /eight-digit code from your inbox.*Open Vellivex/);
@@ -230,11 +254,26 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   for (const path of retiredMessengerApkPaths) assert.ok(!guideText.includes(path));
 
   for (const method of ['GET', 'HEAD']) {
-    const download = await worker.fetch(request(`${messengerApkPath}?next=https://other.example`, method), sellerEnv);
-    assert.equal(download.status, 302);
-    assert.equal(download.headers.get('Location'), messengerApkSource);
-    assert.equal(download.headers.get('Cache-Control'), 'no-store');
-    assert.equal(await download.text(), '');
+    const bucket = releaseBucket();
+    const download = await worker.fetch(request(`${messengerApkPath}?next=https://other.example&key=private`, method), {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(download.status, 200);
+    assert.equal(download.headers.get('Location'), null);
+    assert.equal(download.headers.get('Content-Type'), 'application/vnd.android.package-archive');
+    assert.equal(download.headers.get('Content-Disposition'), `attachment; filename="${messengerApkName}"`);
+    assert.equal(download.headers.get('Content-Length'), String(messengerApkBytes));
+    assert.equal(download.headers.get('X-Content-SHA256'), messengerApkSha256);
+    assert.equal(download.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+    assert.equal(download.headers.get('X-Content-Type-Options'), 'nosniff');
+    assert.ok(bucket.calls.every(([,key])=>key===messengerApkName));
+    if (method === 'HEAD') {
+      assert.equal(await download.text(), '');
+      assert.deepEqual(bucket.calls, [['head',messengerApkName]]);
+    } else {
+      assert.deepEqual(bucket.calls[1][2], {onlyIf:{etagMatches:'fixture-upload'}});
+      const reader = download.body.getReader();
+      assert.equal((await reader.read()).value.length,65536);
+      await reader.cancel();
+    }
     for (const path of retiredMessengerApkPaths) {
       const retired = await worker.fetch(request(`${path}?next=https://other.example`, method), sellerEnv);
       assert.equal(retired.status, 303);
@@ -255,18 +294,90 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   }
 });
 
-test('Messenger keeps its setup guide available when no public APK target is configured', async () => {
-  for (const target of ['', messengerApkSource.replace('https:', 'http:'), `${messengerApkSource}?token=fixture`,
-    messengerApkSource.replace('github.com', 'fixture.example'), messengerApkSource.replace('Vellivex/', 'other/'),
-    messengerApkSource.replace('.apk', '.zip')]) {
-    const config = {links, messengerApkSource: target};
-    const guide = await html('/messenger', config);
+test('Messenger keeps its setup guide available when the release binding is absent or incomplete', async () => {
+  for (const binding of [undefined, null, {}, {get(){}}, {head(){}}]) {
+    const env = {...sellerEnv,MESSENGER_RELEASES:binding};
+    const guide = await html('/messenger', {links}, env);
     assert.match(guide, /APK download is currently unavailable/);
     assert.doesNotMatch(guide, /Free download/);
-    const download = await shop(config).fetch(request(messengerApkPath), sellerEnv);
+    const download = await shop().fetch(request(messengerApkPath), env);
     assert.equal(download.status, 503);
     assert.equal(download.headers.get('Location'), null);
   }
+});
+
+test('Messenger refuses missing or mismatched release objects and storage failures without exposing details', async () => {
+  const good = await releaseBucket().head(messengerApkName);
+  for (const metadata of [null, {...good,key:'private'}, {...good,size:good.size-1}, {...good,customMetadata:{}},
+    {...good,customMetadata:{sha256:'wrong'}}]) {
+    const bucket = releaseBucket({async head(){return metadata;}});
+    const response = await shop().fetch(request(messengerApkPath), {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(response.status,503);
+    assert.equal(response.headers.get('Cache-Control'),'no-store');
+    assert.equal(await response.text(),'APK download unavailable');
+    assert.equal(bucket.calls.length,0,'unverified metadata must not read object bytes');
+  }
+  for (const method of ['GET','HEAD']) {
+    const bucket = releaseBucket({async head(){throw new Error('private provider details');}});
+    const response = await shop().fetch(request(messengerApkPath,method), {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(response.status,503);
+    assert.equal(await response.text(),method==='HEAD'?'':'APK download unavailable');
+  }
+  const changed = releaseBucket({async get(){return good;}});
+  assert.equal((await shop().fetch(request(messengerApkPath), {...sellerEnv,MESSENGER_RELEASES:changed})).status,503,
+    'a failed conditional read must never become a successful empty installer');
+});
+
+test('Messenger supports bounded, open-ended and suffix download ranges and rejects invalid ranges', async () => {
+  const worker = shop();
+  for (const [range,offset,length] of [
+    ['bytes=0-9',0,10], ['bytes=57525700-',57525700,6], ['bytes=-4',57525702,4],
+    ['bytes=57525704-99999999',57525704,2],
+  ]) {
+    const bucket = releaseBucket();
+    const response = await worker.fetch(new Request(origin+messengerApkPath,{headers:{Range:range}}),
+      {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(response.status,206);
+    assert.equal(response.headers.get('Content-Length'),String(length));
+    assert.equal(response.headers.get('Content-Range'),`bytes ${offset}-${offset+length-1}/${messengerApkBytes}`);
+    assert.deepEqual(bucket.calls[1][2],{onlyIf:{etagMatches:'fixture-upload'},range:{offset,length}});
+    assert.equal((await response.arrayBuffer()).byteLength,length);
+  }
+  for (const range of ['bytes=57525706-','bytes=9-3','bytes=-0','bytes=-','bytes=0-1,3-4','items=0-1','bytes=9007199254740992-']) {
+    const bucket = releaseBucket();
+    const response = await worker.fetch(new Request(origin+messengerApkPath,{headers:{Range:range}}),
+      {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(response.status,416,range);
+    assert.equal(response.headers.get('Content-Range'),`bytes */${messengerApkBytes}`);
+    assert.equal(bucket.calls.length,1);
+  }
+});
+
+test('Messenger conditional requests avoid bytes and mismatched If-Range safely restarts the full download', async () => {
+  const etag = `"sha256-${messengerApkSha256}"`;
+  for (const match of [etag,`W/${etag}`,`"older", ${etag}`,'*']) {
+    const bucket=releaseBucket();
+    const response=await shop().fetch(new Request(origin+messengerApkPath,{headers:{'If-None-Match':match}}),
+      {...sellerEnv,MESSENGER_RELEASES:bucket});
+    assert.equal(response.status,304);
+    assert.equal(response.headers.get('ETag'),etag);
+    assert.equal(await response.text(),'');
+    assert.equal(bucket.calls.length,1);
+  }
+  const bucket=releaseBucket();
+  const response=await shop().fetch(new Request(origin+messengerApkPath,{headers:{Range:'bytes=0-9','If-Range':'"old"'}}),
+    {...sellerEnv,MESSENGER_RELEASES:bucket});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('Content-Range'),null);
+  assert.equal(response.headers.get('Content-Length'),String(messengerApkBytes));
+  assert.ok(!bucket.calls[1][2].range);
+  await response.body.cancel();
+  const unknown=releaseBucket();
+  for(const path of ['/downloads/private','/downloads/'+messengerApkName+'.bak']) {
+    const result=await shop().fetch(request(path),{...sellerEnv,MESSENGER_RELEASES:unknown});
+    assert.equal(await result.text(),'Preserved application');
+  }
+  assert.equal(unknown.calls.length,0);
 });
 
 test('sitemap adds only public phone pages and thanks cannot assert payment success',async()=>{
