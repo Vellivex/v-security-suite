@@ -72,6 +72,7 @@
   "apps/messenger/android/arm64-alpha04-acceptance.json",
   "apps/messenger/android/arm64-alpha05-acceptance.json",
   "apps/messenger/android/arm64-alpha06-acceptance.json",
+  "apps/messenger/android/arm64-alpha07-live-acceptance.json",
   "apps/messenger/android/build.gradle.kts",
   "apps/messenger/android/gradle.properties",
   "apps/messenger/android/gradle/wrapper/gradle-wrapper.jar",

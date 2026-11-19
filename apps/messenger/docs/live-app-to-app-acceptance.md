@@ -18,6 +18,40 @@ Do not reuse aliases from an interrupted setup: the test deliberately does not
 export their recovery keys, and a session on a destroyed emulator may remain
 registered until explicitly resolved through the supported account flow.
 
+## Explicit normal-release profile
+
+The existing five-argument runner invocation remains the **Alpha06 test-build**
+profile. Its exact manifest, version checks and visible default-server check are
+unchanged. The existing workflow also remains pinned to Alpha06; this preparation
+does not start or enable an Alpha07 workflow.
+
+The runner additionally accepts the explicit final arguments
+`--profile alpha07-release`. This closed profile requires the same
+`com.vellivex.messenger.alpha` package and original signer, version code **7**, and
+version name **`0.1.0-alpha07`**. It rejects a debuggable APK during preflight and
+checks the installed application's `FLAG_DEBUGGABLE` is clear on each app and
+phase. It asserts that **Test server settings** and **Server address** are absent
+at sign-in and after successful sign-out, without attempting to open either.
+The independent test driver itself may remain a debug build.
+
+`apps/messenger/android/arm64-alpha07-live-acceptance.json` pins the inspected local
+candidate's exact hash, length, original signer and build source. Its `app_url`
+is deliberately null until a public download route is confirmed. The runner
+rejects missing, null, malformed or mismatched fields. Fill only `app_url` with
+that confirmed public HTTPS URL; do not relabel different APK bytes as this
+profile. The fixed production origin was checked in the release build and APK
+inspection, and `production_origin_verified_app_sha256` binds that review to the
+same installer. This field records the completed artifact review; it does not
+claim a completed live connection. A missing
+settings button does not prove an endpoint, so the Alpha07 UI emits separate
+normal-release checkpoints instead of claiming a visible server-address check.
+
+An Alpha07 run still needs the reviewed workflow download/selection integration,
+a publicly retrievable exact installer, two fresh controlled inboxes and genuinely
+received codes. All shared real-code, recovery-setup, full verification-code,
+rejection, message, restart, sign-out and private-input checks remain required.
+Preparing this profile or compiling it does not establish a live acceptance pass.
+
 ## Production boundaries
 
 The coordinator is private loopback test infrastructure, not a Matrix client.
