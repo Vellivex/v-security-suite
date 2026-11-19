@@ -62,6 +62,16 @@ class MessengerAppToAppTest {
 
     private var lastStage = "launch"
     private var lastAction = "launch"
+    private var expectedControl = ExpectedControl.TextControl
+
+    private enum class ExpectedControl(val token: String, val label: String? = null) {
+        NewConversation("new-conversation", "New conversation"),
+        ContactContinue("contact-continue", "Continue"),
+        TextControl("text-control"),
+        DescribedControl("described-control"),
+        EditableField("editable-field"),
+        LabelledField("labelled-field"),
+    }
 
     private fun freshExchange() {
         waitText("Continue with email")
@@ -376,6 +386,7 @@ class MessengerAppToAppTest {
 
     private fun labelledField(label: String): UiObject2 {
         lastAction = "find-labelled-field"
+        expectedControl = ExpectedControl.LabelledField
         if (device.findObject(By.pkg(APP).text(label))?.visibleBounds?.isEmpty != false) {
             runCatching { UiScrollable(UiSelector().packageName(APP).scrollable(true)).scrollTextIntoView(label) }
         }
@@ -391,6 +402,7 @@ class MessengerAppToAppTest {
 
     private fun setOnlyField(value: String) {
         lastAction = "set-single-editable-field"
+        expectedControl = ExpectedControl.EditableField
         val editor = waitValue("single visible editable field") { editableFields().singleOrNull() }
         editor.text = value
     }
@@ -411,10 +423,19 @@ class MessengerAppToAppTest {
     private fun hasDescription(value: String): Boolean = device.hasObject(By.pkg(APP).desc(value))
 
     private fun clickText(value: String) {
+        expectedControl = when (value) {
+            "New conversation" -> ExpectedControl.NewConversation
+            "Continue" -> ExpectedControl.ContactContinue
+            else -> ExpectedControl.TextControl
+        }
         lastAction = when (value) {
             "New conversation" -> "tap-new-conversation"
             "Continue" -> "tap-contact-continue"
             else -> "tap-text-control"
+        }
+        if (value == "New conversation") {
+            clickNewConversation()
+            return
         }
         val node = device.findObject(By.pkg(APP).text(value))?.takeIf { !it.visibleBounds.isEmpty } ?: run {
             runCatching { UiScrollable(UiSelector().packageName(APP).scrollable(true)).scrollTextIntoView(value) }
@@ -424,8 +445,67 @@ class MessengerAppToAppTest {
         node.click()
     }
 
+    private fun clickNewConversation() {
+        val named = device.findObject(By.pkg(APP).text("New conversation"))?.takeIf { !it.visibleBounds.isEmpty }
+        val node = named ?: run {
+            lastAction = "find-unnamed-new-conversation"
+            // Alpha05 uses Material3 1.4.0's icon/text FAB overload. That overload clears the
+            // text's semantics and the app supplied a null icon description. The visible FAB
+            // therefore has Button role but no accessible name. Observe its actual UI node;
+            // never substitute a hardcoded coordinate or an app-internal action.
+            waitValue("unique unnamed new-conversation button in the empty inbox") {
+                val candidates = unnamedNewConversationButtons()
+                val candidate = candidates.singleOrNull() ?: return@waitValue null
+                val content = device.findObject(By.pkg(APP).text("Share my ID")) ?: return@waitValue null
+                val bounds = candidate.visibleBounds
+                candidate.takeIf {
+                    bounds.top >= content.visibleBounds.bottom && bounds.centerX() > device.displayWidth / 2 &&
+                        bounds.centerY() > device.displayHeight / 2 && bounds.left >= 0 && bounds.top >= 0 &&
+                        bounds.right <= device.displayWidth && bounds.bottom <= device.displayHeight
+                }
+            }.also {
+                stage("unnamed-new-conversation-control-observed")
+            }
+        }
+        assertTrue("Expected new-conversation control is disabled", node.isEnabled)
+        assertTrue("Expected new-conversation control is not clickable", node.isClickable)
+        reportObservedControl(node, if (named == null) "anonymous-button" else "text")
+        lastAction = "tap-new-conversation"
+        node.click()
+        waitText("Start a conversation")
+        waitText("Contact ID or link")
+        waitText("Cancel")
+        waitText("Continue")
+        assertEquals("The new-conversation dialog must expose one contact editor", 1, editableFields().size)
+        stage("new-conversation-dialog-observed")
+    }
+
+    private fun unnamedNewConversationButtons(): List<UiObject2> {
+        fun visible(value: String) = device.findObject(By.pkg(APP).text(value))?.visibleBounds?.isEmpty == false
+        if (!visible("Messages") || !visible("Your people. Your space.") || !visible("Share my ID") ||
+            visible("Start a conversation") || visible("Your Vellivex ID") || visible("Conversation invitation") ||
+            visible("Verify your contact to start chatting") || visible("Verified conversation") || hasDescription("Send message")
+        ) return emptyList()
+        fun unnamed(node: UiObject2, depth: Int = 0): Boolean =
+            node.text.isNullOrBlank() && node.contentDescription.isNullOrBlank() &&
+                if (depth < 8) node.children.all { unnamed(it, depth + 1) } else node.children.isEmpty()
+        return device.findObjects(By.pkg(APP).clazz("android.widget.Button").enabled(true).clickable(true))
+            .filter { !it.visibleBounds.isEmpty && unnamed(it) }
+    }
+
+    private fun reportObservedControl(node: UiObject2, channel: String) {
+        require(channel in setOf("text", "anonymous-button"))
+        val bounds = node.visibleBounds
+        val message = "Two-app control $role $phase: expected=new-conversation channel=$channel role=button " +
+            "enabled=${node.isEnabled} clickable=${node.isClickable} " +
+            "bounds=${bounds.left},${bounds.top},${bounds.right},${bounds.bottom} " +
+            "screen=${device.displayWidth},${device.displayHeight}\n"
+        instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
+    }
+
     private fun clickDescription(value: String) {
         lastAction = "tap-described-control"
+        expectedControl = ExpectedControl.DescribedControl
         val node = waitValue("visible described control") { device.findObject(By.pkg(APP).desc(value)) }
         assertTrue("Expected UI control is disabled", node.isEnabled)
         node.click()
@@ -460,6 +540,13 @@ class MessengerAppToAppTest {
         val line = failure.stackTrace.firstOrNull {
             it.className.startsWith("com.vellivex.messenger.a2a.") && it.fileName == "MessengerAppToAppTest.kt"
         }?.lineNumber?.coerceAtLeast(0) ?: 0
+        val flowNames = mapOf("freshExchange" to "fresh-exchange", "restartExchange" to "restart-exchange",
+            "signInAndSaveRecovery" to "sign-in", "compareUiCodes" to "verification")
+        val callerFrame = failure.stackTrace.firstOrNull {
+            it.className == "com.vellivex.messenger.a2a.MessengerAppToAppTest" && it.methodName in flowNames
+        }
+        val caller = callerFrame?.methodName?.let(flowNames::get) ?: "unknown"
+        val callerLine = callerFrame?.lineNumber?.coerceAtLeast(0) ?: 0
         fun flag(read: () -> Boolean): String = runCatching(read).fold({ it.toString() }, { "unavailable" })
         fun visible(value: String): Boolean = device.findObject(By.pkg(APP).text(value))
             ?.visibleBounds?.isEmpty == false
@@ -471,7 +558,35 @@ class MessengerAppToAppTest {
         val editableCount = runCatching { editableFields().size }.getOrDefault(-1)
         val safeAction = lastAction.takeIf { it.matches(Regex("[a-z0-9-]{1,80}")) } ?: "unknown"
         val message = "Two-app diagnostic $role $phase: category=$category action=$safeAction line=$line " +
+            "expected=${expectedControl.token} caller=$caller caller-line=$callerLine " +
             "dialog=$dialog error=$error empty-inbox=$emptyInbox room-row=$roomRow composer=$composer editable-count=$editableCount\n"
+        instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
+        runCatching { reportTargetDiagnostics() }
+    }
+
+    private fun reportTargetDiagnostics() {
+        val texts = expectedControl.label?.let { device.findObjects(By.pkg(APP).text(it)) }.orEmpty()
+        val descriptions = expectedControl.label?.let { device.findObjects(By.pkg(APP).desc(it)) }.orEmpty()
+        val anonymous = if (expectedControl == ExpectedControl.NewConversation) unnamedNewConversationButtons() else emptyList()
+        val candidate = (texts + descriptions + anonymous).firstOrNull { !it.visibleBounds.isEmpty }
+        val bounds = candidate?.visibleBounds
+        val roleName = when (candidate?.className) {
+            "android.widget.Button" -> "button"
+            "android.widget.EditText" -> "editor"
+            "android.widget.TextView" -> "text"
+            "android.view.View" -> "view"
+            null -> "none"
+            else -> "other"
+        }
+        val focus = runCatching { (device.currentPackageName == APP).toString() }.getOrDefault("unavailable")
+        val ime = runCatching {
+            Regex("\\bmInputShown=(true|false)\\b").find(device.executeShellCommand("dumpsys input_method"))?.groupValues?.get(1)
+                ?: "unavailable"
+        }.getOrDefault("unavailable")
+        val message = "Two-app target $role $phase: expected=${expectedControl.token} text-count=${texts.size} " +
+            "description-count=${descriptions.size} anonymous-count=${anonymous.size} " +
+            "bounds=${bounds?.left ?: 0},${bounds?.top ?: 0},${bounds?.right ?: 0},${bounds?.bottom ?: 0} " +
+            "role=$roleName focus-app=$focus ime=$ime\n"
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", message) })
     }
 

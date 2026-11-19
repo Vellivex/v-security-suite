@@ -91,6 +91,28 @@ Read the actual workflow outcome and retained evidence before claiming a pass.
 A successful build, a started emulator, a local message echo or an HTTP response
 does not by itself establish successful app-to-app messaging.
 
+## Known Alpha05 accessibility defect
+
+The released inbox's **New conversation** floating action button has no
+accessibility name. The icon-and-text overload of Material3's
+`ExtendedFloatingActionButton` takes its default accessibility description from
+the icon and clears the text slot's semantics. Alpha05 supplies a null icon
+description. The first two installed-app runs therefore could not find this
+control by its displayed text, although both apps had reached the empty inbox.
+
+This defect must remain visible in the acceptance result. For the unchanged
+Alpha05 installer, the driver may identify the unique visible, enabled,
+clickable inbox button from its observed UI structure, click it once, and require
+the real **Start a conversation** dialog to appear. It must fail if the target
+is missing or ambiguous. This permits the remaining functional checks without
+claiming that the button is accessible or modifying the released application.
+An application fix should give the icon or button the explicit accessibility
+description **New conversation** and be verified in a separately identified
+build.
+
+Primary references: [Android component documentation](https://developer.android.com/reference/kotlin/androidx/compose/material3/ExtendedFloatingActionButton.composable)
+and the [Material3 1.4.0 source archive](https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.4.0/material3-android-1.4.0-sources.jar).
+
 ## Limits
 
 The automated workflow uses a disposable local Synapse service and synthetic
