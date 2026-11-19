@@ -1,0 +1,14 @@
+{
+  "rust_sdk_commit": "3ff03638028fd9abf58203153722b94b4293a87a",
+  "rustls_platform_verifier_version": "0.7.1",
+  "rustls_platform_verifier_source_commit": "252e25161a91af476cbea620e29d277592d27ec7",
+  "android_support_version": "0.2.0",
+  "android_support_artifact": "org.rustls:rustls-platform-verifier:0.2.0",
+  "android_support_maven_commit": "1aa691352a5e0c215210dfc9a3c2f2078639dc91",
+  "android_support_repository": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/1aa691352a5e0c215210dfc9a3c2f2078639dc91/android-release-support/maven/",
+  "android_support_aar_sha256": "aa021794230fbc2f0be355999e2cf67398dd563de066a2e17001ffbd0b69101b",
+  "android_support_network_security_sha256": "a81434f9139f3780412c358d1cc782fe25339182d3dc141b35413f23d2b29f6a",
+  "license": "MIT OR Apache-2.0",
+  "jni_class": "org.matrix.rustsdk.Android",
+  "jni_init_symbol": "Java_org_matrix_rustsdk_Android_init"
+}

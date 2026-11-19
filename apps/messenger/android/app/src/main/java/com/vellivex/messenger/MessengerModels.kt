@@ -43,6 +43,8 @@ enum class MessengerRecovery { Checking, SetupRequired, KeyRequired, NoRecovery,
 
 data class MessengerState(
     val userId: String? = null,
+    val hasSavedSession: Boolean = false,
+    val savedSessionError: String? = null,
     val pendingSignInEmail: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
@@ -54,10 +56,24 @@ data class MessengerState(
     val messages: List<MessengerMessage> = emptyList(),
     val verification: MessengerVerification? = null,
 ) {
-    val codeRequested: Boolean get() = pendingSignInEmail != null
+    val needsSessionRestore: Boolean get() = hasSavedSession && userId == null
+    val canStartSignIn: Boolean get() = !hasSavedSession && userId == null
+    val codeRequested: Boolean get() = canStartSignIn && pendingSignInEmail != null
     val selectedRoom: MessengerRoom? get() = rooms.firstOrNull { it.id == selectedRoomId }
     val canSend: Boolean
         get() = recovery == MessengerRecovery.Ready && selectedRoom?.let {
             it.membership == MessengerMembership.Joined && it.encrypted && it.peerVerified
         } == true
 }
+
+/** Keep persisted-session routing separate from transient snackbar messages. */
+internal fun MessengerState.withSavedSessionPresence(present: Boolean): MessengerState = copy(
+    hasSavedSession = present,
+    pendingSignInEmail = if (present) null else pendingSignInEmail,
+    savedSessionError = if (present) savedSessionError else null,
+)
+
+internal fun MessengerState.withOperationError(message: String): MessengerState = copy(
+    error = message,
+    savedSessionError = if (needsSessionRestore) savedSessionError ?: message else savedSessionError,
+)
