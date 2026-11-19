@@ -272,6 +272,7 @@
   "tests/cipher-ui.test.mjs",
   "tests/cipher-workflow.test.mjs",
   "tests/cipher.test.mjs",
+  "tests/community-testing-feedback.test.mjs",
   "tests/crypto-cleanup.test.mjs",
   "tests/crypto-interoperability.py",
   "tests/crypto.test.mjs",

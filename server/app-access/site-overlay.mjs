@@ -97,6 +97,69 @@ function publicMarkup(html, isPrivacy) {
   return result;
 }
 
+const VVAULT_ACCESS_NOTE = 'You can read this guide without signing in. Opening VVault may ask for an email code.';
+const FILE_TEST_REPORT = 'For file-saving tests, tell us whether the download started, whether it was saved in Downloads or another folder (or could not be found), and whether you reopened that actual file. Leave out full file paths, filenames, file contents and passphrases.';
+
+function describeWith(opening, id) {
+  const attribute = /(\saria-describedby\s*=\s*)(["'])(.*?)\2/i;
+  if (attribute.test(opening)) return opening.replace(attribute, (original, prefix, quote, value) =>
+    value.split(/\s+/).includes(id) ? original : prefix + quote + value + (value ? ' ' : '') + id + quote);
+  return opening.replace(/>$/, ' aria-describedby="' + id + '">');
+}
+
+function testingFeedbackMarkup(html) {
+  // Only edit the known public guide's visible actions and reporting checklist.
+  // Keep code examples, raw text, comments and embedded scripts byte-for-byte.
+  const examples = /<!--[\s\S]*?-->|<(script|style|textarea|pre|code|template)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?<\/\1\s*>/gi;
+  let cursor = 0, result = '', noteNumber = 0;
+  const update = visible => {
+    let updated = visible.replace(/<div\s+class=(["'])actions\1\s*>[\s\S]*?<\/div\s*>/gi, actions => {
+      const id = 'vellivex-vvault-access-note-' + (noteNumber + 1);
+      let hasVaultLink = false;
+      const links = actions.replace(/(<a\b(?:[^>"']|"[^"]*"|'[^']*')*>)(\s*Open VVault(?:\s*↗)?\s*<\/a\s*>)/gi, (link, opening, label) => {
+        if (!/\shref\s*=\s*(["'])\/apps\/vault\1/i.test(opening)) return link;
+        hasVaultLink = true;
+        return describeWith(opening, id) + label;
+      });
+      if (!hasVaultLink) return actions;
+      noteNumber++;
+      return links === actions ? actions : links + '<p class="fine" id="' + id + '">' + VVAULT_ACCESS_NOTE + '</p>';
+    });
+    updated = updated.replace(/(<section\s+class=(["'])panel\2\s*>\s*<h2>Make your report reproducible<\/h2>\s*<ol>)([\s\S]*?)(<\/ol>)/i, (section, opening, quote, steps, closing) => {
+      if (steps.includes('id="vellivex-file-test-checks"')) return section;
+      const reminder = '<li>Keep the confirmation reference so you can identify the result later.</li>';
+      return opening + steps.replace(reminder, '<li id="vellivex-file-test-checks">' + FILE_TEST_REPORT + '</li>' + reminder) + closing;
+    });
+    return updated;
+  };
+  for (const example of html.matchAll(examples)) {
+    result += update(html.slice(cursor, example.index)) + example[0];
+    cursor = example.index + example[0].length;
+  }
+  return result + update(html.slice(cursor));
+}
+
+function feedbackReportMarkup(html) {
+  let inFeedbackForm = false;
+  // Tokenise the small trusted form without touching textarea contents or any
+  // form-shaped examples inside comments, scripts or other raw-text elements.
+  return html.replace(/<!--[\s\S]*?-->|<(script|style|pre|code|template)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?<\/\1\s*>|(<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?<\/textarea\s*>)|<\/?form\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (token, rawTag, opening, contents) => {
+    if (/^<form\b/i.test(token)) inFeedbackForm = /\sid\s*=\s*(["'])feedback-form\1/i.test(token);
+    else if (/^<\/form\b/i.test(token)) inFeedbackForm = false;
+    else if (opening && inFeedbackForm && /\sname\s*=\s*(["'])message\1/i.test(opening)) {
+      const id = 'vellivex-file-report-help', described = describeWith(opening, id);
+      if (described !== opening) return described + contents + '<small id="' + id + '">' + FILE_TEST_REPORT + '</small>';
+    }
+    return token;
+  });
+}
+
+function communityFeedbackMarkup(html, path) {
+  if (path === '/testing') return testingFeedbackMarkup(html);
+  if (path === '/feedback') return feedbackReportMarkup(html);
+  return html;
+}
+
 function mailPolicy(value) {
   if (!value) return value;
   return value.replace(/(^|;)(\s*connect-src\s+)([^;]*)/gi, (directive, separator, prefix, sources) => {
@@ -135,7 +198,7 @@ export async function transformSiteResponse(request, response) {
   if (request.method === 'HEAD' || !response.body ||
       (headers.has('Content-Encoding') && headers.get('Content-Encoding') !== 'identity')) return response;
   const original = await response.clone().text();
-  const html = publicMarkup(original, path === '/privacy');
+  const html = communityFeedbackMarkup(publicMarkup(original, path === '/privacy'), path);
   if (html === original) return response;
   headers.delete('Content-Length'); headers.delete('ETag');
   return new Response(html, {status:response.status, statusText:response.statusText, headers});
