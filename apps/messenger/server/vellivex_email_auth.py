@@ -101,13 +101,21 @@ def require_fields(request, fields: set[str]) -> dict:
     return value
 
 
-def admit(request, budget: AddressBudget) -> str:
+def code_limit_error(public_signup: bool, retry_after: int) -> SynapseError:
+    if public_signup:
+        return SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED,
+                            additional_fields={"retry_after_ms": retry_after * 1000},
+                            headers={"Retry-After": str(retry_after)})
+    return SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED)
+
+
+def admit(request, budget: AddressBudget, *, public_signup: bool = False) -> str:
     address = client_bucket(getattr(request.getClientAddress(), "host", None))
     try:
         budget.admit(address)
-    except RateLimited:
+    except RateLimited as error:
         request.setHeader(b"Cache-Control", b"no-store")
-        raise SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED) from None
+        raise code_limit_error(public_signup, error.retry_after) from None
     return address
 
 
@@ -125,7 +133,8 @@ class RequestCode(DirectServeJsonResource):
         except InvalidEmail:
             raise SynapseError(400, "Enter a valid email address.", Codes.INVALID_PARAM) from None
 
-        address = admit(request, self.module.requests)
+        public_signup = self.module.invited_emails is None and not self.module.dev
+        address = admit(request, self.module.requests, public_signup=public_signup)
         if self.module.invited_emails is not None and email not in self.module.invited_emails:
             # Keep the response shape consistent without touching SQL or SMTP.
             return 200, {"challenge_id": secrets.token_urlsafe(32)}
@@ -133,7 +142,7 @@ class RequestCode(DirectServeJsonResource):
         try:
             challenge = await run(self.module.state.issue, email, address)
         except CapacityExhausted as error:
-            if self.module.invited_emails is not None or self.module.dev:
+            if not public_signup:
                 raise SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED) from None
             request.setHeader(b"Retry-After", str(error.retry_after).encode("ascii"))
             return 429, {
@@ -142,8 +151,8 @@ class RequestCode(DirectServeJsonResource):
                 "retry_after_ms": error.retry_after * 1000,
                 "vellivex_capacity_exhausted": True,
             }
-        except RateLimited:
-            raise SynapseError(429, "Try again later.", Codes.LIMIT_EXCEEDED) from None
+        except RateLimited as error:
+            raise code_limit_error(public_signup, error.retry_after) from None
         await self.module.mail_slots.acquire()
         try:
             await run(self.module.mailer.send, email, challenge)
