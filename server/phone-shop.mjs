@@ -11,16 +11,17 @@ export const PHONE_LAUNCH_PATH = '/blog/grapheneos-privacy-phones-uk';
 export const PHONE_SOCIAL_IMAGE = '/media/vellivex-privacy-phones.png';
 export const PHONE_PRODUCT_IMAGE = '/media/pixel-9a-obsidian.jpg';
 const MESSENGER_SETUP_PATH = '/messenger';
-const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha07-arm64.apk';
+const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha08-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
-const MESSENGER_APK_BYTES = 57525706;
-const MESSENGER_APK_SHA256 = '4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5';
+const MESSENGER_APK_BYTES = 57542436;
+const MESSENGER_APK_SHA256 = '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4';
 const RETIRED_MESSENGER_APK_PATHS = new Set([
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha07-arm64.apk',
 ]);
 const LAUNCH_TITLE = 'GrapheneOS privacy phones in the UK: a practical buying guide';
 const LAUNCH_DESCRIPTION = 'Meet Vellivex Pixel 9a privacy phones: new £479 or refurbished £375. Learn what GrapheneOS, Signal and the Vellivex app bundle do, and their limits.';
@@ -212,7 +213,7 @@ function messengerDownloadButton() {
 }
 function messengerHero(downloadAvailable) {
   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha07 test build · Email signup</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha08 test build · Email signup</p>
     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
     <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
     <div class="messenger-actions">
@@ -227,10 +228,10 @@ function messengerSetup(downloadAvailable) {
     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
-    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha07 test build · Email signup</p>
+    <p class="messenger-platform">Android 8.0+ (ARM64) · Alpha08 test build · Email signup</p>
     <h1>Set up Vellivex Messenger</h1>
     <p>You’ll need an email address you can access and an ARM64 phone running Android 8.0 or later.</p>
-    <p>Alpha07 is available for phone testing. Use test conversations during this alpha.</p>
+    <p>Alpha08 is available for phone testing. Use test conversations during this alpha.</p>
     <p>Signup is open. Verify your email in the app to create your account; no invitation is required. For setup help, contact <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
     <p>Testing on physical phones and an independent security review are not complete.</p>
     <p>Live email sign-in, messaging between two phones and updating a signed-in installation still need to be verified for this exact installer.</p>
