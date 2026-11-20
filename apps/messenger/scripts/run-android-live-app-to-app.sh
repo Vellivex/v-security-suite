@@ -2,10 +2,32 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-if [[ $# != 5 ]]; then
-  printf '%s\n' 'Usage: run-android-live-app-to-app.sh EVIDENCE_DIRECTORY EXACT_ALPHA06_APK HARNESS_APP_APK HARNESS_TEST_APK PRIVATE_INPUT_DIRECTORY' >&2
+if [[ $# != 5 && $# != 7 ]]; then
+  printf '%s\n' 'Usage: run-android-live-app-to-app.sh EVIDENCE_DIRECTORY EXACT_APP_APK HARNESS_APP_APK HARNESS_TEST_APK PRIVATE_INPUT_DIRECTORY [--profile alpha06-test|alpha07-release|alpha08-release]' >&2
   exit 2
 fi
+profile=alpha06-test
+if [[ $# == 7 ]]; then
+  [[ "$6" == --profile ]] || { printf '%s\n' 'An explicit --profile option is required.' >&2; exit 2; }
+  profile=$7
+fi
+case "$profile" in
+  alpha06-test)
+    version_code=6
+    ;;
+  alpha07-release)
+    version_code=7
+    ;;
+  alpha08-release)
+    version_code=8
+    ;;
+  *) printf '%s\n' 'Unsupported live release profile.' >&2; exit 2 ;;
+esac
+scenario=${MESSENGER_LIVE_SCENARIO:-fresh}
+case "$profile:$scenario" in
+  alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07) ;;
+  *) printf '%s\n' 'Unsupported live installer/scenario combination.' >&2; exit 2 ;;
+esac
 
 messenger_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 evidence_dir=$1
@@ -67,22 +89,22 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$python_bin" - "$messenger_dir/android/arm64-alpha06-acceptance.json" "$app_apk" "$work_dir/expected-signer" "$evidence_dir/apk-identity.json" <<'PY'
-import hashlib, json, pathlib, sys
-manifest_path, app_path, signer_path, report_path = map(pathlib.Path, sys.argv[1:])
-manifest = json.loads(manifest_path.read_text())
-digest = hashlib.sha256(app_path.read_bytes()).hexdigest()
-if digest != manifest['app_sha256']:
-    raise SystemExit('The app is not the exact pinned signed Alpha06 APK.')
-signer_path.write_text(manifest['signer_sha256'])
-signer_path.chmod(0o600)
-pathlib.Path(report_path).write_text(json.dumps({
-    'app_sha256': digest, 'app_bytes': app_path.stat().st_size,
-    'expected_signer_sha256': manifest['signer_sha256'],
-    'release_url': manifest['app_url'],
-}, indent=2) + '\n')
-PY
+"$python_bin" "$messenger_dir/scripts/live-release-profile.py" verify "$profile" "$app_apk" \
+  --signer-output "$work_dir/expected-signer" --report "$evidence_dir/apk-identity.json"
+
 expected_signer=$(<"$work_dir/expected-signer")
+previous_apk=''
+if [[ "$scenario" == upgrade-alpha07 ]]; then
+  previous_apk=$(realpath -e -- "${RUNNER_TEMP:?}/messenger-live-inputs/previous-alpha07.apk")
+  "$python_bin" "$messenger_dir/scripts/live-release-profile.py" verify alpha07-release "$previous_apk" \
+    --report "$work_dir/previous-alpha07-identity.json"
+  "$build_tools/apksigner" verify "$previous_apk" >/dev/null
+  previous_signer=$("$build_tools/apksigner" verify --print-certs "$previous_apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+  [[ "$previous_signer" == "$expected_signer" ]]
+  "$build_tools/aapt" dump badging "$previous_apk" >"$work_dir/previous-alpha07-badging.txt"
+  grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='7' versionName='0\.1\.0-alpha07'" "$work_dir/previous-alpha07-badging.txt"
+  grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" "$work_dir/previous-alpha07-badging.txt"
+fi
 for input in "$app_apk" "$harness_apk" "$test_apk"; do
   "$build_tools/apksigner" verify "$input" >/dev/null
 done
@@ -96,7 +118,25 @@ test_signer=$(signer_for "$test_apk")
 app_badging=$("$build_tools/aapt" dump badging "$app_apk")
 harness_badging=$("$build_tools/aapt" dump badging "$harness_apk")
 test_badging=$("$build_tools/aapt" dump badging "$test_apk")
-grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='6' versionName='0\.1\.0-alpha06-test'" <<< "$app_badging"
+if [[ "$profile" == alpha06-test ]]; then
+  grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='6' versionName='0\.1\.0-alpha06-test'" <<< "$app_badging"
+else
+  grep -Eq "^package: name='com\.vellivex\.messenger\.alpha' versionCode='$version_code' versionName='0\.1\.0-alpha0$version_code'" <<< "$app_badging"
+  "$build_tools/aapt" dump xmltree "$app_apk" AndroidManifest.xml >"$work_dir/app-manifest.txt"
+  "$python_bin" - "$work_dir/app-manifest.txt" "$evidence_dir/apk-identity.json" <<'PYRELEASE'
+import json, pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+if not re.search(r'^\s*E: application\b', text, re.M):
+    raise SystemExit('Could not inspect the normal-release application manifest.')
+debuggable = [line for line in text.splitlines() if 'android:debuggable(' in line]
+if len(debuggable) > 1 or any(not re.search(r'=\(type 0x12\)0x0\s*$', line) for line in debuggable):
+    raise SystemExit('The selected normal release must not be a debuggable installer.')
+report_path = pathlib.Path(sys.argv[2])
+report = json.loads(report_path.read_text())
+report['app_manifest_debuggable'] = False
+report_path.write_text(json.dumps(report, indent=2) + '\n')
+PYRELEASE
+fi
 grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a' " <<< "$harness_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a\.test' " <<< "$test_badging"
@@ -118,7 +158,7 @@ report.write_text(json.dumps(data, indent=2) + '\n')
 PY
 
 "$adb" start-server >/dev/null
-if [[ $# == 5 ]]; then
+if [[ $# == 5 || $# == 7 ]]; then
   if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
     printf '%s\n' 'Hardware acceleration is required when this runner creates Android emulators.' >&2
     exit 1
@@ -176,14 +216,20 @@ for serial in "$serial_a" "$serial_b"; do
     printf 'Dedicated emulator lacks ARM64 native translation: %s\n' "$serial" >&2
     exit 1
   fi
-  "$adb" -s "$serial" install -r -t --abi arm64-v8a "$app_apk" >/dev/null
+  installed_apk=$app_apk
+  installed_version=$version_code
+  if [[ "$scenario" == upgrade-alpha07 && "$serial" == "$serial_a" ]]; then
+    installed_apk=$previous_apk
+    installed_version=7
+  fi
+  "$adb" -s "$serial" install -r -t --abi arm64-v8a "$installed_apk" >/dev/null
   "$adb" -s "$serial" install -r -t "$harness_apk" >/dev/null
   "$adb" -s "$serial" install -r -t "$test_apk" >/dev/null
   "$adb" -s "$serial" shell dumpsys package com.vellivex.messenger.alpha >"$work_dir/package-$serial.txt"
   grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' "$work_dir/package-$serial.txt"
-  grep -Eq '^[[:space:]]*versionCode=6([[:space:]]|$)' "$work_dir/package-$serial.txt"
+  grep -Eq "^[[:space:]]*versionCode=$installed_version([[:space:]]|$)" "$work_dir/package-$serial.txt"
   "$adb" -s "$serial" shell settings get secure android_id >"$work_dir/android-id-$serial"
-  printf '%s versionCode=6 primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
+  printf '%s versionCode=%s primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$installed_version" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
 done
 "$python_bin" - "$work_dir/android-id-$serial_a" "$work_dir/android-id-$serial_b" "$evidence_dir/device-separation.json" <<'PY'
 import hashlib, json, pathlib, sys
@@ -260,16 +306,31 @@ run_phase() {
     timeout 25m "$adb" -s "$serial" shell am instrument -w -r \
       -e class com.vellivex.messenger.a2a.MessengerLiveAppToAppTest \
       -e disableAnalytics true -e messengerA2aRole "$role" -e messengerA2aPhase "$phase" \
+      -e messengerLiveReleaseProfile "$profile" \
+      -e messengerLiveScenario "$scenario" \
       -e messengerA2aCoordinator http://127.0.0.1:8030 -e messengerA2aKey "$coordinator_key" \
       -e messengerA2aRunId "$run_id" "$runner" >"$work_dir/$phase-$role.log" 2>&1 &
     pids+=("$!")
   done
+  if [[ "$phase" == fresh && "$scenario" == upgrade-alpha07 ]]; then
+    if ! complete_alpha07_update; then
+      status=1
+      for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+    fi
+  fi
   for pid in "${pids[@]}"; do wait "$pid" || status=1; done
   for role in A B; do
     sanitise_result "$work_dir/$phase-$role.log" "$evidence_dir/$phase-$role.log" || status=1
     cat "$evidence_dir/$phase-$role.log"
   done
   return "$status"
+}
+
+complete_alpha07_update() {
+  "$python" "$messenger_dir/scripts/live-preserved-session-update.py" \
+    "$adb" "$serial_a" "$app_apk" "$work_dir/package-$serial_a.txt" \
+    "$work_dir/coordinator-key" "$evidence_dir/two-app-summary.json" \
+    "$evidence_dir/upgrade-alpha07.json"
 }
 
 run_phase fresh
@@ -282,9 +343,23 @@ for serial in "$serial_a" "$serial_b"; do
   printf '%s existing-app-process-observed=true app-process-stopped=true data-cleared=false\n' "$serial" >>"$evidence_dir/cold-restart.txt"
 done
 run_phase restart
-"$python" - "$evidence_dir/two-app-summary.json" <<'PY'
+"$python" - "$evidence_dir/two-app-summary.json" "$profile" "$evidence_dir/apk-identity.json" "$scenario" "$evidence_dir/upgrade-alpha07.json" "$evidence_dir/installation-scenario.json" <<'PY'
 import json, pathlib, sys
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text())
+profile = sys.argv[2]
+scenario = sys.argv[4]
+if profile == 'alpha06-test':
+    profile_checkpoints = {'default-production-https-confirmed'}
+elif profile in ('alpha07-release', 'alpha08-release'):
+    identity = json.loads(pathlib.Path(sys.argv[3]).read_text())
+    if (identity.get('profile') != profile or identity.get('app_manifest_debuggable') is not False or
+            identity.get('production_origin') != 'https://messenger.vellivex.com' or
+            identity.get('production_origin_verified_app_sha256') != identity.get('app_sha256') or
+            identity.get('production_origin_build_attestation_checked') is not True):
+        raise SystemExit('The exact normal-release identity and production-origin build verification are required.')
+    profile_checkpoints = {'normal-release-package-confirmed', 'normal-release-settings-absent'}
+else:
+    raise SystemExit('Unsupported live release profile.')
 if summary['failures'] or any(summary['completed_phases'][role] != ['fresh', 'restart'] for role in ('A', 'B')):
     raise SystemExit('Both actual apps did not complete both UI phases.')
 if any(summary['sas_comparisons'].get(round_name, {}).get('matched') is not True for round_name in ('rejected', 'accepted')):
@@ -295,10 +370,26 @@ if summary['production_origin'] != 'https://messenger.vellivex.com' or summary['
     raise SystemExit('The live scope was not preserved.')
 for role in ('A', 'B'):
     completed = {item['name'] for item in summary['checkpoints'] if item['role'] == role}
-    required = {'default-production-https-confirmed', 'email-code-and-recovery-setup-through-ui',
+    required = profile_checkpoints | {'email-code-and-recovery-setup-through-ui',
                 'bidirectional-message-visible-on-peer', 'new-bidirectional-messages-after-cold-restart',
                 'disposable-live-session-signed-out'}
     if not required <= completed:
         raise SystemExit('A required production UI checkpoint was not reached.')
+if scenario == 'upgrade-alpha07':
+    upgrade = json.loads(pathlib.Path(sys.argv[5]).read_text())
+    required_update = {'source_version_code': 7, 'target_version_code': 8,
+        'application_id_retained': True, 'application_uid_retained': True,
+        'first_install_time_retained': True, 'data_clear_requested': False,
+        'uninstall_requested': False, 'sign_out_before_update': False}
+    if profile != 'alpha08-release' or any(upgrade.get(key) != value for key, value in required_update.items()):
+        raise SystemExit('The non-destructive Alpha07-to-Alpha08 installation evidence is incomplete.')
+    observed = {item['name'] for item in summary['checkpoints'] if item['role'] == 'A' and item['phase'] == 'fresh'}
+    if not {'alpha07-saved-session-blocks-new-login', 'alpha07-saved-session-restored-without-new-code'} <= observed:
+        raise SystemExit('The original Alpha07 saved-session failure and in-place restoration were not both observed.')
+    scenario_report = {'installation_scenario': 'upgrade-alpha07',
+        'scope': 'one preserved saved session after failed Alpha07 connection and one fresh Alpha08 app; no pre-upgrade message-history claim'}
+else:
+    scenario_report = {'installation_scenario': 'fresh', 'scope': 'two fresh installations of the selected exact release'}
+pathlib.Path(sys.argv[6]).write_text(json.dumps(scenario_report, indent=2) + '\n')
 print('PASS: two exact installed ARM64 apps completed real-email production HTTPS and cold-restart UI exchanges.')
 PY

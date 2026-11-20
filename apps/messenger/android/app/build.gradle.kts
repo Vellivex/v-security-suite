@@ -1,6 +1,8 @@
 import com.android.build.api.variant.BuildConfigField
+import groovy.json.JsonSlurper
 import java.net.URI
 import java.net.URISyntaxException
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -15,8 +17,8 @@ android {
         applicationId = "com.vellivex.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.1.0-alpha07"
+        versionCode = 8
+        versionName = "0.1.0-alpha08"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -82,8 +84,76 @@ require(matrixSdkAar.isFile) {
     "Build ../sdk/build.sh first, or supply -PmatrixSdkAar=/absolute/path/vellivex-matrix-sdk.aar"
 }
 
+// A local SDK AAR has no transitive POM. Its Android TLS verifier needs the
+// matching, production-only JVM support component from the pinned Cargo.lock.
+val androidPlatformPinsFile = rootProject.file("../sdk/android-platform.json")
+val nativeSdkPinsFile = rootProject.file("../sdk/sources.json")
+val androidPlatformPins = JsonSlurper().parse(androidPlatformPinsFile) as Map<*, *>
+val androidPlatformArtifact = androidPlatformPins["android_support_artifact"] as String
+val androidPlatformSupport = configurations.create("androidPlatformSupport") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
+dependencies { add(androidPlatformSupport.name, "$androidPlatformArtifact@aar") }
+val verifyAndroidPlatformSupport = tasks.register("verifyAndroidPlatformSupport") {
+    inputs.file(androidPlatformPinsFile)
+    inputs.file(nativeSdkPinsFile)
+    inputs.files(androidPlatformSupport)
+    doLast {
+        val nativePins = JsonSlurper().parse(nativeSdkPinsFile) as Map<*, *>
+        val nativeSource = nativePins["rust_sdk"] as Map<*, *>
+        check(androidPlatformPins["rust_sdk_commit"] == nativeSource["commit"]) {
+            "Review Android TLS support when changing the pinned native SDK."
+        }
+        val actual = androidPlatformSupport.singleFile.inputStream().use { input ->
+            val hash = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(16_384)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                hash.update(buffer, 0, count)
+            }
+            hash.digest().joinToString("") { "%02x".format(it) }
+        }
+        check(actual == androidPlatformPins["android_support_aar_sha256"]) {
+            "The Android TLS support AAR differs from the reviewed pin."
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(verifyAndroidPlatformSupport) }
+
+abstract class GenerateDebugNetworkSecurity : Exec() {
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+}
+val generateDebugNetworkSecurity = tasks.register<GenerateDebugNetworkSecurity>("generateDebugNetworkSecurity") {
+    dependsOn(verifyAndroidPlatformSupport)
+    val generator = rootProject.file("generate-debug-network-security.py")
+    inputs.file(generator)
+    inputs.file(androidPlatformPinsFile)
+    inputs.files(androidPlatformSupport)
+    outputDirectory.set(layout.buildDirectory.dir("generated/res/debugNetworkSecurity"))
+    doFirst {
+        commandLine(
+            "python3", generator.absolutePath,
+            "--aar", androidPlatformSupport.singleFile.absolutePath,
+            "--pins", androidPlatformPinsFile.absolutePath,
+            "--output-dir", outputDirectory.get().asFile.absolutePath,
+        )
+    }
+}
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(
+            generateDebugNetworkSecurity, GenerateDebugNetworkSecurity::outputDirectory,
+        )
+    }
+}
+
 dependencies {
     implementation(files(matrixSdkAar))
+    implementation("$androidPlatformArtifact@aar")
     // File-based AARs do not carry Maven transitive dependency resolution.
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("androidx.annotation:annotation:1.9.1")

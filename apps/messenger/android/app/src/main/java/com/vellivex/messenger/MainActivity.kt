@@ -89,6 +89,11 @@ private const val RECOVERED_HISTORY_NOTE = "Your recovery key restores your acco
 
 class MessengerApplication : Application() {
     val repository by lazy { MatrixRepository(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        initializeMessengerPlatform(this)
+    }
 }
 
 internal enum class SignInInputError(val message: String) {
@@ -112,7 +117,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     @MainThread
     fun requestSignInCode(): Boolean {
-        if (repository.state.value.codeRequested) return false
+        if (!repository.state.value.canStartSignIn || repository.state.value.codeRequested) return false
         val email = signInEmail.trim()
         val server = serverAddress.trim()
         val error = when {
@@ -133,6 +138,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     @MainThread
     fun changeSignInEmail(onChanged: () -> Unit): Boolean {
+        if (!repository.state.value.canStartSignIn) return false
         val address = repository.state.value.pendingSignInEmail ?: return false
         return submitAuthentication(null) {
             if (discardSignInChallenge()) {
@@ -423,6 +429,11 @@ private fun copyRecoveryKey(context: Context, key: String): Boolean {
 
 @Composable
 private fun SignIn(state: MessengerState, model: MessengerViewModel, reset: () -> Unit) {
+    if (state.needsSessionRestore) {
+        SavedSessionScreen(state, state.busy || model.authenticationPending,
+            restore = { model.restoreSignInSession() }, reset = reset)
+        return
+    }
     val server = model.serverAddress
     val email = model.signInEmail
     val pendingEmail = state.pendingSignInEmail
@@ -520,12 +531,47 @@ private fun SignIn(state: MessengerState, model: MessengerViewModel, reset: () -
                 TextButton(onClick = reset, enabled = !busy) { Text("Reset this device") }
             }
         }
+        Text("Version ${BuildConfig.VERSION_NAME}", color = Muted, fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.Lock, null, Modifier.size(17.dp), tint = Muted)
             Text(if (BuildConfig.DEBUG) "Early test build. Use test conversations while we verify delivery and device security."
                 else "Private test build. Use test conversations while we verify delivery and device security.",
                 fontSize = 12.sp, lineHeight = 18.sp, color = Muted)
+        }
+    }
+}
+
+@Composable
+internal fun SavedSessionScreen(state: MessengerState, busy: Boolean, restore: () -> Unit, reset: () -> Unit) {
+    var showHelp by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(28.dp, 24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Image(painterResource(R.drawable.ic_vellivex), "Vellivex", Modifier.size(34.dp))
+            Text("vellivex", fontWeight = FontWeight.Bold, fontSize = 23.sp)
+        }
+        Text("Version ${BuildConfig.VERSION_NAME}", color = Muted, fontSize = 13.sp)
+        Text("Resume your session.", fontSize = 36.sp, lineHeight = 42.sp, fontWeight = FontWeight.SemiBold)
+        Text("A saved session is still on this phone. Restore it to continue using this installation.",
+            color = Muted, fontSize = 16.sp, lineHeight = 24.sp)
+        (state.savedSessionError ?: state.error)?.let { message ->
+            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 16.sp,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        }
+        Button(onClick = restore, enabled = !busy, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+            Text("Restore session", fontWeight = FontWeight.SemiBold)
+        }
+        if (busy) Text("Restoring your saved session…", color = Muted, fontSize = 14.sp)
+        Text("Keep the app installed and its data on this phone while restoring. An app update does not need a new email sign-in.",
+            color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
+        TextButton(onClick = { showHelp = !showHelp }, enabled = !busy, contentPadding = PaddingValues(0.dp)) {
+            Text("Trouble restoring?")
+        }
+        if (showHelp) {
+            Text("Check your connection and try Restore session again. Sign out only if you intend to remove this phone’s saved session. Recovery may not restore earlier messages.",
+                color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
+            TextButton(onClick = reset, enabled = !busy) { Text("Sign out of this phone") }
         }
     }
 }

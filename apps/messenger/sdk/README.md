@@ -65,6 +65,37 @@ because a local AAR does not resolve a Maven POM's transitive dependencies.
 It fails configuration if the custom AAR is absent instead of using an SDK that
 lacks the required verification operation.
 
+## Android HTTPS support
+
+The native SDK uses `rustls-platform-verifier` 0.7.1 on Android. Its pinned
+Cargo.lock requires the matching JVM component 0.2.0. `android-platform.json`
+records the source commit, immutable Maven archive commit and SHA256 of that
+official release AAR. The app resolves only this component from that repository
+and checks the AAR before building. The component is the upstream production
+build, with its test-only trust roots removed; its MIT licence is included in
+the app. These Java and resource inputs are separate from the unchanged native
+source pins and native-library provenance.
+
+Before creating a repository or SDK client, `MessengerApplication.onCreate`
+loads the existing native library, calls its documented JNI entry point
+`org.matrix.rustsdk.Android.init(applicationContext)`, then calls `initPlatform`.
+This supplies the Java VM and application class loader needed for Android's
+certificate verifier. SDK file, system and remote tracing outputs are disabled.
+No certificate check or hostname check is bypassed.
+
+The official support AAR supplies a strict-default Android network policy with
+an enumerated list of certificate-authority HTTP revocation endpoints. Release
+uses that policy unchanged. Debug builds generate the same policy plus only
+the existing three local test hosts. The app still rejects HTTP messaging
+origins in release. The native HTTPS regression must pass against the production
+service without signing in; passing loopback HTTP tests alone does not exercise
+the Android TLS integration.
+
+Upstream integration contracts:
+
+- https://github.com/matrix-org/matrix-rust-sdk/blob/3ff03638028fd9abf58203153722b94b4293a87a/bindings/matrix-sdk-ffi/src/platform/android_platform.rs
+- https://github.com/rustls/rustls-platform-verifier/tree/252e25161a91af476cbea620e29d277592d27ec7
+
 ## Parallel CI build
 
 Run these in separate standard Linux jobs. Each job needs only its own Rust target:

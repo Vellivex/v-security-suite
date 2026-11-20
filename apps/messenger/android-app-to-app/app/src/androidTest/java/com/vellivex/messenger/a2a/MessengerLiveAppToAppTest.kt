@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.vellivex.messenger.a2a
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -38,6 +39,11 @@ class MessengerLiveAppToAppTest {
     private val role = requireNotNull(arguments.getString("messengerA2aRole")).also { require(it in setOf("A", "B")) }
     private val peerRole = if (role == "A") "B" else "A"
     private val phase = requireNotNull(arguments.getString("messengerA2aPhase")).also { require(it in setOf("fresh", "restart")) }
+    private val releaseProfile = ReleaseProfile.from(arguments.getString("messengerLiveReleaseProfile"))
+    private val installationScenario = (arguments.getString("messengerLiveScenario") ?: "fresh").also {
+        require(it == "fresh" || (it == "upgrade-alpha07" && releaseProfile == ReleaseProfile.Alpha08Release))
+    }
+    private val upgradesThisApp = installationScenario == "upgrade-alpha07" && role == "A"
     private val coordinator = LiveCoordinator(
         requireNotNull(arguments.getString("messengerA2aCoordinator")),
         requireNotNull(arguments.getString("messengerA2aKey")), role,
@@ -48,6 +54,9 @@ class MessengerLiveAppToAppTest {
     fun twoInstalledAppsUseTheirVisibleInterfaces() {
         Configurator.getInstance().waitForIdleTimeout = 500
         try {
+            if (releaseProfile.normalRelease) assertNormalReleasePackage(
+                if (upgradesThisApp && phase == "fresh") ReleaseProfile.Alpha07Release else releaseProfile,
+            )
             launchMessenger()
             if (phase == "fresh") freshExchange() else restartExchange()
             assertSecureWindow()
@@ -65,6 +74,21 @@ class MessengerLiveAppToAppTest {
     private var lastAction = "launch"
     private var expectedControl = ExpectedControl.TextControl
 
+    private enum class ReleaseProfile(val argument: String, val versionCode: Int, val versionName: String, val normalRelease: Boolean) {
+        Alpha06Test("alpha06-test", 6, "0.1.0-alpha06-test", false),
+        Alpha07Release("alpha07-release", 7, "0.1.0-alpha07", true),
+        Alpha08Release("alpha08-release", 8, "0.1.0-alpha08", true);
+
+        companion object {
+            fun from(value: String?): ReleaseProfile = when (value) {
+                null, Alpha06Test.argument -> Alpha06Test
+                Alpha07Release.argument -> Alpha07Release
+                Alpha08Release.argument -> Alpha08Release
+                else -> throw IllegalArgumentException("Unsupported live release profile")
+            }
+        }
+    }
+
     private enum class ExpectedControl(val token: String, val label: String? = null) {
         NewConversation("new-conversation", "New conversation"),
         ContactContinue("contact-continue", "Continue"),
@@ -81,7 +105,7 @@ class MessengerLiveAppToAppTest {
 
         // Distinct privately supplied inboxes let both real code-entry screens be ready
         // together, before the operator supplies either received code.
-        signInAndSaveRecovery()
+        if (upgradesThisApp) restoreAlpha07SessionByUpdating() else signInAndSaveRecovery()
         coordinator.barrier("both-signed-in")
 
         clickDescription("Your profile")
@@ -207,21 +231,32 @@ class MessengerLiveAppToAppTest {
         waitText("Sign out of this phone?")
         clickText("Sign out")
         waitText("Continue with email")
+        if (releaseProfile.normalRelease) assertNormalReleaseSignInSurface()
         stage("disposable-live-session-signed-out")
     }
 
     private fun signInAndSaveRecovery() {
+        requestAndVerifyEmailCode()
+        completeRecoverySetup()
+    }
+
+    private fun requestAndVerifyEmailCode() {
         stage("sign-in-ui")
         setOnlyField("missing-domain@")
         clickText("Continue with email")
         waitText("Enter a valid email address.")
         stage("invalid-email-blocked")
         setOnlyField(coordinator.awaitEmail())
-        clickText("Test server settings")
-        assertEquals("The released app must retain its default production HTTPS service",
-            "https://messenger.vellivex.com", labelledField("Server address").text.trimEnd('/'))
-        clickText("Test server settings")
-        stage("default-production-https-confirmed")
+        when (releaseProfile) {
+            ReleaseProfile.Alpha06Test -> {
+                clickText("Test server settings")
+                assertEquals("The released app must retain its default production HTTPS service",
+                    "https://messenger.vellivex.com", labelledField("Server address").text.trimEnd('/'))
+                clickText("Test server settings")
+                stage("default-production-https-confirmed")
+            }
+            ReleaseProfile.Alpha07Release, ReleaseProfile.Alpha08Release -> assertNormalReleaseSignInSurface()
+        }
         coordinator.post("mail/begin")
         clickText("Continue with email")
         stage("email-request-clicked")
@@ -235,6 +270,40 @@ class MessengerLiveAppToAppTest {
         stage("wrong-code-rejected")
         setOnlyField(code)
         clickText("Open Vellivex")
+    }
+
+    private fun restoreAlpha07SessionByUpdating() {
+        requestAndVerifyEmailCode()
+        // The original Alpha07 stores the completed email login before its native
+        // HTTPS connection fails. This visible local guard proves a saved session
+        // exists; it prevents another email request and does not erase its data.
+        waitText("Continue with email")
+        waitValue("original email form is ready after the failed connection") {
+            editableFields().singleOrNull()?.takeIf { it.isEnabled }
+        }
+        setOnlyField(coordinator.awaitEmail())
+        clickText("Continue with email")
+        waitText("Restore or sign out of the saved session before starting another sign-in.")
+        stage("alpha07-saved-session-blocks-new-login")
+        coordinator.awaitBarrier("alpha08-update-installed")
+        assertNormalReleasePackage(ReleaseProfile.Alpha08Release)
+        launchMessenger()
+        val needsManualRestore = waitValue("saved session restored or available to restore") {
+            when {
+                hasText("Secure your account") -> false
+                device.findObject(By.pkg(APP).text("Restore session"))?.isEnabled == true -> true
+                else -> null
+            }
+        }
+        assertFalse("An update must not require another email request", hasText("Continue with email"))
+        assertFalse("An update must not require another email code", hasText("Eight-digit email code"))
+        if (needsManualRestore) clickText("Restore session")
+        waitText("Secure your account")
+        stage("alpha07-saved-session-restored-without-new-code")
+        completeRecoverySetup()
+    }
+
+    private fun completeRecoverySetup() {
         waitText("Secure your account")
         stage("recovery-screen-shown")
         assertFalse("Recovery setup was skipped", hasText("Messages"))
@@ -262,6 +331,27 @@ class MessengerLiveAppToAppTest {
             key.fill('\u0000')
         }
         stage("email-code-and-recovery-setup-through-ui")
+    }
+
+    @Suppress("DEPRECATION") // The integer PackageManager APIs also support the harness's API-26 minimum.
+    private fun assertNormalReleasePackage(expected: ReleaseProfile = releaseProfile) {
+        val manager = instrumentation.targetContext.packageManager
+        val installed = manager.getPackageInfo(APP, 0)
+        val application = manager.getApplicationInfo(APP, 0)
+        assertEquals("The normal-release profile requires its exact installed package", APP, installed.packageName)
+        assertEquals("The selected profile requires its exact version code", expected.versionCode, installed.versionCode)
+        assertEquals("The selected profile requires its normal release version", expected.versionName, installed.versionName)
+        assertEquals("A normal release must not be debuggable", 0, application.flags and ApplicationInfo.FLAG_DEBUGGABLE)
+        stage("normal-release-package-confirmed")
+    }
+
+    private fun assertNormalReleaseSignInSurface() {
+        assertFalse("A normal release must not expose test-server settings", hasText("Test server settings"))
+        assertFalse("A normal release must not expose a test-server action", hasDescription("Test server settings"))
+        assertFalse("A normal release must not expose a server-address editor", hasText("Server address"))
+        // The runner separately requires reviewed production-origin build evidence bound to
+        // the exact APK hash. Settings absence does not by itself establish that endpoint.
+        stage("normal-release-settings-absent")
     }
 
     private fun compareUiCodes(round: String, initiator: String, reject: Boolean) {

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profile": "alpha08-release",
+  "app_url": "https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk",
+  "app_sha256": "95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4",
+  "app_bytes": 57542436,
+  "signer_sha256": "3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2",
+  "application_id": "com.vellivex.messenger.alpha",
+  "version_code": 8,
+  "version_name": "0.1.0-alpha08",
+  "debuggable": false,
+  "production_origin": "https://messenger.vellivex.com",
+  "production_origin_verified_app_sha256": "95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4",
+  "build_source_commit": "6e29154ce8f67da8828abb198cd4e74f00951730"
+}

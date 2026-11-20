@@ -197,8 +197,17 @@ if [[ $# == 5 ]]; then
 fi
 
 overall_status=0
+# Old signed-APK acceptance pairs predate the HTTPS and saved-session classes.
+# The default source CI must always run both regressions; historical frozen
+# Alpha05/06 APK pairs retain their original tests and are not replaced.
+if [[ $# == 1 ]]; then
+  run_instrumentation MessengerProductionHttpsTest || overall_status=1
+fi
 run_instrumentation MessengerChatLayoutTest || overall_status=1
 run_instrumentation MessengerOnboardingSmokeTest || overall_status=1
+if [[ $# == 1 ]]; then
+  run_instrumentation MessengerSavedSessionTest || overall_status=1
+fi
 start_synapse core
 run_instrumentation MessengerLocalSynapseTest -e messengerMailboxKey "$mailbox_key" || overall_status=1
 # The core fixture uses six OTP requests from one address, the server's minute budget.

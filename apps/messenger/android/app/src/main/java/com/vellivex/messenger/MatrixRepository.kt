@@ -84,7 +84,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private val sessionStore = MessengerSessionStore(context.applicationContext, sessionNamespace)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Mutex()
-    private val mutableState = MutableStateFlow(MessengerState())
+    private val mutableState = MutableStateFlow(MessengerState(hasSavedSession = sessionStore.exists()))
     val state: StateFlow<MessengerState> = mutableState.asStateFlow()
     private val mutableBackgroundMessageEvents =
         MutableSharedFlow<String>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -97,7 +97,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private var challenge: Challenge? = null
     private var closed = false
 
-    suspend fun restore(): Boolean = operation(false, "Could not restore the saved session. Its local keys are still on this device.") {
+    suspend fun restore(): Boolean = operation(false, "Could not restore the saved session. Its saved data has been kept on this phone.") {
         if (connection != null) return@operation true
         val saved = sessionStore.read() ?: return@operation false
         try {
@@ -109,11 +109,11 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     }
 
     suspend fun requestCode(baseUrl: String, email: String): String? =
-        operation(null, "Could not request a sign-in code. Check the service address and connection.") {
+        operation(null, "Could not request a sign-in code. Check the service address and connection.", requiresFreshSession = true) {
             sendSignInCode(baseUrl, email)
         }
 
-    suspend fun resendCode(): String? = operation(null, "Could not send another sign-in code. Try again.") {
+    suspend fun resendCode(): String? = operation(null, "Could not send another sign-in code. Try again.", requiresFreshSession = true) {
         val request = challenge ?: fail("Request a new email code first.")
         sendSignInCode(request.baseUrl, request.email)
     }
@@ -137,7 +137,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         true
     }
 
-    suspend fun verifyCode(code: String): Boolean = operation(false, "Could not complete sign-in. If a session was saved, restore it.") {
+    suspend fun verifyCode(code: String): Boolean = operation(false, "Could not complete sign-in. If a session was saved, restore it.", requiresFreshSession = true) {
         if (connection != null || sessionStore.exists()) fail("A saved session already exists.")
         val request = challenge ?: fail("Request a new email code first.")
         val session = auth.verifyCode(request.baseUrl, request.id, code.trim())
@@ -146,6 +146,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         val stored = sessionStore.newSession(session)
         try {
             sessionStore.write(stored)
+            mutableState.update { it.withSavedSessionPresence(true) }
             connect(stored, freshSignIn = true)
         } finally {
             stored.storeKey.fill(0)
@@ -561,7 +562,8 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                     connection = c
                     challenge = null
                     mutableState.update {
-                        it.copy(userId = userId, connection = MessengerConnection.Syncing, pendingSignInEmail = null,
+                        it.copy(userId = userId, hasSavedSession = true,
+                            connection = MessengerConnection.Syncing, pendingSignInEmail = null,
                             recovery = MessengerRecovery.Checking, recoveredWithKey = recoveryConfirmed && saved.recoveredWithKey)
                     }
                     c.verification.setDelegate(verificationDelegate(c))
@@ -597,6 +599,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                     throw e
                 }
             }
+            mutableState.update { it.copy(savedSessionError = null) }
         } catch (e: Exception) {
             client.close()
             mutableState.update {
@@ -1017,20 +1020,31 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
         }
     }
 
-    private suspend fun <T> operation(failure: T, genericError: String, block: suspend () -> T): T =
+    private suspend fun <T> operation(
+        failure: T,
+        genericError: String,
+        requiresFreshSession: Boolean = false,
+        block: suspend () -> T,
+    ): T =
         withContext(Dispatchers.IO) {
             gate.withLock {
                 if (closed) return@withLock failure
+                val savedSessionPresent = sessionStore.exists()
+                mutableState.update { it.withSavedSessionPresence(savedSessionPresent) }
+                // Keep the saved-session guard ahead of clearing a restore error or
+                // making another email request. The existing credentials stay intact.
+                if (requiresFreshSession && (connection != null || savedSessionPresent)) return@withLock failure
                 mutableState.update { it.copy(busy = true, error = null) }
                 try {
                     block()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    mutableState.update { it.copy(error = (e as? MessengerFailure)?.message ?: genericError) }
+                    val message = (e as? MessengerFailure)?.message ?: genericError
+                    mutableState.update { it.withSavedSessionPresence(sessionStore.exists()).withOperationError(message) }
                     failure
                 } finally {
-                    mutableState.update { it.copy(busy = false) }
+                    mutableState.update { it.withSavedSessionPresence(sessionStore.exists()).copy(busy = false) }
                 }
             }
         }

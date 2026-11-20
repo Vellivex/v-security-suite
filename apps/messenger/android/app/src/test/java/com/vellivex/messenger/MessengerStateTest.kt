@@ -4,6 +4,7 @@ import java.time.Instant
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.matrix.rustcomponents.sdk.ShieldState
@@ -18,6 +19,42 @@ class MessengerStateTest {
         encrypted = true,
         peerVerified = true,
     )
+
+    @Test
+    fun savedSessionTakesPriorityOverAStaleEmailChallenge() {
+        val pending = MessengerState(pendingSignInEmail = "fixture@example.test")
+        assertTrue(pending.codeRequested)
+        val saved = pending.withSavedSessionPresence(true)
+        assertTrue(saved.needsSessionRestore)
+        assertFalse(saved.canStartSignIn)
+        assertFalse(saved.codeRequested)
+        assertNull(saved.pendingSignInEmail)
+        assertFalse(saved.copy(userId = "@fixture:example.test").needsSessionRestore)
+        assertFalse(saved.copy(userId = "@fixture:example.test").canStartSignIn)
+    }
+
+    @Test
+    fun firstRestoreErrorSurvivesSnackbarDismissalAndAnotherFailedRetry() {
+        val first = "Could not finish encryption setup. Your session is saved. Reconnect and restore it."
+        val failed = MessengerState(hasSavedSession = true).withOperationError(first)
+        val retrying = failed.copy(error = null, busy = true).withSavedSessionPresence(true)
+        assertEquals(first, retrying.savedSessionError)
+        val retried = retrying.withOperationError("Could not restore the saved session.").copy(busy = false)
+        assertEquals(first, retried.savedSessionError)
+        assertTrue(retried.needsSessionRestore)
+        assertFalse(retried.codeRequested)
+    }
+
+    @Test
+    fun savedSessionRemovedOrAbsentReturnsToFreshSignInWithoutAnOldRestoreError() {
+        val stale = MessengerState(hasSavedSession = true, savedSessionError = "Previous restore failure")
+        val absent = stale.withSavedSessionPresence(false)
+        assertFalse(absent.needsSessionRestore)
+        assertTrue(absent.canStartSignIn)
+        assertNull(absent.savedSessionError)
+        val ordinaryFailure = absent.withOperationError("That code could not be verified.")
+        assertNull(ordinaryFailure.savedSessionError)
+    }
 
     @Test
     fun canSendRequiresSelectedJoinedEncryptedRoomWithVerifiedPeer() {
