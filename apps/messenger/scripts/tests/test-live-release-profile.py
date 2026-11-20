@@ -17,16 +17,22 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ReleaseProfileChecks(unittest.TestCase):
-    def candidate(self, content=b"fictional installer fixture"):
-        return {
-            "schema_version": 1, "profile": "alpha08-release", "app_url": MODULE.ALPHA08_URL,
-            "app_sha256": hashlib.sha256(content).hexdigest(), "app_bytes": len(content),
-            "signer_sha256": MODULE.SIGNER, "application_id": MODULE.APPLICATION,
-            "version_code": 8, "version_name": "0.1.0-alpha08", "debuggable": False,
-            "production_origin": MODULE.ORIGIN,
-            "production_origin_verified_app_sha256": hashlib.sha256(content).hexdigest(),
-            "build_source_commit": MODULE.ALPHA08_SOURCE,
-        }
+    def candidate(self):
+        path = SOURCE.parents[1] / "android" / "arm64-alpha08-live-acceptance.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_alpha08_rejects_matching_replacement_digests(self):
+        manifest = self.candidate()
+        self.assertEqual(MODULE.validate_manifest("alpha08-release", manifest), manifest)
+        manifest["app_sha256"] = manifest["production_origin_verified_app_sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            MODULE.validate_manifest("alpha08-release", manifest)
+
+    def test_alpha08_rejects_changed_byte_count(self):
+        manifest = self.candidate()
+        manifest["app_bytes"] += 1
+        with self.assertRaises(ValueError):
+            MODULE.validate_manifest("alpha08-release", manifest)
 
     def test_pending_alpha08_manifest_fails_before_any_download(self):
         pending = self.candidate()
@@ -65,18 +71,20 @@ class ReleaseProfileChecks(unittest.TestCase):
 
     def test_installer_bytes_and_length_are_both_checked(self):
         content = b"fictional installer fixture"
-        manifest = self.candidate(content)
-        with tempfile.TemporaryDirectory() as root:
+        digest = hashlib.sha256(content).hexdigest()
+        manifest = dict(self.candidate(), app_sha256=digest, app_bytes=len(content),
+                        production_origin_verified_app_sha256=digest)
+        with tempfile.TemporaryDirectory() as root, patch.object(MODULE, "ALPHA08_INSTALLER", (digest, len(content))):
             installer = Path(root) / "fixture.apk"
             installer.write_bytes(content)
             report = MODULE.verify_installer("alpha08-release", manifest, installer)
-            self.assertEqual(report["app_sha256"], hashlib.sha256(content).hexdigest())
+            self.assertEqual(report["app_sha256"], digest)
             self.assertEqual(report["build_source_commit"], MODULE.ALPHA08_SOURCE)
             wrong_length = dict(manifest, app_bytes=len(content) + 1)
-            with self.assertRaises(ValueError):
+            with patch.object(MODULE, "ALPHA08_INSTALLER", (digest, len(content) + 1)), self.assertRaisesRegex(ValueError, "Downloaded bytes"):
                 MODULE.verify_installer("alpha08-release", wrong_length, installer)
             installer.write_bytes(content[:-1] + b"!")
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "Downloaded bytes"):
                 MODULE.verify_installer("alpha08-release", manifest, installer)
 
     def test_historical_alpha06_original_manifest_stays_accepted(self):
