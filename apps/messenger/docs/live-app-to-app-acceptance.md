@@ -2,8 +2,10 @@
 
 This is a separate production test. It does not change the existing isolated
 two-app evidence or pretend that synthetic email delivery is production delivery.
-It operates two fresh installations of the exact signed Alpha06 ARM64 APK on two
-dedicated Android emulators. Both apps retain their default
+Its default scenario operates two fresh installations of the selected exact signed
+ARM64 APK on two dedicated Android emulators. The optional Alpha07 update scenario
+preserves one failed-login session while updating that installation to Alpha08.
+Both apps retain their default
 `https://messenger.vellivex.com` server, use genuinely received email codes, compare
 their displayed verification values, and exchange fictional messages in both
 directions before and after an actual app-process cold restart.
@@ -17,6 +19,83 @@ or customer installations are never used, cleared, signed out or uninstalled.
 Do not reuse aliases from an interrupted setup: the test deliberately does not
 export their recovery keys, and a session on a destroyed emulator may remain
 registered until explicitly resolved through the supported account flow.
+
+## Explicit release profiles
+
+The existing five-argument runner invocation remains the **Alpha06 test-build**
+profile. Its exact manifest, version checks and visible default-server check are
+unchanged. The workflow's explicit `release_profile` selection defaults to
+`alpha08-release`; historical `alpha06-test` and `alpha07-release` remain selectable.
+The default `installation_scenario` is `fresh`. A draft PR still does not run the
+live job, and no profile may run with incomplete installer metadata.
+
+The runner additionally accepts the explicit final arguments
+`--profile alpha07-release` or `--profile alpha08-release`. Each closed profile
+requires the same `com.vellivex.messenger.alpha` package and original signer,
+and its exact normal-release version: code **7** / **`0.1.0-alpha07`**, or code
+**8** / **`0.1.0-alpha08`**. It rejects a debuggable APK during preflight and
+checks the installed application's `FLAG_DEBUGGABLE` is clear on each app and
+phase. It asserts that **Test server settings** and **Server address** are absent
+at sign-in and after successful sign-out, without attempting to open either.
+The independent test driver itself may remain a debug build.
+
+`apps/messenger/android/arm64-alpha07-live-acceptance.json` pins the inspected local
+candidate's exact hash, length, original signer and build source. Its `app_url`
+is deliberately null until a public download route is confirmed. The runner
+rejects missing, null, malformed or mismatched fields. Fill only `app_url` with
+that confirmed public HTTPS URL; do not relabel different APK bytes as this
+profile. The fixed production origin was checked in the release build and APK
+inspection, and `production_origin_verified_app_sha256` binds that review to the
+same installer. This field records the completed artifact review; it does not
+claim a completed live connection. A missing
+settings button does not prove an endpoint, so the Alpha07 UI emits separate
+normal-release checkpoints instead of claiming a visible server-address check.
+
+`arm64-alpha08-live-acceptance.json` identifies the unchanged reviewed application
+source `6e29154ce8f67da8828abb198cd4e74f00951730`. The reviewed original-signed
+ARM64 candidate is **57,542,436 bytes**, SHA-256
+`95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4`.
+Its package, version, signer, non-debug policy, generated release production origin,
+packaged origin, retained native SDK bytes and 16 KiB ZIP alignment were checked
+before populating the manifest. The unchanged release build passed ten unit tests
+and lint with no errors. These checks do not establish public availability or a
+live acceptance pass. `live-release-profile.py` rejects incomplete metadata and
+verifies the complete downloaded bytes before private input or device action.
+The fixed Alpha08 route is
+`https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk`.
+
+A live run still needs a publicly retrievable exact installer, two fresh controlled
+inboxes and genuinely received codes. All shared real-code, recovery-setup, full verification-code,
+rejection, message, restart, sign-out and private-input checks remain required.
+Preparing this profile or compiling it does not establish a live acceptance pass.
+
+## Preserved Alpha07 session update scenario
+
+`installation_scenario: upgrade-alpha07` is available only with `alpha08-release`.
+Participant A starts from the unchanged original-signed Alpha07 installer and B
+starts from Alpha08. Both use fresh disposable inboxes and the same encrypted code
+handoff as the fresh scenario. Alpha07 receives its code through its own UI. After
+its connection fails, the driver requires the visible local saved-session guard
+when attempting to begin another sign-in; that guard prevents another email request.
+
+Only after this checkpoint, `live-preserved-session-update.py` force-stops the
+runner's own participant A and performs `adb install -r` with the pinned Alpha08
+bytes. It requires unchanged application UID and first-install timestamp alongside
+the version change from 7 to 8. It never uninstalls, clears data, signs out, reads
+the private session store or uses a repository method. It refuses physical devices,
+the other participant and baseline files outside this job's private runner directory.
+
+The independent UI then requires the exact installed Alpha08 identity, restores
+the saved session without requesting another email code, completes recovery setup,
+and joins all the same verification, messaging, restart and sign-out assertions.
+This scenario establishes preservation of a session saved after a failed Alpha07
+connection. It does **not** establish preservation of pre-upgrade message history,
+which this original Alpha07 installation could not create. Its evidence is separate
+from two-fresh-Alpha08 acceptance and cannot be counted as that scenario's pass.
+
+Both manifests must point to verified immutable downloads before this scenario
+starts. A retired website alias redirecting to the guide is not an Alpha07 download.
+Keep its original reviewed bytes; do not rebuild or replace the historical package.
 
 ## Production boundaries
 
@@ -39,7 +118,7 @@ The workflow is `.github/workflows/messenger-live-app-to-app.yml`. It uses stand
 GitHub-hosted Linux runners and requires no provider credential or repository
 secret. It runs manually or on an eligible same-repository, non-draft pull request.
 Draft pull requests keep the live job skipped; marking a reviewed pull request
-ready enables its `ready_for_review` trigger. The exact Alpha06 release assets must
+ready enables its `ready_for_review` trigger. The selected exact release assets must
 already be available before starting a live run.
 
 1. The job verifies the pinned installer, builds the separately signed interface
@@ -132,10 +211,11 @@ no provider or owner credential in the workflow.
 
 ## Evidence and acceptance
 
-The final artifact is `messenger-live-two-installed-apps-RUN_ID-ATTEMPT`.
+The final artifact is `messenger-live-two-installed-apps-PROFILE-SCENARIO-RUN_ID-ATTEMPT`.
 The workflow uses an explicit file allowlist: verified APK identity, installed-app
 metadata, hashed device-separation evidence, cold-restart observations, the four
-sanitized interface logs, `two-app-summary.json`, and `code-handoff.json`.
+sanitized interface logs, `two-app-summary.json`, `code-handoff.json`,
+`installation-scenario.json`, and, only for the update scenario, `upgrade-alpha07.json`.
 Only those files are uploaded; the private supervisor log is not an artifact.
 
 Pass requires all four actual interface executions (`A/B` × `fresh/restart`),

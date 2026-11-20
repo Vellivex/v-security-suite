@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profile": "alpha07-release",
+  "app_url": null,
+  "app_sha256": "4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5",
+  "app_bytes": 57525706,
+  "signer_sha256": "3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2",
+  "application_id": "com.vellivex.messenger.alpha",
+  "version_code": 7,
+  "version_name": "0.1.0-alpha07",
+  "debuggable": false,
+  "production_origin": "https://messenger.vellivex.com",
+  "production_origin_verified_app_sha256": "4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5",
+  "build_source_commit": "f3003647565f318da435c5ebdc40b7f55fbef676"
+}

@@ -2,11 +2,29 @@ name: Vellivex Messenger live two-app acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      release_profile:
+        description: Reviewed exact installer profile
+        required: true
+        type: choice
+        default: alpha08-release
+        options: [alpha08-release, alpha07-release, alpha06-test]
+      installation_scenario:
+        description: Fresh apps, or recover one preserved Alpha07 session by updating it
+        required: true
+        type: choice
+        default: fresh
+        options: [fresh, upgrade-alpha07]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'apps/messenger/android-app-to-app/app/src/androidTest/java/com/vellivex/messenger/a2a/MessengerLiveAppToAppTest.kt'
       - 'apps/messenger/scripts/live-input-*'
+      - 'apps/messenger/scripts/live-release-profile.py'
+      - 'apps/messenger/scripts/live-preserved-session-update.py'
+      - 'apps/messenger/android/arm64-alpha0*-live-acceptance.json'
+      - 'apps/messenger/scripts/tests/test-live-release-profile.py'
+      - 'apps/messenger/scripts/tests/test-live-preserved-session-update.py'
       - 'apps/messenger/scripts/live-app-to-app-coordinator.py'
       - 'apps/messenger/scripts/run-android-live-app-to-app.sh'
       - 'apps/messenger/scripts/tests/test-live-input-envelope.mjs'
@@ -21,6 +39,8 @@ concurrency:
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  MESSENGER_LIVE_PROFILE: ${{ inputs.release_profile || 'alpha08-release' }}
+  MESSENGER_LIVE_SCENARIO: ${{ inputs.installation_scenario || 'fresh' }}
 
 jobs:
   two-live-installed-apps:
@@ -45,8 +65,10 @@ jobs:
           set -euo pipefail
           node --test apps/messenger/scripts/tests/test-live-input-envelope.mjs
           python3 apps/messenger/scripts/tests/test-live-input-coordinator.py
+          python3 apps/messenger/scripts/tests/test-live-release-profile.py
+          python3 apps/messenger/scripts/tests/test-live-preserved-session-update.py
 
-      - name: Prepare Android tools and verify the released Alpha06 installer
+      - name: Prepare Android tools and verify the selected exact installer
         shell: bash
         run: |
           set -euo pipefail
@@ -57,21 +79,16 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
             'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
           mkdir -p "$RUNNER_TEMP/messenger-live-inputs" "$RUNNER_TEMP/messenger-live-evidence"
-          python3.12 - <<'PY'
-          import hashlib, json, os, subprocess
-          from pathlib import Path
-          expected_url = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/Vellivex-Messenger-0.1.0-alpha06-arm64.apk'
-          expected_hash = '13f22deb969792f6b73a8c945ef16f682520a46ea78a93b8ddf14c470fc3dc9b'
-          expected_signer = '3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
-          manifest = json.loads(Path('apps/messenger/android/arm64-alpha06-acceptance.json').read_text())
-          if (manifest['app_url'], manifest['app_sha256'], manifest['signer_sha256']) != (expected_url, expected_hash, expected_signer):
-              raise SystemExit('The live test must use the exact reviewed Alpha06 installer.')
-          destination = Path(os.environ['RUNNER_TEMP']) / 'messenger-live-inputs' / 'app.apk'
-          subprocess.run(['curl','--fail','--location','--silent','--show-error','--max-time','180',
-                          expected_url,'--output',str(destination)], check=True)
-          if hashlib.sha256(destination.read_bytes()).hexdigest() != expected_hash:
-              raise SystemExit('Installer checksum mismatch.')
-          PY
+          case "$MESSENGER_LIVE_PROFILE:$MESSENGER_LIVE_SCENARIO" in
+            alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07) ;;
+            *) echo '::error::Unsupported live installer/scenario combination.'; exit 1 ;;
+          esac
+          python3.12 apps/messenger/scripts/live-release-profile.py download \
+            "$MESSENGER_LIVE_PROFILE" "$RUNNER_TEMP/messenger-live-inputs/app.apk"
+          if [[ "$MESSENGER_LIVE_SCENARIO" == upgrade-alpha07 ]]; then
+            python3.12 apps/messenger/scripts/live-release-profile.py download \
+              alpha07-release "$RUNNER_TEMP/messenger-live-inputs/previous-alpha07.apk"
+          fi
 
       - name: Build the independently signed live interface driver
         working-directory: apps/messenger/android-app-to-app
@@ -125,7 +142,7 @@ jobs:
             "$RUNNER_TEMP/messenger-live-evidence/execution" \
             "$RUNNER_TEMP/messenger-live-inputs/app.apk" \
             "$driver/debug/app-debug.apk" "$driver/androidTest/debug/app-debug-androidTest.apk" \
-            "$RUNNER_TEMP/messenger-live-private" > "$control/driver.log" 2>&1 &
+            "$RUNNER_TEMP/messenger-live-private" --profile "$MESSENGER_LIVE_PROFILE" > "$control/driver.log" 2>&1 &
           printf '%s\n' "$!" > "$control/pid"
           deadline=$((SECONDS + 1200))
           while (( SECONDS < deadline )); do
@@ -196,12 +213,14 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: messenger-live-two-installed-apps-${{ github.run_id }}-${{ github.run_attempt }}
+          name: messenger-live-two-installed-apps-${{ env.MESSENGER_LIVE_PROFILE }}-${{ env.MESSENGER_LIVE_SCENARIO }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/messenger-live-evidence/execution/apk-identity.json
             ${{ runner.temp }}/messenger-live-evidence/execution/installed-apps.txt
             ${{ runner.temp }}/messenger-live-evidence/execution/device-separation.json
             ${{ runner.temp }}/messenger-live-evidence/execution/cold-restart.txt
+            ${{ runner.temp }}/messenger-live-evidence/execution/upgrade-alpha07.json
+            ${{ runner.temp }}/messenger-live-evidence/execution/installation-scenario.json
             ${{ runner.temp }}/messenger-live-evidence/execution/fresh-A.log
             ${{ runner.temp }}/messenger-live-evidence/execution/fresh-B.log
             ${{ runner.temp }}/messenger-live-evidence/execution/restart-A.log
