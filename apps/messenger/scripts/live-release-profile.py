@@ -23,6 +23,7 @@ ALPHA06_URL = "https://github.com/Vellivex/v-security-suite/releases/download/me
 ALPHA06_HASH = "13f22deb969792f6b73a8c945ef16f682520a46ea78a93b8ddf14c470fc3dc9b"
 ALPHA08_URL = "https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk"
 ALPHA08_SOURCE = "6e29154ce8f67da8828abb198cd4e74f00951730"
+ALPHA08_INSTALLER = ("95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4", 57_542_436)
 RELEASE_FIELDS = {
     "schema_version", "profile", "app_url", "app_sha256", "app_bytes", "signer_sha256",
     "application_id", "version_code", "version_name", "debuggable", "production_origin",
@@ -75,8 +76,9 @@ def validate_manifest(profile: str, manifest: dict) -> dict:
             "4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5", 57525706,
         ):
             raise ValueError("The Alpha07 profile must retain its reviewed original installer.")
-    elif (manifest["build_source_commit"] != ALPHA08_SOURCE or url_value != ALPHA08_URL):
-        raise ValueError("Alpha08 requires its reviewed build source and exact public download route.")
+    elif (manifest["build_source_commit"] != ALPHA08_SOURCE or url_value != ALPHA08_URL or
+          (digest, manifest["app_bytes"]) != ALPHA08_INSTALLER):
+        raise ValueError("Alpha08 requires its reviewed build source, public download route and exact installer.")
     return dict(manifest)
 
 
