@@ -42,7 +42,7 @@ if(vault){
       if(!session.current(token))return;
       $('result').value=result;$('result-label').textContent=action==='encrypt'?'Encrypted package':'Unlocked message';$('download-result').hidden=action!=='encrypt';
       if(action==='encrypt')$('message').value='';
-      say(action==='encrypt'?'Encrypted locally. Save the package and keep its passphrase separately.':'Unlocked locally. Leaving this tab will clear the session.');
+      say(action==='encrypt'?'Encrypted locally. Save the package and keep its passphrase separately.':'Message unlocked. Available in the Result field. Leaving this tab will clear the session.');
     }catch(error){if(session.current(token))say(error.message,true);}
     finally{cryptoBusy=false;button.disabled=!cryptoAvailable;if(session.current(token)){$('passphrase').value='';$('passphrase-confirm').value='';}}
   });
