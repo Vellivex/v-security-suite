@@ -8,16 +8,17 @@ import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
 
 const origin = 'https://www.vellivex.com';
-const messengerApkName = 'Vellivex-Messenger-0.1.0-alpha07-arm64.apk';
+const messengerApkName = 'Vellivex-Messenger-0.1.0-alpha08-arm64.apk';
 const messengerApkPath = '/downloads/' + messengerApkName;
-const messengerApkBytes = 57525706;
-const messengerApkSha256 = '4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5';
+const messengerApkBytes = 57542436;
+const messengerApkSha256 = '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4';
 const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha04-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha05-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha06-arm64.apk',
+  '/downloads/Vellivex-Messenger-0.1.0-alpha07-arm64.apk',
 ];
 function releaseBucket(overrides = {}) {
   const metadata = {key:messengerApkName, size:messengerApkBytes, etag:'fixture-upload',
@@ -210,7 +211,7 @@ test('the homepage keeps Messenger first in main and both phone options in the f
   const footer = text.match(/<\/main>\s*<footer\b[^>]*>([\s\S]*?)<\/footer>/)?.[1] ?? '';
   assert.match(main, /^<section id="vellivex-messenger-hero"/);
   assert.doesNotMatch(main, /id="vellivex-phone-promotion"/);
-  assert.match(main, /Android 8\.0\+ \(ARM64\) · Alpha07 test build · Email signup/);
+  assert.match(main, /Android 8\.0\+ \(ARM64\) · Alpha08 test build · Email signup/);
   assert.ok(main.includes(`href="${messengerApkPath}">Free download</a>`));
   assert.match(main, /href="\/messenger">Setup guide/);
   for (const path of retiredMessengerApkPaths) assert.ok(!main.includes(path));
@@ -228,9 +229,9 @@ test('Messenger setup and download support public GET and HEAD without trusting 
   const guideText = await guide.text();
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get('Content-Security-Policy'), /form-action 'none'/);
-  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Alpha07 test build · Email signup/);
+  assert.match(guideText, /Android 8\.0\+ \(ARM64\) · Alpha08 test build · Email signup/);
   assert.match(guideText, /You’ll need an email address you can access/);
-  assert.match(guideText, /Alpha07 is available for phone testing\. Use test conversations during this alpha/);
+  assert.match(guideText, /Alpha08 is available for phone testing\. Use test conversations during this alpha/);
   assert.match(guideText, /Signup is open\. Verify your email in the app to create your account; no invitation is required/);
   assert.match(guideText, /For setup help, contact <a href="mailto:v@vellivex\.com">v@vellivex\.com<\/a>/);
   assert.match(guideText, /Testing on physical phones and an independent security review are not complete/);
@@ -331,8 +332,8 @@ test('Messenger refuses missing or mismatched release objects and storage failur
 test('Messenger supports bounded, open-ended and suffix download ranges and rejects invalid ranges', async () => {
   const worker = shop();
   for (const [range,offset,length] of [
-    ['bytes=0-9',0,10], ['bytes=57525700-',57525700,6], ['bytes=-4',57525702,4],
-    ['bytes=57525704-99999999',57525704,2],
+    ['bytes=0-9',0,10], ['bytes=57542430-',57542430,6], ['bytes=-4',57542432,4],
+    ['bytes=57542434-99999999',57542434,2],
   ]) {
     const bucket = releaseBucket();
     const response = await worker.fetch(new Request(origin+messengerApkPath,{headers:{Range:range}}),
@@ -343,7 +344,7 @@ test('Messenger supports bounded, open-ended and suffix download ranges and reje
     assert.deepEqual(bucket.calls[1][2],{onlyIf:{etagMatches:'fixture-upload'},range:{offset,length}});
     assert.equal((await response.arrayBuffer()).byteLength,length);
   }
-  for (const range of ['bytes=57525706-','bytes=9-3','bytes=-0','bytes=-','bytes=0-1,3-4','items=0-1','bytes=9007199254740992-']) {
+  for (const range of ['bytes=57542436-','bytes=9-3','bytes=-0','bytes=-','bytes=0-1,3-4','items=0-1','bytes=9007199254740992-']) {
     const bucket = releaseBucket();
     const response = await worker.fetch(new Request(origin+messengerApkPath,{headers:{Range:range}}),
       {...sellerEnv,MESSENGER_RELEASES:bucket});
