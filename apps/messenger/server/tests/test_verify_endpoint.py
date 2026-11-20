@@ -90,6 +90,70 @@ class VerifyEndpointTests(unittest.IsolatedAsyncioTestCase):
             await RequestCode(module)._async_render_POST(self.request({"email": "other@example.test"}))
         self.assertEqual(denied.exception.code, 429)
         self.assertEqual(denied.exception.msg, "Try again later.")
+        module.invited_emails = {"other@example.test"}
+        with self.assertRaises(SynapseError) as invite_denied:
+            await RequestCode(module)._async_render_POST(self.request({"email": "other@example.test"}))
+        self.assertIsNone(invite_denied.exception.headers)
+        self.assertNotIn("retry_after_ms", invite_denied.exception.error_dict(None))
+
+    async def test_public_request_retry_hints_preserve_quota_boundaries_and_other_networks_privacy(self):
+        now = 1_000_000
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        state = EmailState(Path(directory.name) / "email.sqlite", b"s" * 32, b"i" * 32,
+                           email_hour_limit=2, ip_hour_limit=2, now=lambda: now)
+
+        async def dispatch(function, *args):
+            return function(*args)
+
+        module = SimpleNamespace(dev=False, invited_emails=None, state=state, requests=AddressBudget(now=lambda: now),
+                                 api=SimpleNamespace(defer_to_thread=dispatch), mailer=Mock(),
+                                 mail_slots=SimpleNamespace(acquire=AsyncMock(), release=Mock()))
+        endpoint = RequestCode(module)
+
+        async def accepted(email="member@example.test", address="192.0.2.1"):
+            status, body = await endpoint._async_render_POST(self.request({"email": email}, address))
+            self.assertEqual(status, 200)
+            self.assertIn("challenge_id", body)
+
+        async def limited(email, address, seconds):
+            request = self.request({"email": email}, address)
+            with self.assertRaises(SynapseError) as error:
+                await endpoint._async_render_POST(request)
+            self.assertEqual(error.exception.code, 429)
+            self.assertEqual(error.exception.error_dict(None), {
+                "errcode": "M_LIMIT_EXCEEDED", "error": "Try again later.", "retry_after_ms": seconds * 1000,
+            })
+            self.assertEqual(error.exception.headers, {"Retry-After": str(seconds)})
+            request.setHeader.assert_any_call(b"Cache-Control", b"no-store")
+
+        await accepted()
+        now += 59
+        await limited("member@example.test", "192.0.2.1", 60)  # Caller just requested this address.
+        await limited("member@example.test", "192.0.2.2", 3600)  # Hide another network's timestamp.
+        now += 1
+        await accepted()
+        now += 1
+        await limited("member@example.test", "192.0.2.1", 3600)  # Caller also reached its own hourly quota.
+        now += 3538
+        await limited("member@example.test", "192.0.2.2", 3600)  # Email quota.
+        await limited("different@example.test", "192.0.2.1", 3600)  # IP quota.
+        now += 1
+        await accepted()
+        self.assertEqual(module.mailer.send.call_count, 3)
+        # This caller requested this second email only once. The short hint must
+        # be identical even when another network has used its other hourly slot.
+        await accepted("second@example.test", "192.0.2.4")
+        now += 60
+        await accepted("second@example.test", "192.0.2.5")
+        now += 1
+        await limited("second@example.test", "192.0.2.5", 60)
+        now += 59
+        await limited("second@example.test", "192.0.2.5", 3600)
+        module.requests = AddressBudget(per_address=1, now=lambda: now)
+        module.requests.admit("192.0.2.3")
+        await limited("fresh@example.test", "192.0.2.3", 60)  # In-memory admission before database access.
+        self.assertEqual(module.mailer.send.call_count, 5)
 
     def test_configuration_defaults_to_invites_and_public_signup_is_explicit(self):
         directory = TemporaryDirectory()
@@ -169,4 +233,6 @@ class VerifyEndpointTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SynapseError) as second:
             await endpoint._async_render_POST(request())
         self.assertEqual(second.exception.code, 429)
+        self.assertIsNone(second.exception.headers)
+        self.assertNotIn("retry_after_ms", second.exception.error_dict(None))
         dispatch.assert_awaited_once_with(consume, "a" * 43, "12345678")

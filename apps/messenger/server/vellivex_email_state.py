@@ -17,7 +17,8 @@ import time
 CODE_TTL = 600
 RESEND_DELAY = 60
 MAX_ATTEMPTS = 5
-DAY_SECONDS = 24 * 60 * 60
+HOUR_SECONDS = 60 * 60
+DAY_SECONDS = 24 * HOUR_SECONDS
 MONTH_SECONDS = 31 * DAY_SECONDS
 CHALLENGE_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 CODE_PATTERN = re.compile(r"[0-9]{8}\Z")
@@ -30,13 +31,13 @@ class InvalidEmail(Exception):
 
 
 class RateLimited(Exception):
-    pass
+    def __init__(self, retry_after: int = RESEND_DELAY):
+        super().__init__()
+        self.retry_after = retry_after
 
 
 class CapacityExhausted(RateLimited):
-    def __init__(self, retry_after: int):
-        super().__init__()
-        self.retry_after = retry_after
+    pass
 
 
 def signup_limits(config: dict, *, development=False) -> tuple[str, dict]:
@@ -229,13 +230,15 @@ class EmailState:
             if retry_after:
                 db.commit()
                 raise CapacityExhausted(retry_after)
-            email_count, last_request = db.execute(
-                "SELECT count(*), max(created_at) FROM challenges WHERE email_hash = ? AND created_at > ?",
-                (email_hash, now - 3600),
+            email_count, last_request, caller_count, last_caller_request = db.execute(
+                """SELECT count(*), max(created_at), count(*) FILTER (WHERE ip_hash = ?),
+                          max(created_at) FILTER (WHERE ip_hash = ?)
+                   FROM challenges WHERE email_hash = ? AND created_at > ?""",
+                (ip_hash, ip_hash, email_hash, now - HOUR_SECONDS),
             ).fetchone()
             ip_count = db.execute(
                 "SELECT count(*) FROM challenges WHERE ip_hash = ? AND created_at > ?",
-                (ip_hash, now - 3600),
+                (ip_hash, now - HOUR_SECONDS),
             ).fetchone()[0]
             if (
                 email_count >= self.email_hour_limit
@@ -243,7 +246,13 @@ class EmailState:
                 or ip_count >= self.ip_hour_limit
             ):
                 db.commit()
-                raise RateLimited
+                # Recommend a short retry only for a recent request from this
+                # same network and email. Ignore activity on other networks
+                # when choosing the hint; never expose their request times.
+                recent_resend = last_caller_request is not None and last_caller_request > now - RESEND_DELAY
+                if recent_resend and caller_count < self.email_hour_limit and ip_count < self.ip_hour_limit:
+                    raise RateLimited(RESEND_DELAY)
+                raise RateLimited(HOUR_SECONDS)
             db.execute(
                 """INSERT INTO challenges
                 (id, email_hash, ip_hash, localpart, code_hash, created_at, expires_at, state)
