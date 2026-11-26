@@ -45,6 +45,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -735,6 +740,9 @@ private fun NewChatDialog(initialContact: String?, close: () -> Unit, create: (S
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } })
 }
 
+// QA branch only. A same-process Compose test can read the public QR image drawn on screen.
+internal val PublicProfileQrLayer = SemanticsPropertyKey<GraphicsLayer>("PublicProfileQrLayer")
+
 @Composable
 private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery: () -> Unit,
     alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
@@ -749,7 +757,14 @@ private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery:
     AlertDialog(onDismissRequest = close, title = { Text("Your Vellivex ID") },
         text = { Column(Modifier.heightIn(max = 510.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
-            Image(qr, "QR code for your public contact ID", Modifier.size(200.dp))
+            val qrModifier = if (BuildConfig.DEBUG) {
+                val layer = rememberGraphicsLayer()
+                Modifier.drawWithContent {
+                    layer.record { this@drawWithContent.drawContent() }
+                    drawLayer(layer)
+                }.semantics { this[PublicProfileQrLayer] = layer }
+            } else Modifier
+            Image(qr, "QR code for your public contact ID", Modifier.size(200.dp).then(qrModifier))
             Text(userId, textAlign = TextAlign.Center, fontSize = 13.sp)
             Text("Share this to receive an invitation. It contains your contact ID, never your email or encryption keys.", color = Muted, fontSize = 13.sp)
             OutlinedButton(onClick = {

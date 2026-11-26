@@ -329,6 +329,7 @@ jobs:
           path: |
             ${{ runner.temp }}/messenger-evidence/MessengerProductionHttpsTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerChatLayoutTest.log
+            ${{ runner.temp }}/messenger-evidence/profile-qr-handoff.json
             ${{ runner.temp }}/messenger-evidence/MessengerOnboardingSmokeTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerSavedSessionTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerLocalSynapseTest.log
