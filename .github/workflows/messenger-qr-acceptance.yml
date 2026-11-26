@@ -15,7 +15,12 @@ jobs:
       github.repository == 'Vellivex/v-security-suite' &&
       (github.event_name != 'pull_request' || (github.head_ref == 'test/messenger-alpha10-qr-acceptance' &&
       github.event.pull_request.head.repo.full_name == github.repository))
+    strategy:
+      fail-fast: false
+      matrix:
+        route: [automatic, browser]
     env:
+      QR_ROUTE: ${{ matrix.route }}
       CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
