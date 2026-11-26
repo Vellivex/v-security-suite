@@ -21,7 +21,11 @@ ADB = [str(SDK / "platform-tools/adb"), "-s", "emulator-5554"]
 
 
 def run(*args):
-    return subprocess.check_output(args, encoding="utf-8", timeout=90).strip()
+    try:
+        return subprocess.check_output(args, encoding="utf-8", timeout=90).strip()
+    except subprocess.CalledProcessError as error:
+        print("Failed command output:", error.output, flush=True)
+        raise
 
 
 def adb(*args):
@@ -56,8 +60,8 @@ def resolver(url):
 
 
 def launch_from_home():
-    result = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
-                 "-c", "android.intent.category.LAUNCHER", "-p", PACKAGE)
+    result = adb("shell", "am", "start", "-W", "-n",
+                 PACKAGE + "/com.vellivex.messenger.MainActivity")
     assert "Status: ok" in result, result
     adb("shell", "input", "keyevent", "KEYCODE_HOME")
 
@@ -87,12 +91,12 @@ def confirm_candidate(sha, label, directory):
     # The receiving user has launched the app before scanning. A force-stop sets
     # the package's stopped flag, unlike Android reclaiming a background process.
     launch_from_home()
-    wait_until(lambda: resolver(INVITE).startswith(PACKAGE + "/"),
-               "first-party invitation resolver (last result printed above)", 45)
+    print("Post-launch resolver:", resolver(INVITE), flush=True)
     assert not resolver(f"{ORIGIN}/messenger").startswith(PACKAGE + "/")
     adb("shell", "am", "kill", PACKAGE)
     launched = adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
                    "-c", "android.intent.category.BROWSABLE", "-d", INVITE)
+    print("Unqualified invitation start:", launched, flush=True)
     assert "Status: ok" in launched and (f"Activity: {PACKAGE}/" in launched or
                                           f"Activity: {PACKAGE}." in launched), launched
 
@@ -103,6 +107,8 @@ def confirm_candidate(sha, label, directory):
                    for node in ui.iter("node"))
 
     wait_until(sign_in_visible, "Vellivex sign-in after opening the QR link", 40)
+    component = resolver(INVITE)
+    assert component.startswith(PACKAGE + "/"), component
     print(f"PASS {label}: exact signed install, verified domain, cold invitation opens Vellivex sign-in",
           flush=True)
 
