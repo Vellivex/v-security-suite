@@ -56,3 +56,24 @@ The offline check below requires both website modules, the directory of producti
 ```shell
 node apps/messenger/website/verify-alpha10-release.mjs "$V50_MODULE" "$V51_MODULE" "$MODULES_DIR" "$SIGNED_ALPHA10_APK"
 ```
+
+## Alpha11 notification update
+
+The standalone download patch adds the signed universal Alpha11 APK. The guide patch makes it the download on the homepage and Android setup page and adds the per-phone notification instructions.
+
+| Change | Starting module SHA-256 | Resulting module SHA-256 |
+| --- | --- | --- |
+| `alpha11-pinned-download.patch` | `74c0ff6b43bf665ed10adeb8754913699901fdfdc0618e0e91fecd67e0f308dd` | `bd207e081520a3722f0d05ed9b1a270f067dbbcb431057960cf9558789d1c257` |
+| `alpha11-download-guide.patch` | `bd207e081520a3722f0d05ed9b1a270f067dbbcb431057960cf9558789d1c257` | `12f56b92ea0ab9bdad849a78cafa984808d6cab1a749b313ad82b439e991564a` |
+
+The signed installer contains 111,798,288 bytes and has SHA-256 `a43380c4585ab189544ce3109e9b869791371dcedac8a782bbacd51e78abc28b`. Its download route checks the object version, ETag, size and checksum before serving it. [Alpha11 installer](https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha11-universal.apk)
+
+The tests on two Android 15 emulators recorded generic message notifications in both directions, including on a PIN-locked screen. Tapping a notification in Android’s notification shade opened Vellivex. The tests used the Alpha11 production application source with a test signature. [Android notification tests](https://github.com/Vellivex/v-security-suite/actions/runs/45886017741/job/140136783202)
+
+Run `git apply --check` and `git apply` with each patch path, starting from the module digest in the table. To roll back the guide, apply its patch with `--reverse` and check for the standalone digest. To restore the original module, reverse the standalone patch next.
+
+The release verifier checks the actual signed APK, and the previous signed Alpha10, two byte ranges, download eligibility, previous links and installation instructions.
+
+```shell
+node apps/messenger/website/verify-alpha11-release.mjs "$V51_MODULE" "$STANDALONE_MODULE" "$PROMOTED_MODULE" "$MODULES_DIR" "$SIGNED_ALPHA11_APK" "$SIGNED_ALPHA10_APK"
+```

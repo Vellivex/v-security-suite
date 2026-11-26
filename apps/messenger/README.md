@@ -34,9 +34,11 @@ To move phones, save the key and complete **Sign out** on the old phone while it
 
 ## Background alerts
 
-After signing in, open **Your profile → Enable background alerts** and allow Android notifications. A quiet, ongoing notification shows the connection status and has a **Stop** action. Incoming alerts contain only a generic prompt to open Vellivex. They include neither messages nor contact names. Denying notification permission leaves ordinary in-app messaging available.
+For Alpha11, install the update over the existing app and open **Your profile → Enable background alerts** once on each phone. Allow notifications if Android asks. The profile shows **Background alerts are on** when the service is listening. An incoming notification reads **New Vellivex message** and opens Messenger when tapped. The generic text protects the sender and message on the lock screen.
 
-The user-enabled foreground service uses the same SDK connection as the app and works without Google Play services. It does not restart after force stop, process eviction or a device restart. Android sleep and battery policy can delay delivery; reopen the app and re-enable alerts after a restart. Events that cannot be decrypted when sync receives them may appear in the conversation later without an alert. This sideload alpha declares the specific foreground activity as `specialUse`; store distribution and physical-device delivery require further review.
+Alpha11 remembers the setting across ordinary process restarts. Android controls sound, banners and lock-screen visibility. The profile links to the Android notification settings for **Incoming messages**. After restarting the phone or force-stopping the app, open Messenger again. **Stop background alerts** and signing out both turn alerts off.
+
+The opt-in service shares the app’s encrypted connection and works without Google Play services. Android sleep and battery settings can delay delivery. Messages waiting for decryption can appear in the conversation later without an alert. Two Android 15 emulators showed the generic alert in the notification shade and on a PIN-locked screen, and tapping it reopened Vellivex. Floating banners and physical-phone presentation remain unverified. [Alpha11 Android notification test](https://github.com/Vellivex/v-security-suite/actions/runs/45886017741/job/140136783202)
 
 ## Run the isolated test server
 

@@ -1,0 +1,55 @@
+--- a/phone-shop.mjs
++++ b/phone-shop.mjs
+@@ -266,11 +266,11 @@
+   </section>`;
+ }
+ function messengerDownloadButton() {
+-  return `<a class="messenger-download" href="/downloads/${candidateAlpha10.key}">Download Alpha10 APK</a>`;
++  return `<a class="messenger-download" href="/downloads/${candidateAlpha11.key}">Download Alpha11 APK</a>`;
+ }
+ function messengerHero(downloadAvailable) {
+   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
+-    <p class="messenger-platform">Alpha10 · Android 8.0+ (ARM64 or x86-64) · For invited testers</p>
++    <p class="messenger-platform">Alpha11 · Android 8.0+ (ARM64 or x86-64) · For invited testers</p>
+     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
+     <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
+     <div class="messenger-actions">
+@@ -369,18 +369,18 @@
+ 
+ function messengerSetup(downloadAvailable) {
+   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-    <meta name="description" content="Install Vellivex Messenger Alpha10 on Android. Instructions for invited testers on email sign-in, account recovery and contact verification.">
++    <meta name="description" content="Install or update Vellivex Messenger Alpha11 on Android. Set up message notifications, sign in, recover your account and verify a contact.">
+     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
+     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
+     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
+-    <p class="messenger-platform">Alpha10 · Android 8.0+ (ARM64 or x86-64) · For invited testers</p>
++    <p class="messenger-platform">Alpha11 · Android 8.0+ (ARM64 or x86-64) · For invited testers</p>
+     <h1>Set up Vellivex Messenger</h1>
+     <p>Use the email address for your test and an ARM64 or x86-64 device running Android 8.0 or later.</p>
+     <p>This is an early test build. Use test conversations during this alpha.</p>
+     <p>To request a test invitation, email <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
+     <p>On an Android 15 emulator, tapping Open in Vellivex in Chrome opened the signed Alpha10 app at sign-in after both a fresh install and an update from Alpha09. With the app absent, the invitation showed the contact ID and the Vellivex setup link.</p>
+     <p>In the earlier Alpha09 test on two Android 15 emulators, two test accounts signed in by email, set up recovery, verified each other and received messages in both directions. After both apps restarted, each kept the verified contact and earlier messages. Both received new messages and signed out.</p>
+-    <p>Alpha09 reached the sign-in screen on a Pixel 7 running Android 13. Two-phone messaging, background delivery and updates with an active session still need physical testing. An independent security review is pending.</p>
++    <p>Alpha09 reached the sign-in screen on a Pixel 7 running Android 13. In Alpha11 tests on two Android 15 emulators, a message from either device showed a generic alert in the notification shade and on the locked screen. Alert behaviour on your phone can vary with Android settings. An independent security review is pending.</p>
+     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
+     <p><strong>Message history warning:</strong> In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone.</p>
+     <h2>Install and sign in</h2>
+@@ -399,9 +399,15 @@
+     <p>Only one phone can be active at a time. Before moving, save your recovery key, bring your old phone online and choose <strong>Sign out</strong> on that phone first.</p>
+     <p>Sign in again with the same email address and its email code. When you see <strong>Recover your account</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover account</strong> to restore your account’s encryption keys.</p>
+     <p>Earlier conversations may remain unreadable after recovery. If you need access to the message history already available on this phone, keep the existing installation and remain signed in. Without your saved recovery key, you cannot recover your account’s encryption keys after losing this installation.</p>
++    <h2>Message notifications</h2>
++    <ol>
++      <li>After updating, open <strong>Your profile</strong> on each phone and tap <strong>Enable background alerts</strong> once. If Android asks, tap <strong>Allow</strong>. Your profile should show <strong>Background alerts are on</strong>. An ongoing notification called <strong>Vellivex background alerts</strong> shows the app is listening.</li>
++      <li>On the receiving phone, go to the Home screen or lock it. Send a new message from the other phone. Look in the notification shade or wake the locked screen for <strong>New Vellivex message</strong>. The sender and message text stay private. Vellivex skips the alert while you are reading that conversation.</li>
++      <li>If an alert appears in the shade and you want a banner, tap <strong>Android notification settings</strong> in your profile, open <strong>Incoming messages</strong> if shown, and choose <strong>Pop on screen</strong> or your phone’s banner option if available. Android also controls sound, Do Not Disturb and lock-screen notifications.</li>
++    </ol>
+     <h2>Start a conversation</h2>
+     <ol>
+-      <li>To share your contact, update to Alpha10 and open your profile. Show the new QR code or tap <strong>Share invitation</strong> to send a Vellivex link. An older screenshot keeps its original link.</li>
++      <li>To share your contact, open your profile in Alpha10 or later. Show the new QR code or tap <strong>Share invitation</strong> to send a Vellivex link. An older screenshot keeps its original link.</li>
+       <li>To add a contact, scan their new QR code with your phone camera or tap their new invitation link. If Vellivex opens, sign in if asked, check the contact ID and tap <strong>Continue</strong>. If your camera opens the Vellivex page, tap <strong>Open in Vellivex</strong>. To enter the contact manually, tap <strong>Copy contact ID</strong>, open <strong>New conversation</strong> in the app and paste the ID.</li>
+       <li>Once you’ve both joined the conversation, tap <strong>Verify contact</strong> and compare the codes in person or through another channel you trust. Both people should tap <strong>They match</strong> only when the codes agree.</li>
+       <li>After verification, type your message and tap <strong>Send message</strong>.</li>

@@ -38,6 +38,8 @@ messenger_text_files = {
     messenger_root + 'website/v47-pinned-alpha10-download.patch',
     messenger_root + 'website/v48-open-in-vellivex.patch',
     messenger_root + 'website/v50-alpha10-guide.patch',
+    messenger_root + 'website/alpha11-pinned-download.patch',
+    messenger_root + 'website/alpha11-download-guide.patch',
 }
 public_executables = public_hooks | {gradle_launcher}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}
