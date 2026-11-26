@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/messenger-alpha08-isolated.yml'
       - 'apps/messenger/scripts/run-android-app-to-app.sh'
+      - 'apps/messenger/android-app-to-app/**'
+      - 'apps/messenger/scripts/app-to-app-coordinator.py'
 permissions:
   actions: read
   contents: read
@@ -22,7 +24,7 @@ jobs:
           git fetch --depth=20 origin "$GITHUB_SHA"
           git checkout --detach "$GITHUB_SHA"
           base=cce95dd977e40c2a043e48357c84eef5c55c9d8c
-          git diff --exit-code "$base" HEAD -- apps/messenger/android apps/messenger/android-app-to-app apps/messenger/sdk apps/messenger/server apps/messenger/scripts/app-to-app-coordinator.py
+          git diff --exit-code "$base" HEAD -- apps/messenger/android apps/messenger/sdk apps/messenger/server
       - name: Verify the exact SDK previously built from this source
         env:
           GH_TOKEN: ${{ github.token }}

@@ -38,7 +38,7 @@ class MessengerAppToAppTest {
     private val peerRole = if (role == "A") "B" else "A"
     private val phase = requireNotNull(arguments.getString("messengerA2aPhase")).also { require(it in setOf("fresh", "restart")) }
     private val appVersion = requireNotNull(arguments.getString("messengerA2aAppVersion"))
-        .also { require(it in setOf("5", "6")) }.toInt()
+        .also { require(it in setOf("5", "6", "8")) }.toInt()
     private val coordinator = Coordinator(
         requireNotNull(arguments.getString("messengerA2aCoordinator")),
         requireNotNull(arguments.getString("messengerA2aKey")), role,
@@ -448,7 +448,7 @@ class MessengerAppToAppTest {
     }
 
     private fun clickNewConversation() {
-        val described = if (appVersion == 6) {
+        val described = if (appVersion >= 6) {
             lastAction = "find-accessible-new-conversation"
             waitValue("unique accessible new-conversation button") {
                 device.findObjects(By.pkg(APP).desc("New conversation").enabled(true).clickable(true))

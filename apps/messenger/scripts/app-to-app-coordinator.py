@@ -56,7 +56,7 @@ class State:
         with self.lock:
             return {
                 "schema": 1,
-                "scope": "two separately installed exact Alpha05 apps; synthetic loopback service",
+                "scope": "two separately installed Android apps; synthetic loopback service; installer recorded in apk-identity.json",
                 "participants": ["A", "B"],
                 "completed_phases": self.completed.copy(),
                 "checkpoints": list(self.checkpoints),
