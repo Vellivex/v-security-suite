@@ -20,6 +20,15 @@ Do not reuse aliases from an interrupted setup: the test deliberately does not
 export their recovery keys, and a session on a destroyed emulator may remain
 registered until explicitly resolved through the supported account flow.
 
+The fresh driver confirms that the enabled editor accepted the privately supplied code
+and records a separate checkpoint after tapping its enabled submit control. It then
+observes only fixed, public screen labels for up to 60 seconds. A reported saved
+session, encryption error, key check, existing recovery or other active phone is a
+diagnostic observation. Only the actual fresh recovery setup screen advances this
+test. The negative-control rejection banner is ignored until it disappears after
+the previous submission. Reports never include entered values, their hashes, raw
+screen text or network details.
+
 ## Explicit release profiles
 
 The existing five-argument runner invocation remains the **Alpha06 test-build**

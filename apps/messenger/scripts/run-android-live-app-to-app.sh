@@ -281,8 +281,9 @@ run_id=$("$python" -c 'import json,sys;print(json.load(open(sys.argv[1]))["sessi
 runner='com.vellivex.messenger.a2a.test/androidx.test.runner.AndroidJUnitRunner'
 
 sanitise_result() {
-  "$python" - "$1" "$2" <<'PYSAN'
-import pathlib, re, sys
+  "$python" - "$1" "$2" "$messenger_dir/scripts/live-app-to-app-coordinator.py" <<'PYSAN'
+import pathlib, re, runpy, sys
+post_login_states = runpy.run_path(sys.argv[3])['POST_LOGIN_STATES']
 raw = pathlib.Path(sys.argv[1]).read_text(errors='replace').replace('\r', '')
 allowed = re.compile(
     r'^(?:INSTRUMENTATION_STATUS: stream=)?Live two-app [AB] (?:fresh|restart): [a-z0-9-]{1,80}$|'
@@ -290,7 +291,13 @@ allowed = re.compile(
     r'^INSTRUMENTATION_(?:STATUS_)?CODE: -?[0-9]+$|^OK \(1 test\)$|^FAILURES!!!$|^Tests run: [0-9]+,  Failures: [0-9]+$|'
     r'^java\.lang\.AssertionError: Live two-app UI acceptance failed for role [AB] in (?:fresh|restart); last safe checkpoint: [a-z0-9-]+$'
 )
-lines = [line for line in raw.splitlines() if allowed.fullmatch(line)]
+lines = []
+for line in raw.splitlines():
+    if not allowed.fullmatch(line):
+        continue
+    if 'post-login-' in line and line.rsplit('post-login-', 1)[-1] not in post_login_states:
+        continue
+    lines.append(line)
 pathlib.Path(sys.argv[2]).write_text('\n'.join(lines) + '\n')
 passed = 'OK (1 test)' in raw.splitlines() and 'INSTRUMENTATION_CODE: -1' in raw.splitlines() and 'INSTRUMENTATION_STATUS_CODE: 0' in raw.splitlines() and not re.search(r'^INSTRUMENTATION_STATUS_CODE: -[0-9]+$', raw, re.M)
 raise SystemExit(0 if passed else 1)
@@ -372,7 +379,9 @@ for role in ('A', 'B'):
     completed = {item['name'] for item in summary['checkpoints'] if item['role'] == role}
     required = profile_checkpoints | {'email-code-and-recovery-setup-through-ui',
                 'bidirectional-message-visible-on-peer', 'new-bidirectional-messages-after-cold-restart',
-                'disposable-live-session-signed-out'}
+                'disposable-live-session-signed-out', 'received-code-field-confirmed', 'received-code-submit-tapped'}
+    if scenario == 'fresh' or role == 'B':
+        required.add('post-login-create-recovery')
     if not required <= completed:
         raise SystemExit('A required production UI checkpoint was not reached.')
 if scenario == 'upgrade-alpha07':
