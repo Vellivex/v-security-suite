@@ -1,0 +1,135 @@
+name: Messenger physical Android pair
+
+# A draft or a change to a feature branch can only run offline tests. The
+# release operator points one of these two protected refs at the reviewed SHA
+# explicitly. The named environment restricts its secrets to those refs.
+on:
+  pull_request:
+    paths:
+      - 'apps/messenger/scripts/physical_appium/**'
+      - '.github/workflows/messenger-physical-pair.yml'
+  push:
+    branches:
+      - test/messenger-physical-canary
+      - test/messenger-physical-acceptance
+
+permissions:
+  contents: read
+
+concurrency:
+  group: messenger-physical-stock-qa
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test device privacy, paired flow and sealed handoff using synthetic fixtures
+        run: /usr/bin/python3 -m unittest discover -s apps/messenger/scripts/physical_appium
+
+  registered-phones:
+    needs: offline
+    if: github.event_name == 'push' && github.repository == 'Vellivex/v-security-suite' && github.actor == 'VellivexHQ'
+    environment: vellivex-physical-qa
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Verify exact original release and Android signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          /usr/bin/python3 -c 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM'
+          installer="$RUNNER_TEMP/physical-original.apk"
+          python3 apps/messenger/scripts/live-release-profile.py download alpha08-release "$installer" --signer-output "$RUNNER_TEMP/physical-signer"
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          test -x "$signer"
+          "$signer" verify --print-certs "$installer" > "$RUNNER_TEMP/physical-cert"
+          test "$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/physical-cert")" = "$(cat "$RUNNER_TEMP/physical-signer")"
+      - name: Start privacy preflight and approved device scenario
+        shell: bash
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          VELLIVEX_QA_EMAIL_SHA256_A: ${{ secrets.VELLIVEX_QA_EMAIL_SHA256_A }}
+          VELLIVEX_QA_EMAIL_SHA256_B: ${{ secrets.VELLIVEX_QA_EMAIL_SHA256_B }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mode="${GITHUB_REF_NAME#test/messenger-physical-}"
+          control="$RUNNER_TEMP/physical-process"
+          mkdir "$control"
+          setsid bash -c '
+            control=$1
+            shift
+            "$@" > "$control/diagnostic" 2>&1
+            echo "$?" > "$control/exit"
+          ' _ "$control" /usr/bin/python3 apps/messenger/scripts/physical_appium/run.py             "$mode" "$RUNNER_TEMP/physical-original.apk" "$RUNNER_TEMP/physical-public" &
+          echo "$!" > "$control/pid"
+          if [[ "$mode" == canary ]]; then exit 0; fi
+          until [[ -f "$RUNNER_TEMP/physical-public/physical-attestation.json" ]]; do
+            if [[ -f "$control/exit" ]]; then echo 'Device or privacy setup stopped before input.'; exit 1; fi
+            sleep 2
+          done
+      - name: Publish independently verified physical session and public encryption key
+        if: github.ref_name == 'test/messenger-physical-acceptance'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: messenger-physical-key-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/physical-public/public-key.json
+            ${{ runner.temp }}/physical-public/physical-attestation.json
+            ${{ runner.temp }}/physical-public/privacy-preflight.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for both genuine app code screens
+        if: github.ref_name == 'test/messenger-physical-acceptance'
+        shell: bash
+        run: |
+          set -euo pipefail
+          until [[ -f "$RUNNER_TEMP/physical-public/code-handoff.json" ]]; do
+            if [[ -f "$RUNNER_TEMP/physical-process/exit" ]]; then echo 'Both code screens were not reached.'; exit 1; fi
+            sleep 2
+          done
+      - name: Publish time-bounded code-entry readiness
+        if: github.ref_name == 'test/messenger-physical-acceptance'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: messenger-physical-ready-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/physical-public/code-handoff.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for device completion
+        shell: bash
+        run: |
+          set -euo pipefail
+          control="$RUNNER_TEMP/physical-process"
+          until [[ -f "$control/exit" ]]; do sleep 2; done
+          test "$(cat "$control/exit")" = 0
+      - name: Close device process on any outcome
+        if: always()
+        shell: bash
+        run: |
+          control="$RUNNER_TEMP/physical-process"
+          if [[ -f "$control/pid" && ! -f "$control/exit" ]]; then
+            pid="$(cat "$control/pid")"
+            if [[ "$pid" =~ ^[1-9][0-9]+$ ]]; then kill -TERM -- "-$pid" 2>/dev/null || true; fi
+          fi
+      - name: Retain allowlisted evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: messenger-physical-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/physical-public/privacy-preflight.json
+            ${{ runner.temp }}/physical-public/checkpoints.json
+            ${{ runner.temp }}/physical-public/result.json
+          if-no-files-found: ignore
+          retention-days: 14
