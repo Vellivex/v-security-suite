@@ -1,0 +1,61 @@
+--- a/phone-shop.mjs
++++ b/phone-shop.mjs
+@@ -15,5 +15,5 @@
+ const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
+ const MESSENGER_APK_SOURCE = 'https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha05/' + MESSENGER_APK_NAME;
+-// Unlinked candidate download; the public Alpha05 presentation stays unchanged.
++// Keep the original Alpha08 download alongside the universal Alpha09 test installer.
+ const CANDIDATE_MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha08-arm64.apk';
+ const CANDIDATE_MESSENGER_APK_PATH = '/downloads/' + CANDIDATE_MESSENGER_APK_NAME;
+@@ -251,9 +251,9 @@
+ }
+ function messengerDownloadButton() {
+-  return `<a class="messenger-download" href="${MESSENGER_APK_PATH}">Free download</a>`;
++  return `<a class="messenger-download" href="/downloads/${candidateAlpha09.key}">Download Alpha09 APK</a>`;
+ }
+ function messengerHero(downloadAvailable) {
+   return `<section id="vellivex-messenger-hero" class="wrap" aria-labelledby="vellivex-messenger-title">
+-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Invite-only sign-in</p>
++    <p class="messenger-platform">Alpha09 · Android 8.0+ (ARM64 or x86-64) · Invite-only sign-in</p>
+     <h2 id="vellivex-messenger-title">Vellivex Messenger</h2>
+     <p class="messenger-description">End-to-end encrypted one-to-one messages with device verification.</p>
+@@ -266,19 +266,20 @@
+ function messengerSetup(downloadAvailable) {
+   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-    <meta name="description" content="Install the Vellivex Messenger test alpha on Android. Sign-in requires an invited email address; downloading the app does not grant access.">
++    <meta name="description" content="Install Vellivex Messenger Alpha09 on Android. Sign-in requires an invited email address; downloading the app does not grant access.">
+     <title>Vellivex Messenger Android setup</title><link rel="canonical" href="${CANONICAL_ORIGIN}${MESSENGER_SETUP_PATH}">
+     <link rel="stylesheet" href="/phones-promotion.css"></head><body class="messenger-setup">
+     <main class="messenger-setup-content"><a class="messenger-guide-link" href="/">← Vellivex</a>
+-    <p class="messenger-platform">Android 8.0+ (ARM64) · Test alpha · Invite-only sign-in</p>
++    <p class="messenger-platform">Alpha09 · Android 8.0+ (ARM64 or x86-64) · Invite-only sign-in</p>
+     <h1>Set up Vellivex Messenger</h1>
+-    <p>You’ll need an invited email address you can access and an ARM64 phone running Android 8.0 or later.</p>
++    <p>You’ll need an invited email address you can access and an ARM64 or x86-64 device running Android 8.0 or later.</p>
+     <p>This is an early test build. Use test conversations during this alpha.</p>
+     <p>Downloading the app does not grant access to the messaging service. To request an invitation, contact <a href="mailto:v@vellivex.com">v@vellivex.com</a>.</p>
+-    <p>Testing on physical phones and an independent security review are not complete.</p>
++    <p>On two Android 15 emulators, invited testers signed in by email, set up recovery, verified each other and received messages in both directions. After both apps restarted, each kept the verified contact and earlier messages. Both received new messages and signed out.</p>
++    <p>Alpha09 reached the sign-in screen on a Pixel 7 running Android 13. Two-phone messaging, background delivery and updates with an active session still need physical testing. An independent security review is pending.</p>
+     ${downloadAvailable ? messengerDownloadButton() : '<p>The APK download is currently unavailable.</p>'}
+     <p><strong>Message history warning:</strong> In this alpha, recovery may not restore any earlier messages, including messages from contacts still using the same phone.</p>
+     <h2>Install and sign in</h2>
+     <ol>
+-      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong> to keep your existing installation, session and message keys. Keep the app signed in. Do not uninstall it or sign out before updating.</li>
++      <li>Open the downloaded APK and follow Android’s prompts. If you already have Vellivex Messenger, install it over the existing app and choose <strong>Update</strong>. Keep your existing installation, app data and session intact. Do not uninstall it or sign out before updating.</li>
+       <li>Open Vellivex Messenger. The app connects to the Vellivex messaging service automatically. Enter your invited email address and tap <strong>Continue with email</strong>.</li>
+       <li>Enter the eight-digit code from your inbox and tap <strong>Open Vellivex</strong>.</li>
+@@ -416,5 +417,5 @@
+         status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
+       });
+-      if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(messengerApkUrl)), request);
++      if (path === MESSENGER_SETUP_PATH) return shopResponse(messengerSetup(Boolean(candidateMessengerReleaseBucket(env))), request);
+       if (retiredMessengerApk) return new Response(null, {status:303, headers:{...envelope, 'Location':MESSENGER_SETUP_PATH}});
+       if (!messengerApkUrl) return shopResponse('APK download unavailable', request, 'text/plain; charset=utf-8', 503);
+@@ -483,5 +484,5 @@
+       }
+       if (!body.includes('id="vellivex-messenger-hero"')) {
+-        body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(messengerApkUrl)));
++        body = body.replace(/<main\b[^>]*>/i, opening => opening + messengerHero(Boolean(candidateMessengerReleaseBucket(env))));
+       }
+       if (!body.includes('href="/phones-promotion.css"')) {

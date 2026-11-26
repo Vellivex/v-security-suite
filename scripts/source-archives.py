@@ -32,6 +32,7 @@ messenger_text_files = {
     gradle_launcher,
     gradle_launcher + '.bat',
     messenger_root + 'sdk/peer-device-verification.patch',
+    messenger_root + 'website/v44-invite-only-alpha09.patch',
 }
 public_executables = public_hooks | {gradle_launcher}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}

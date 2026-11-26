@@ -101,6 +101,8 @@
   "apps/messenger/server/tests/test_verify_endpoint.py",
   "apps/messenger/server/vellivex_email_auth.py",
   "apps/messenger/server/vellivex_email_state.py",
+  "apps/messenger/website/README.md",
+  "apps/messenger/website/v44-invite-only-alpha09.patch",
   "apps/vault/crypto.js",
   "apps/vguard/.gitignore",
   "apps/vguard/README.md",
