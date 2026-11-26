@@ -28,7 +28,7 @@ jobs:
           cd "$RUNNER_TEMP/x86-inputs"
           gh api repos/Vellivex/v-security-suite/actions/artifacts/15116856736/zip > arm-qa.apk
           gh api repos/Vellivex/v-security-suite/actions/artifacts/14659184330/zip > sdk.zip
-          curl --proto '=https' --fail --location --silent --show-error --max-time 120 --output jna.aar https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.18.1/jna-5.18.1.aar
+          curl --proto '=https' --fail --location --silent --show-error --retry 3 --retry-delay 10 --max-time 120 --output jna.aar https://maven-central.storage-download.googleapis.com/maven2/net/java/dev/jna/jna/5.18.1/jna-5.18.1.aar
           sha256sum --strict -c - <<'HASHES'
           237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e  arm-qa.apk
           f761f5f0f06f9ac39cd3d9ad5957c207ca5b2becf6ca3d5687d54b8d7ea02545  sdk.zip
