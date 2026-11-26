@@ -1,0 +1,21 @@
+name: Read back the exact signed Alpha09 APK on Android 15
+on:
+  push:
+    branches: [test/messenger-alpha09-install-readback-20261126]
+    paths: ['.github/workflows/messenger-alpha09-install-readback.yml', 'apps/messenger/physical-qa/readback-alpha09.sh']
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Load the standalone installation checks
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
+      - name: Verify installer and run all device readback checks
+        run: bash apps/messenger/physical-qa/readback-alpha09.sh
