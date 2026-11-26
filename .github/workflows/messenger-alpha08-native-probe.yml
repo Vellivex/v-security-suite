@@ -1,0 +1,38 @@
+name: Alpha08 released ARM64 native HTTPS and local storage probe
+on:
+  push:
+    branches: [test/messenger-alpha08-native-probe-20261126]
+    paths:
+      - '.github/workflows/messenger-alpha08-native-probe.yml'
+      - 'apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/ReleaseNativeStoreProbe.kt'
+      - 'apps/messenger/scripts/run-alpha08-native-probe.sh'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  no-auth-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out the pinned instrumentation source
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=15 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
+          git diff --exit-code cce95dd977e40c2a043e48357c84eef5c55c9d8c HEAD -- apps/messenger/android/app/src/main apps/messenger/sdk
+      - name: Download and validate matching compile-time SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/14659184330/zip > "$RUNNER_TEMP/sdk.zip"
+          echo "f761f5f0f06f9ac39cd3d9ad5957c207ca5b2becf6ca3d5687d54b8d7ea02545  $RUNNER_TEMP/sdk.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/sdk.zip" -d "$RUNNER_TEMP/sdk"
+          cd "$RUNNER_TEMP/sdk"
+          test "$(cat source-commit.txt)" = cce95dd977e40c2a043e48357c84eef5c55c9d8c
+          sha256sum --check --strict vellivex-matrix-sdk.aar.sha256
+      - name: Exercise the release payload on Android 35 with forced ARM64 translation
+        run: bash apps/messenger/scripts/run-alpha08-native-probe.sh
