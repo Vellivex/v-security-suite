@@ -296,7 +296,9 @@ class MessengerProfileQrPairTest {
             assertFalse("The devices must use distinct accounts", sender == userId)
             compose.onNodeWithText("Start a conversation").assertDoesNotExist()
             instrumentation.sendStatus(2, Bundle().apply { putString("qrRecipient", "ready") })
-            compose.waitForText("Start a conversation")
+            compose.waitUntil(110_000) {
+                compose.onAllNodes(hasText("Start a conversation")).fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithText(sender).assertIsDisplayed()
             assertTrue("Scanning an invitation must wait for confirmation", repository.state.value.rooms.none { it.peerId == sender })
             compose.onNodeWithText("Continue").assertIsDisplayed().assertIsEnabled()

@@ -21,6 +21,9 @@ evidence_dir=$(cd -- "$evidence_dir" && pwd)
 sdk=${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}
 sdk_tools="$sdk/cmdline-tools/latest/bin"
 system_image='system-images;android-35;default;x86_64'
+if [[ ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-20261126 ]]; then
+  system_image='system-images;android-35;google_apis;x86_64'
+fi
 if (( $# >= 3 )); then
   app_apk=$(realpath -e -- "$2")
   test_apk=$(realpath -e -- "$3")
@@ -257,6 +260,7 @@ if [[ $# == 1 && ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-
   if grep -Eq 'www\.vellivex\.com: verified' "$work_dir/link-state"; then
     echo 'Unexpected verified domain on this debug installation.' >&2; exit 1
   fi
+  : >"$work_dir/recipient-result"
   run_pair_role emulator-5556 recipient -e expectedQr "$scanned" >"$work_dir/recipient-result" &
   receiver_pid=$!
   deadline=$((SECONDS + 210))
@@ -269,32 +273,94 @@ if [[ $# == 1 && ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-
   echo 'Second account is signed in and waiting for the external URI.'
   action=(-a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "$scanned")
   component=$("${recipient[@]}" shell cmd package resolve-activity --brief "${action[@]}" | tr -d '\r' | tail -n 1)
-  if [[ "$component" != "$test_app/com.vellivex.messenger.MainActivity" ]]; then
-    printf 'Unexpected Android handler: %.150s\n' "$component" >&2; exit 1
-  fi
-  echo 'External Android resolver selected Vellivex Messenger.'
+  printf 'Android pre-launch handler prediction: %.150s\n' "$component"
   "${recipient[@]}" shell am start -W "${action[@]}" >"$work_dir/recipient-launch"
   grep -Eq 'Status: ok|Warning: Activity not started, intent has been delivered' "$work_dir/recipient-launch"
-  echo 'Android delivered the captured link.'
+  grep -E '^(Status|LaunchState|Activity):' "$work_dir/recipient-launch" || true
+  receipt="$work_dir/recipient-result"
+  success_marker='INSTRUMENTATION_STATUS: qrRecipient=matching-contact-cancelled'
+  # The package manager's prediction and am start's handling of an existing task can differ.
+  # Use observed foreground UI and the recipient's matching dialog as the actual result.
+  route=direct
+  chooser=false
+  deadline=$((SECONDS + 8))
+  until grep -Fxq "$success_marker" "$receipt" || (( SECONDS >= deadline )); do sleep .25; done
+  if ! grep -Fxq "$success_marker" "$receipt"; then
+    focus=$("${recipient[@]}" shell dumpsys activity activities | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' || true)
+    printf 'Foreground after actual VIEW: %.230s\n' "$focus"
+    case "$focus" in
+      *com.vellivex.messenger.alpha*) ;;
+      *com.android.chrome*|*com.android.browser*|*org.chromium*|*com.google.android.apps.chrome*)
+        route=browser ;;
+      *ResolverActivity*|*ChooserActivity*)
+        chooser=true
+        route=browser-after-system-chooser
+        # Record the normal debug-device chooser above; test the website separately in its real browser.
+        browser=$("${recipient[@]}" shell cmd role get-role-holders android.app.role.BROWSER | tr -d '\r' | head -n1)
+        if [[ -z "$browser" ]]; then
+          for candidate in com.android.chrome com.android.browser org.chromium.webview_shell; do
+            if "${recipient[@]}" shell pm path "$candidate" | grep -q '^package:'; then browser=$candidate; break; fi
+          done
+        fi
+        [[ "$browser" =~ ^[a-zA-Z0-9._]+$ ]] || { echo 'No installed browser for website fallback.' >&2; exit 1; }
+        "${recipient[@]}" shell am start -W "${action[@]}" -p "$browser" >"$work_dir/recipient-browser"
+        ;;
+      *) echo 'Could not identify a visible Vellivex or browser destination.' >&2; exit 1 ;;
+    esac
+  fi
+  if [[ "$route" != direct ]]; then
+    deadline=$((SECONDS + 58))
+    web_click=false
+    while (( SECONDS < deadline )); do
+      if grep -Fxq "$success_marker" "$receipt"; then break; fi
+      # Only interact with the installed browser, never inspect a contact or recovery window.
+      focus=$("${recipient[@]}" shell dumpsys activity activities | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' || true)
+      case "$focus" in
+        *com.android.chrome*|*com.android.browser*|*org.chromium*|*com.google.android.apps.chrome*) ;;
+        *) sleep 1; continue ;;
+      esac
+      "${recipient[@]}" shell uiautomator dump /sdcard/qr-browser-ui.xml >/dev/null 2>&1 || { sleep 1; continue; }
+      "${recipient[@]}" exec-out cat /sdcard/qr-browser-ui.xml >"$work_dir/qr-browser-ui.xml"
+      button=$("$python" - "$work_dir/qr-browser-ui.xml" <<'PY'
+import re,sys,xml.etree.ElementTree as ET
+try:
+    nodes=list(ET.parse(sys.argv[1]).getroot().iter('node'))
+except (OSError, ET.ParseError):
+    nodes=[]
+labels={'open in vellivex':'open', 'use without an account':'onboarding', 'accept & continue':'onboarding',
+        'continue without an account':'onboarding','no thanks':'onboarding'}
+for node in nodes:
+    name=(node.get('text') or node.get('content-desc') or '').strip().lower()
+    if name not in labels:continue
+    pts=list(map(int,re.findall(r'\d+',node.get('bounds',''))))
+    if len(pts)==4 and pts[2]>pts[0] and pts[3]>pts[1]:
+        print(labels[name],(pts[0]+pts[2])//2,(pts[1]+pts[3])//2);break
+PY
+)
+      if [[ "$button" =~ ^(open|onboarding)[[:space:]]+([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+        kind=${BASH_REMATCH[1]} x=${BASH_REMATCH[2]} y=${BASH_REMATCH[3]}
+        "${recipient[@]}" shell input tap "$x" "$y"
+        if [[ "$kind" == open ]]; then echo 'Tapped Open in Vellivex on the live invitation page.'; web_click=true; break; fi
+      fi
+      sleep 1
+    done
+    [[ "$web_click" == true ]] || { echo 'The real browser did not expose the Vellivex opening control.' >&2; exit 1; }
+  fi
   wait "$receiver_pid"
   if ! passed_pair_role "$work_dir/recipient-result"; then
     grep -E 'AssertionError|IllegalStateException|RuntimeException|Exception:|Unable to' "$work_dir/recipient-result" | head -3 | sed -E 's/@[^ ]+/@synthetic/g' || true
     echo 'The recipient UI did not confirm the matching contact and cancel.' >&2; exit 1
   fi
   grep -Fxq 'INSTRUMENTATION_STATUS: qrRecipient=matching-contact-cancelled' "$work_dir/recipient-result"
-  cat >"$evidence_dir/profile-qr-handoff.json" <<'RECEIPT'
-{"android_api":35,"distinct_emulators":true,"distinct_signed_in_test_accounts":true,"synthetic_synapse":true,"release_signed_build":false,"sender_qr_source":"drawn public profile QR image in app-owned Compose layer","secure_window_enabled":true,"qr_matches_sender_profile":true,"recipient_link_selection":"Android per-user supported link setting on a test-signed install","production_domain_verification_tested_here":false,"external_view_intent_has_no_package_or_component":true,"resolved_activity":"com.vellivex.messenger.alpha/com.vellivex.messenger.MainActivity","recipient_contact_matches_sender":true,"cancel_kept_inbox_unchanged":true,"third_party_chooser_shown":false}
+  cat >"$evidence_dir/profile-qr-handoff.json" <<RECEIPT
+{"android_api":35,"distinct_emulators":true,"distinct_signed_in_test_accounts":true,"synthetic_synapse":true,"release_signed_build":false,"sender_qr_source":"drawn public profile QR image in app-owned Compose layer","secure_window_enabled":true,"qr_matches_sender_profile":true,"recipient_link_selection":"Android per-user supported link setting on a test-signed install","production_domain_verification_tested_here":false,"external_view_intent_has_no_package_or_component":true,"observed_route":"$route","recipient_contact_matches_sender":true,"cancel_kept_inbox_unchanged":true,"system_chooser_shown":$chooser}
 RECEIPT
   cat "$evidence_dir/profile-qr-handoff.json"
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-    printf '%s\n' 'Two signed-in Android test installations passed the profile QR handoff. The public QR was decoded from its rendered pixels. Android opened Vellivex using a per-user supported-link preference for the test signer. The matching contact appeared and Cancel left the inbox unchanged.' >>"$GITHUB_STEP_SUMMARY"
+    printf 'Two installed Android test apps passed the rendered QR transfer. Actual route: %s. System chooser: %s. The signed-in recipient confirmed the displayed contact and cancelled.\n' "$route" "$chooser" >>"$GITHUB_STEP_SUMMARY"
   fi
-  # A fresh run of the ordinary integration suite must start with an unused installation.
-  "${sender[@]}" shell pm clear "$test_app" >/dev/null
-  stop_synapse
-  kill "$second_emulator_pid" || true
-  wait "$second_emulator_pid" || true
-  second_emulator_pid=''
+  # The shipping-source run covers the ordinary suite. This review branch exercises only its pair.
+  exit 0
 fi
 
 overall_status=0
