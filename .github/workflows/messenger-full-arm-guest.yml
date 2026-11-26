@@ -29,5 +29,9 @@ jobs:
           echo '237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e  native-qa.apk' | sha256sum -c -
           curl --fail --location --proto '=https' --max-time 120 --silent --show-error --output alpha08.apk https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk
           echo '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4  alpha08.apk' | sha256sum -c -
+      - name: Install the emulator host audio library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libpulse0
       - name: Run native TLS and encrypted storage checks without accounts
         run: bash apps/messenger/physical-qa/full-arm-guest.sh

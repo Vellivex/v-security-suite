@@ -19,7 +19,7 @@ cd "$RUNNER_TEMP"
 "$sdk/sdkmanager" 'build-tools;36.0.0' 'platform-tools' 'emulator' "$image"
 "$bt/apksigner" verify --print-certs alpha08.apk | grep -F 'Signer #1 certificate SHA-256 digest: 3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
 "$bt/apksigner" verify --print-certs native-qa.apk | grep -F 'Signer #1 certificate SHA-256 digest: 39901bf944f1c1756c161ad31a1edd389aa428a996661b163698b99db8186f7c'
-"$ANDROID_HOME/emulator/emulator" -version
+grep -F "Pkg.Revision" "$ANDROID_HOME/emulator/source.properties"
 printf 'no\n' | "$sdk/avdmanager" create avd -n native-guest -k "$image"
 cat >> "$ANDROID_AVD_HOME/native-guest.avd/config.ini" <<'INI'
 hw.lcd.width=480
