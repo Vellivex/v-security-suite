@@ -16,7 +16,7 @@ jobs:
           set -eu
           git init .
           git remote add origin https://github.com/Vellivex/v-security-suite.git
-          git fetch --depth=2 origin "$GITHUB_SHA"
+          git fetch --depth=1 origin "$GITHUB_SHA" fe4b731dd3d770a19dd2497259d5507f3a8c122e
           git checkout --detach "$GITHUB_SHA"
           git diff --exit-code fe4b731dd3d770a19dd2497259d5507f3a8c122e HEAD -- apps/messenger/android apps/messenger/sdk apps/messenger/physical-qa/src
       - name: Get and authenticate the two APK inputs
