@@ -1,14 +1,22 @@
 name: Messenger signed QR invitation acceptance
 on:
-  push:
-    branches: [test/messenger-alpha10-qr-acceptance]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/messenger-qr-acceptance.yml'
+      - 'apps/messenger/scripts/test-signed-qr.py'
   workflow_dispatch:
 
 permissions: {}
 
 jobs:
   signed-android:
-    if: github.repository == 'Vellivex/v-security-suite'
+    if: >-
+      github.repository == 'Vellivex/v-security-suite' &&
+      (github.event_name != 'pull_request' || (github.head_ref == 'test/messenger-alpha10-qr-acceptance' &&
+      github.event.pull_request.head.repo.full_name == github.repository))
+    env:
+      CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -18,7 +26,7 @@ jobs:
           set -euo pipefail
           git init .
           git remote add origin https://github.com/Vellivex/v-security-suite.git
-          git fetch --depth=1 origin "$GITHUB_SHA"
+          git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
       - name: Check the web fallback and the signed Android installers
         shell: bash
