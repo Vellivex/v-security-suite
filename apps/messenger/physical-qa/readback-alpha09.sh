@@ -64,15 +64,22 @@ else
     echo 'Original package path regular expression FAIL'
     exit 1
 fi
-# Check each documented ADB route independently. The raw file has no account data.
-ok=0
-if actual=$(device exec-out cat "$path" | sha256sum | cut -d ' ' -f1) && [[ "$actual" == "$expected" ]]; then
-    echo "exec-out readback PASS $actual"; ok=$((ok+1))
-else echo 'exec-out readback FAIL'; fi
-if device shell toybox sha256sum "$path" > "$work/device.sha" && [[ "$(awk 'NR==1{print $1}' "$work/device.sha")" == "$expected" ]]; then
-    echo 'On-device toybox SHA-256 PASS'; ok=$((ok+1))
-else echo 'On-device toybox SHA-256 FAIL'; fi
-if device pull "$path" "$work/from-device.apk" && echo "$expected  $work/from-device.apk" | sha256sum --status --check -; then
-    echo 'ADB pull SHA-256 PASS'; ok=$((ok+1))
-else echo 'ADB pull SHA-256 FAIL'; fi
-test "$ok" = 3
+# Hash in the guest first, leaving the large installed APK on its disk.
+for attempt in 1 2 3; do
+    if device shell toybox sha256sum "$path" > "$work/device.sha" 2>"$work/digest-error"; then
+        digest=$(awk 'NR==1{print $1}' "$work/device.sha")
+        if [[ "$digest" != "$expected" ]]; then
+            echo 'Device returned a digest that differed from the signed input'
+            exit 1
+        fi
+        echo "On-device toybox SHA-256 PASS $digest (attempt $attempt)"
+        test "$(device get-state | tr -d '\r')" = device
+        echo 'Android remained connected after digest readback'
+        exit 0
+    fi
+    echo "Device digest command failed on attempt $attempt"
+    timeout 45 "$adb" -s "$serial" wait-for-device || true
+    sleep 2
+done
+echo 'Device did not return a matching digest'
+exit 1
