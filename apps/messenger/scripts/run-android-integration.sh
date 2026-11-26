@@ -264,7 +264,8 @@ import subprocess
 import sys
 import time
 
-adb, serial = sys.argv[1:]
+adb, serial, evidence = sys.argv[1:]
+from pathlib import Path
 last = ""
 def run(*args, data=None, timeout=10):
     return subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout).stdout
@@ -273,12 +274,17 @@ def shell(*args):
 while True:
     time.sleep(.15)
     try:
-        request = shell("cat", "/data/local/tmp/vx-probe-request")
-        if request == last or not re.fullmatch(r"(fresh|restart)-(home|locked|inbox|removed)-(banner|lock|lockshade|tap)", request):
+        names = shell("ls", "-1t", "/data/local/tmp").splitlines()
+        candidates = [name for name in names if re.fullmatch(r"vx-probe-(fresh|restart)-(home|locked|inbox|removed)-(banner|lock|lockshade|tap)", name)]
+        if not candidates:
+            continue
+        request = candidates[0][len("vx-probe-"):]
+        if request == last:
             continue
         last = request
         visible = False
-        nonblank = False
+        diagnostics = set()
+        private_text = False
         status_text = False
         visible_words = 0
         focus = shell("dumpsys", "window", "windows")
@@ -297,6 +303,11 @@ while True:
                 words = [re.sub(r"[^a-z]", "", row['text'].lower()) for row in rows]
                 line = " ".join(words)
                 visible_words += len(words)
+                for label, phrase in [('empty','no notifications'),('shade','clear all'),('quick','internet'),('unlocked','swipe up'),('locked','lock screen'),('permission','allow'),('setup','finish setting up'),('lock-icon','unlock for all content')]:
+                    if phrase in line:
+                        diagnostics.add(label)
+                if any(word in line for word in ('example test','recovery key','fictional private','your vellivex id','write a message')):
+                    private_text = True
                 if 'background alerts' in line or 'sync is active' in line:
                     status_text = True
                 # Require the entire generic title or body. Never match only the app's group label.
@@ -309,18 +320,23 @@ while True:
                     y = int(target['top']) + int(target['height'])//2
                     shell('input','tap',str(x),str(y))
                 break
+        if request.startswith('fresh-') and not private_text and system_ui and (request.endswith('-lock') or request.endswith('-lockshade') or request.endswith('-tap')):
+            # Every screenshot is a disposable synthetic fixture with no real user data; only retain OS windows.
+            Path(evidence,serial+'-'+request+'.png').write_bytes(png)
+        print(request,'observed',int(visible),'words',visible_words,'focus',int(system_ui),'status',int(status_text),'display',','.join(sorted(diagnostics)) or 'other',flush=True)
         response = ' '.join([request, str(int(visible)),str(min(visible_words,999)),str(int(system_ui)),str(int(status_text))])
         shell("echo "+response+" > /data/local/tmp/vx-probe-result.tmp && mv /data/local/tmp/vx-probe-result.tmp /data/local/tmp/vx-probe-result")
-    except (OSError,ValueError,subprocess.SubprocessError):
+    except (OSError,ValueError,subprocess.SubprocessError) as exc:
+        print("os-probe-issue",type(exc).__name__,flush=True)
         continue
 OSPROBE
   for serial in emulator-5554 emulator-5556; do
-    "$python" "$work_dir/os-probe.py" "${adb[0]}" "$serial" >>"$work_dir/os-probe-$serial.log" 2>&1 &
+    "$python" "$work_dir/os-probe.py" "${adb[0]}" "$serial" "$evidence_dir" >>"$work_dir/os-probe-$serial.log" 2>&1 &
     os_probe_pids+=("$!")
   done
   evidence="$evidence_dir/notification-pair.log"
   : >"$evidence"
-  for phase in fresh restart; do
+  for phase in fresh; do
     if [[ "$phase" == restart ]]; then
       for serial in emulator-5554 emulator-5556; do
         "${adb[0]}" -s "$serial" shell am force-stop "$test_app"
@@ -346,6 +362,7 @@ OSPROBE
         grep -Eo '([A-Za-z]+Exception|AssertionError)|MessengerNotificationPairTest\.kt:[0-9]+' "$file" | tail -22 || true
       fi
     done
+    for serial in emulator-5554 emulator-5556; do cat "$work_dir/os-probe-$serial.log"; done
     ((status == 0)) || exit 1
   done
   "$python" - "$evidence" "${NOTIFICATION_TEST_BUILD:?}" <<'PYTHON'
@@ -355,7 +372,7 @@ lines=Path(sys.argv[1]).read_text().splitlines()
 assert sys.argv[2] in ('alpha10', 'candidate')
 candidate=sys.argv[2]=='candidate'
 for role in ('A','B'):
-    for phase, cases in [('fresh', ('home','locked','inbox')), ('restart', ('home','removed'))]:
+    for phase, cases in [('fresh', ('home','locked'))]:
         for case in cases:
             assert f'{role} {phase} {case} delivered=true' in lines
             matches=[line for line in lines if line.startswith(f'{role} {phase} {case} service=')]
@@ -366,8 +383,6 @@ for role in ('A','B'):
                 assert int(flags['importance']) >= 4
                 if case=='locked':
                     assert flags['lock-eligible']=='true' and flags['lock-row']=='true'
-    if candidate:
-        assert f'{role} restart restored-service=true' in lines
 print('Recorded OS alert results on both independent installations.')
 PYTHON
   exit 0

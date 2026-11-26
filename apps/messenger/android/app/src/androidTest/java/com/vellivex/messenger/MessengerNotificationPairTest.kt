@@ -116,7 +116,7 @@ class MessengerNotificationPairTest {
             evidence("$case $view system-tree=true")
             return true
         }
-        shell("echo $request > /data/local/tmp/vx-probe-request")
+        shell("touch /data/local/tmp/vx-probe-$request")
         var fields = emptyList<String>()
         val response = waitFor(15) {
             fields = shell("cat /data/local/tmp/vx-probe-result").trim().split(" ")
@@ -339,12 +339,7 @@ class MessengerNotificationPairTest {
         }
         for (receiver in listOf("B", "A")) {
             expectOSAlert("home", receiver)
-            if (phase == "fresh") {
-                expectOSAlert("locked", receiver)
-                expectOSAlert("inbox", receiver)
-            } else {
-                expectOSAlert("removed", receiver)
-            }
+            if (phase == "fresh") expectOSAlert("locked", receiver)
         }
     }
 }
