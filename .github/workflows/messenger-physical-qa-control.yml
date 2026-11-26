@@ -1,0 +1,81 @@
+name: Physical QA APK translated-emulator control
+on:
+  push:
+    branches: [test/messenger-alpha08-native-probe-20261126]
+    paths: ['.github/workflows/messenger-physical-qa-control.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  standalone-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify the exact volunteer diagnostic tested on the physical Pixel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$RUNNER_TEMP/physical-qa-control"
+          mkdir -p "$work"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/15116856736/zip > "$work/source.zip"
+          python3 - "$work" <<'PY'
+          import hashlib, pathlib, sys, zipfile
+          out = pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(out/'source.zip') as archive:
+              files=[n for n in archive.namelist() if n.endswith('.apk')]
+              assert len(files)==1
+              data=archive.read(files[0])
+          assert hashlib.sha256(data).hexdigest()=='237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e'
+          (out/'qa.apk').write_bytes(data)
+          PY
+      - name: Launch the original QA APK through Android without instrumentation
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/physical-qa-control"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+          adb="$ANDROID_HOME/platform-tools/adb"
+          device=emulator-5554
+          image='system-images;android-35;google_apis;x86_64'
+          "$sdk/sdkmanager" --install 'platform-tools' 'emulator' "$image"
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
+          export ANDROID_AVD_HOME="$work/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | "$sdk/avdmanager" create avd -n vx-control -k "$image"
+          "$ANDROID_HOME/emulator/emulator" -avd vx-control -port 5554 -accel on -memory 2048 -cores 2 -gpu swiftshader -no-window -no-audio -no-snapshot -no-boot-anim > "$work/boot.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; rm -rf -- "$work"' EXIT
+          for i in {1..120}; do
+            boot=$(timeout 4 "$adb" -s "$device" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+            [[ "$boot" == 1 ]] && break
+            sleep 2
+          done
+          test "$boot" = 1
+          test "$("$adb" -s "$device" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" = libndk_translation.so
+          "$adb" -s "$device" shell wm dismiss-keyguard
+          "$adb" -s "$device" install --abi arm64-v8a "$work/qa.apk"
+          "$adb" -s "$device" shell am start -n com.vellivex.qa.physical/com.vellivex.qa.ProbeActivity
+          for i in {1..36}; do
+            "$adb" -s "$device" shell uiautomator dump /sdcard/vx-control.xml >/dev/null 2>&1 || true
+            "$adb" -s "$device" exec-out cat /sdcard/vx-control.xml > "$work/qa.xml" || true
+            grep -q 'Diagnostics complete' "$work/qa.xml" && break
+            sleep 2
+          done
+          python3 - "$work/qa.xml" <<'PY'
+          import re, sys, xml.etree.ElementTree as E
+          text='\n'.join(n.get('text','') for n in E.parse(sys.argv[1]).iter('node') if n.get('package')=='com.vellivex.qa.physical')
+          assert 'Diagnostics complete' in text, 'Standalone QA did not reach its final screen'
+          outcomes=[]
+          for stage in ['Android HTTPS','Native bootstrap','Native memory','Encrypted store']:
+              status=re.search(re.escape(stage)+r' (PASS|FAIL)',text)
+              value=status.group(1) if status else 'MISSING'
+              print(stage,value)
+              outcomes.append(value)
+          for known in ['InternalException','initialized','tls','certificate','Native client build','Native memory versions','Encrypted store versions']:
+              if known in text: print('Observed fixed diagnostic category:',known)
+          if outcomes != ['PASS']*4: sys.exit(1)
+          PY
