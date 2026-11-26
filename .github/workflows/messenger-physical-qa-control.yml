@@ -1,4 +1,4 @@
-name: Physical QA APK translated-emulator control
+name: Physical QA APK translated-emulator control on Android 13
 on:
   push:
     branches: [test/messenger-alpha08-native-probe-20261126]
@@ -42,7 +42,7 @@ jobs:
           sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
           adb="$ANDROID_HOME/platform-tools/adb"
           device=emulator-5554
-          image='system-images;android-35;google_apis;x86_64'
+          image='system-images;android-33;google_apis;x86_64'
           "$sdk/sdkmanager" --install 'platform-tools' 'emulator' "$image"
           if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
             sudo chown "$(id -u):$(id -g)" /dev/kvm
@@ -60,6 +60,7 @@ jobs:
             sleep 2
           done
           test "$boot" = 1
+          test "$("$adb" -s "$device" shell getprop ro.build.version.sdk | tr -d '\r')" = 33
           test "$("$adb" -s "$device" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" = libndk_translation.so
           "$adb" -s "$device" shell wm dismiss-keyguard
           "$adb" -s "$device" install --abi arm64-v8a "$work/qa.apk"
