@@ -51,6 +51,7 @@
   "apps/messenger/android/app/src/androidTest/assets/untrusted-loopback-test-fixture.txt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerChatLayoutTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerLocalSynapseTest.kt",
+  "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerNotificationPairTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerOnboardingFlowTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerOnboardingSmokeTest.kt",
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerProductionHttpsTest.kt",
