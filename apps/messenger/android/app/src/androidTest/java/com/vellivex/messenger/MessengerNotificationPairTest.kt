@@ -149,6 +149,10 @@ class MessengerNotificationPairTest {
         assertTrue(checkIn("sas/accepted").getBoolean("match"))
         repo.confirmVerification()
         state { it.canSend && it.selectedRoom?.peerVerified == true }
+        waitUi("Contact verified. You can now send private messages.")
+        ui.onNodeWithText("Done").performClick()
+        state { it.verification == null }
+        evidence("verification-dialog-closed=true")
         repo.closeRoom()
         waitUi("Messages")
         ui.onNodeWithContentDescription("Your profile").performClick()
@@ -163,7 +167,7 @@ class MessengerNotificationPairTest {
         ui.onNodeWithText("Enable background alerts").performScrollTo().performClick()
         waitUi("Background alerts are on")
         ui.onNodeWithText("Done").performClick()
-        assertTrue(hasStatus())
+        assertTrue("OS sync status notification was missing", waitFor { hasStatus() })
         evidence("enabled-through-profile permission=true service=true")
         meet("alerts-enabled")
     }
@@ -221,12 +225,14 @@ class MessengerNotificationPairTest {
                 "inbox" -> waitUi("Messages")
             }
         } else assertTrue(repo.openRoom(room))
+        evidence("$case prepared-for-" + receiver.lowercase())
         meet("$case-$receiver-ready".lowercase())
         if (!receiving) {
             assertTrue(repo.sendMessage(marker))
             state { s -> s.messages.any { it.text == marker && it.delivery == MessengerDelivery.Sent } }
         } else {
             val posted = waitFor(18) { alert() != null }
+            evidence("$case observed-posted=$posted")
             val n = alert()
             val redacted = n?.publicVersion
             val privateValues = listOfNotNull(marker, room, repo.state.value.userId, repo.state.value.rooms.single { it.id == room }.peerId)
