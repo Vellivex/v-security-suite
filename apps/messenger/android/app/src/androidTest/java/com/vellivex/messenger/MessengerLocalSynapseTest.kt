@@ -268,6 +268,7 @@ class MessengerLocalSynapseTest {
                 }
             }
 
+            assertTrue("Opting in should survive a fresh preferences instance", MessengerAlertPreferences(context).enabled.value)
             val status = awaitNotification(notifications, SYNC_STATUS_CHANNEL)
             assertTrue(
                 "Android did not mark the ongoing notification as a foreground service",
@@ -282,7 +283,7 @@ class MessengerLocalSynapseTest {
             )
             assertEquals("The sender should still have the original room selected", roomId, sender.state.value.selectedRoomId)
 
-            val eventId = coroutineScope {
+            val event = coroutineScope {
                 val incoming = async(start = CoroutineStart.UNDISPATCHED) {
                     checkNotNull(withTimeoutOrNull(60_000) { receiver.backgroundMessageEvents.first() }) {
                         "The verified incoming event did not reach the background observer"
@@ -291,8 +292,13 @@ class MessengerLocalSynapseTest {
                 assertTrue("Could not send the verified background message", sender.sendMessage(backgroundSample))
                 incoming.await()
             }
+            assertEquals(roomId, event.roomId)
             val alert = awaitNotification(notifications, INCOMING_MESSAGES_CHANNEL)
-            assertEquals("The alert should be hidden from the lock screen", Notification.VISIBILITY_SECRET, alert.visibility)
+            assertEquals("Android should apply lock-screen privacy settings", Notification.VISIBILITY_PRIVATE, alert.visibility)
+            val redacted = checkNotNull(alert.publicVersion)
+            assertEquals(Notification.VISIBILITY_PUBLIC, redacted.visibility)
+            assertEquals("New Vellivex message", redacted.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
+            assertEquals("Open Vellivex to view it.", redacted.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
             assertEquals("New Vellivex message", alert.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
             assertEquals("Open Vellivex to view it.", alert.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString())
             assertEquals(
@@ -302,16 +308,18 @@ class MessengerLocalSynapseTest {
             )
             val privateValues = listOf(
                 runId, deniedSample, backgroundSample, senderId, receiverId, otherPeerId,
-                senderAddress, receiverAddress, otherAddress, roomId, otherRoomId,
+                senderAddress, receiverAddress, otherAddress, roomId, otherRoomId, event.id,
             )
             assertPrivateNotification(status, privateValues)
             assertPrivateNotification(alert, privateValues)
+            assertPrivateNotification(redacted, privateValues)
             assertTrue("The background recipient could not reopen the room", receiver.openRoom(roomId))
             awaitState(receiver, "the same background event decrypted in its conversation") { state ->
-                state.messages.any { it.id == eventId && it.text == backgroundSample && it.delivery == MessengerDelivery.Received }
+                state.messages.any { it.id == event.id && it.text == backgroundSample && it.delivery == MessengerDelivery.Received }
             }
         } finally {
             MessengerBackgroundSyncService.stop(context)
+            assertFalse("Stopping alerts must clear the saved opt-in", MessengerAlertPreferences(context).enabled.value)
             try {
                 cleanUp(sender)
             } finally {
@@ -347,7 +355,6 @@ class MessengerLocalSynapseTest {
     private fun assertPrivateNotification(notification: Notification, privateValues: List<String>) {
         val extras = notification.extras
         assertFalse("The notification contained a conversation message history", extras.containsKey(Notification.EXTRA_MESSAGES))
-        assertFalse("The notification published a separate lock-screen version", notification.publicVersion != null)
         assertTrue("Notification has no visible text", !extras.getCharSequence(Notification.EXTRA_TEXT).isNullOrBlank())
         val text = listOf(
             notification.tickerText,

@@ -79,6 +79,8 @@ import uniffi.matrix_sdk_crypto.TrustRequirement
 import uniffi.matrix_sdk_crypto.UtdCause
 import uniffi.ruma_events.MessageLikeEventType
 
+internal data class VerifiedMessageEvent(val id: String, val roomId: String)
+
 class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private val auth = MessengerEmailAuth(context.applicationContext)
     private val sessionStore = MessengerSessionStore(context.applicationContext, sessionNamespace)
@@ -87,10 +89,10 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
     private val mutableState = MutableStateFlow(MessengerState(hasSavedSession = sessionStore.exists()))
     val state: StateFlow<MessengerState> = mutableState.asStateFlow()
     private val mutableBackgroundMessageEvents =
-        MutableSharedFlow<String>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        MutableSharedFlow<VerifiedMessageEvent>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    /** Live IDs of newly synced, strictly verified messages across the account's private rooms. */
-    val backgroundMessageEvents: SharedFlow<String> = mutableBackgroundMessageEvents.asSharedFlow()
+    /** In-process routing only. Neither identifier is included in an Android notification. */
+    internal val backgroundMessageEvents: SharedFlow<VerifiedMessageEvent> = mutableBackgroundMessageEvents.asSharedFlow()
 
     private var connection: Connection? = null
     private var opened: OpenTimeline? = null
@@ -733,7 +735,7 @@ class MatrixRepository(context: Context, sessionNamespace: String = "default") {
                 if (room == null || !isNotificationRoom(room) || room.peerId != sender) return@withLock
                 c.notifiedEvents += eventId
                 if (c.notifiedEvents.size > MAX_NOTIFIED_EVENTS) c.notifiedEvents.remove(c.notifiedEvents.first())
-                mutableBackgroundMessageEvents.tryEmit(eventId)
+                mutableBackgroundMessageEvents.tryEmit(VerifiedMessageEvent(eventId, roomId))
             }
         }
     }
