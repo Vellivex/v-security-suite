@@ -277,6 +277,12 @@ jobs:
         run: python3 apps/messenger/server/tests/deploy_smoke.py
 
   android-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        notification_build: [alpha10, candidate]
+    env:
+      NOTIFICATION_TEST_BUILD: ${{ matrix.notification_build }}
     needs: matrix-sdk
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -290,6 +296,17 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "$CHECK_SHA"
           git checkout --detach FETCH_HEAD
+      - name: Select original Alpha10 application sources for the baseline
+        if: matrix.notification_build == 'alpha10'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline=6f5e271d34b3c9df1c0fbfa4725e2523dffb0726
+          git fetch --depth=1 origin "$baseline"
+          git restore --source="$baseline" -- apps/messenger/android/app/src/main apps/messenger/android/app/build.gradle.kts \
+            apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerLocalSynapseTest.kt
+      - name: Record source variant
+        run: echo "Testing $NOTIFICATION_TEST_BUILD Android application sources"
       - name: Download the SDK AAR from this workflow
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -320,13 +337,15 @@ jobs:
           test "$(<"$sdk_bundle/source-commit.txt")" = "$CHECK_SHA"
           (cd -- "$sdk_bundle" && sha256sum --check --strict vellivex-matrix-sdk.aar.sha256)
           export ORG_GRADLE_PROJECT_matrixSdkAar="$sdk_bundle/vellivex-matrix-sdk.aar"
+          export MESSENGER_PAIR_TEST=notifications
           bash apps/messenger/scripts/run-android-integration.sh "$RUNNER_TEMP/messenger-evidence"
       - name: Upload Android test reports and the empty-onboarding screenshot
         if: ${{ !cancelled() && steps.instrumentation.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: messenger-android-test-evidence-${{ github.run_attempt }}
+          name: messenger-alerts-${{ matrix.notification_build }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/messenger-evidence/notification-pair.log
             ${{ runner.temp }}/messenger-evidence/MessengerProductionHttpsTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerChatLayoutTest.log
             ${{ runner.temp }}/messenger-evidence/MessengerOnboardingSmokeTest.log

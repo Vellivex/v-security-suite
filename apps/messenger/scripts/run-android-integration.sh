@@ -48,6 +48,8 @@ emulator="$sdk/emulator/emulator"
 work_dir=$(mktemp -d)
 emulator_pid=''
 synapse_pid=''
+second_emulator_pid=''
+coordinator_pid=''
 adb=("$sdk/platform-tools/adb" -s emulator-5554)
 stop_synapse() {
   if [[ -n "$synapse_pid" ]]; then
@@ -57,6 +59,8 @@ stop_synapse() {
   fi
 }
 cleanup() {
+  if [[ -n "$coordinator_pid" ]]; then kill "$coordinator_pid" || true; fi
+  if [[ -n "$second_emulator_pid" ]]; then kill "$second_emulator_pid" || true; fi
   stop_synapse
   if [[ -n "$emulator_pid" ]]; then
     kill "$emulator_pid" 2>/dev/null || true
@@ -194,6 +198,107 @@ if [[ $# == 5 ]]; then
   run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true \
     -e messengerUpgradeFromVersion "$previous_app_version" -e messengerUpgradeTargetVersion "$target_app_version"
   exit
+fi
+
+if [[ $# == 1 && "${MESSENGER_PAIR_TEST:-}" == notifications ]]; then
+  sender=("${adb[@]}")
+  recipient=("${adb[0]}" -s emulator-5556)
+  printf 'no\n' | "$sdk_tools/avdmanager" create avd --name vellivex-notification-recipient --package "$system_image"
+  "$emulator" -avd vellivex-notification-recipient -port 5556 -accel on -memory 1536 -cores 2 -gpu swiftshader \
+    -no-window -no-audio -no-snapshot -no-boot-anim >"$work_dir/recipient-boot.log" 2>&1 &
+  second_emulator_pid=$!
+  deadline=$((SECONDS + 300))
+  while [[ $(timeout 5 "${recipient[@]}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true) != 1 ]]; do
+    (( SECONDS < deadline )) || { echo 'Second Android emulator did not boot.' >&2; exit 1; }
+    sleep 2
+  done
+  for serial in sender recipient; do
+    declare -n phone=$serial
+    "${phone[@]}" shell settings get secure android_id | tr -d '\r' >"$work_dir/$serial-id"
+    "${phone[@]}" shell wm dismiss-keyguard
+    "${phone[@]}" shell wm size 720x1280
+    "${phone[@]}" shell wm density 320
+    unset -n phone
+  done
+  [[ -s "$work_dir/sender-id" && -s "$work_dir/recipient-id" ]]
+  if cmp -s "$work_dir/sender-id" "$work_dir/recipient-id"; then
+    echo 'Two independent device identities are required.' >&2; exit 1
+  fi
+  "${recipient[@]}" install -t "$app_apk"
+  "${recipient[@]}" install -t "$test_apk"
+  "${recipient[@]}" reverse tcp:8008 tcp:8008
+  "${recipient[@]}" reverse tcp:8025 tcp:8025
+  start_synapse notify
+  "$python" -c 'import secrets,sys; open(sys.argv[1],"w").write(secrets.token_hex(32))' "$work_dir/pair-key"
+  "$python" "$messenger_dir/scripts/app-to-app-coordinator.py" --key-file "$work_dir/pair-key" \
+    --mailbox-key-file "$work_dir/notify/mailbox-key" --report "$work_dir/coordinator.json" >"$work_dir/coordinator.log" 2>&1 &
+  coordinator_pid=$!
+  for serial in emulator-5554 emulator-5556; do
+    phone=("${adb[0]}" -s "$serial")
+    "${phone[@]}" reverse tcp:8030 tcp:8030
+    "${phone[@]}" shell locksettings set-pin 2468 | grep -iq 'pin set'
+    "${phone[@]}" shell settings put secure lock_screen_lock_after_timeout 0
+    "${phone[@]}" shell settings put secure lock_screen_show_notifications 1
+    "${phone[@]}" shell settings put secure lock_screen_allow_private_notifications 0
+    "${phone[@]}" shell settings put system screen_off_timeout 1800000
+    "${phone[@]}" shell settings put global window_animation_scale 0
+    "${phone[@]}" shell settings put global animator_duration_scale 0
+    "${phone[@]}" shell settings put global transition_animation_scale 0
+  done
+  pair_key=$(<"$work_dir/pair-key")
+  evidence="$evidence_dir/notification-pair.log"
+  : >"$evidence"
+  for phase in fresh restart; do
+    if [[ "$phase" == restart ]]; then
+      for serial in emulator-5554 emulator-5556; do
+        "${adb[0]}" -s "$serial" shell am force-stop "$test_app"
+      done
+    fi
+    pids=()
+    for role in A B; do
+      if [[ "$role" == A ]]; then serial=emulator-5554; else serial=emulator-5556; fi
+      timeout 11m "${adb[0]}" -s "$serial" shell am instrument -w -r \
+        -e class com.vellivex.messenger.MessengerNotificationPairTest \
+        -e pairRole "$role" -e pairPhase "$phase" -e pairKey "$pair_key" -e messengerMailboxKey "$mailbox_key" \
+        "$runner" >"$work_dir/$role-$phase" 2>&1 &
+      pids+=("$!")
+    done
+    status=0
+    for pid in "${pids[@]}"; do wait "$pid" || status=1; done
+    for role in A B; do
+      file="$work_dir/$role-$phase"
+      sed -nE 's/^INSTRUMENTATION_STATUS: pairEvidence=([AB] (fresh|restart) [a-z0-9 =-]+)\r?$/\1/p' "$file" | tee -a "$evidence"
+      if ! grep -Eq '^OK \(1 test\)' "$file"; then
+        status=1
+        # Print only in-repository stack locations and fixed exception types, never raw data.
+        grep -Eo '([A-Za-z]+Exception|AssertionError)|MessengerNotificationPairTest\.kt:[0-9]+' "$file" | tail -22 || true
+      fi
+    done
+    ((status == 0)) || exit 1
+  done
+  "$python" - "$evidence" "${NOTIFICATION_TEST_BUILD:?}" <<'PYTHON'
+from pathlib import Path
+import sys
+lines=Path(sys.argv[1]).read_text().splitlines()
+assert sys.argv[2] in ('alpha10', 'candidate')
+candidate=sys.argv[2]=='candidate'
+for role in ('A','B'):
+    for phase, cases in [('fresh', ('home','locked','inbox')), ('restart', ('home','removed'))]:
+        for case in cases:
+            assert f'{role} {phase} {case} delivered=true' in lines
+            matches=[line for line in lines if line.startswith(f'{role} {phase} {case} service=')]
+            assert len(matches)==1, (role,phase,case)
+            if candidate:
+                flags=dict(word.split('=') for word in matches[0].split()[3:])
+                assert all(flags[key]=='true' for key in ('service','posted','safe','tap')), (role,phase,case,flags)
+                assert int(flags['importance']) >= 4
+                if case=='locked':
+                    assert flags['lock-eligible']=='true'
+    if candidate:
+        assert f'{role} restart restored-service=true' in lines
+print('Recorded OS alert results on both independent installations.')
+PYTHON
+  exit 0
 fi
 
 overall_status=0
