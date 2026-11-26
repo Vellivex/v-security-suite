@@ -7,7 +7,7 @@ on:
       - 'apps/messenger/**'
       - '.github/workflows/messenger-android.yml'
   push:
-    branches: [main, feat/vellivex-messenger-alpha]
+    branches: [main, feat/vellivex-messenger-alpha, qa/messenger-alpha10-release-lint-20261126]
     paths:
       - 'apps/messenger/**'
       - '.github/workflows/messenger-android.yml'
@@ -210,6 +210,16 @@ jobs:
           (cd -- "$sdk_bundle" && sha256sum --check --strict vellivex-matrix-sdk.aar.sha256)
           ./gradlew --no-daemon --console=plain "-PmatrixSdkAar=$sdk_bundle/vellivex-matrix-sdk.aar" \
             testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+      - name: Run the Alpha10 universal release checks
+        working-directory: apps/messenger/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain \
+            "-PmatrixSdkAar=$RUNNER_TEMP/messenger-sdk/vellivex-matrix-sdk.aar" \
+            -PmessengerUniversalApk=true \
+            -PmessengerProductionServerUrl=https://messenger.vellivex.com \
+            testReleaseUnitTest lintRelease assembleRelease
 
   backend-test:
     runs-on: ubuntu-24.04
