@@ -20,13 +20,13 @@ cd "$RUNNER_TEMP"
 "$bt/apksigner" verify --print-certs alpha08.apk | grep -F 'Signer #1 certificate SHA-256 digest: 3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
 "$bt/apksigner" verify --print-certs native-qa.apk | grep -F 'Signer #1 certificate SHA-256 digest: 39901bf944f1c1756c161ad31a1edd389aa428a996661b163698b99db8186f7c'
 # The current Linux launcher supports only x86 guests. This official archived
-# version still selects its ARM64 system emulator for API 27.
+# version supports the ARM64 API 27 guest without requiring a PCI audio card.
 curl --proto '=https' --fail --location --silent --show-error --max-time 180 \
-    --output "$work/emulator.zip" https://dl.google.com/android/repository/emulator-linux_x64-12038310.zip
-echo "621c9384efa919ecf42d94b29e47abbc097261fa7bff667adf4bddb9a35f7254  $work/emulator.zip" | sha256sum -c -
+    --output "$work/emulator.zip" https://dl.google.com/android/repository/emulator-linux_x64-7324830.zip
+echo "81f2bb69750592ea9994c548de4904287c4ece0962c8e6748180031b2de2a5f6  $work/emulator.zip" | sha256sum -c -
 unzip -q "$work/emulator.zip" -d "$work/tool"
 emulator="$work/tool/emulator/emulator"
-grep -F "Pkg.Revision=34.2.16" "$work/tool/emulator/source.properties"
+grep -F "Pkg.Revision=30.6.5" "$work/tool/emulator/source.properties"
 printf 'no\n' | "$sdk/avdmanager" create avd -n native-guest -k "$image"
 cat >> "$ANDROID_AVD_HOME/native-guest.avd/config.ini" <<'INI'
 hw.lcd.width=480
