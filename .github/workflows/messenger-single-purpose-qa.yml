@@ -1,0 +1,47 @@
+name: Build an isolated physical Android native diagnostic
+on:
+  push:
+    branches: [test/messenger-alpha08-physical-qa-20261126]
+    paths: ['apps/messenger/physical-qa/**', '.github/workflows/messenger-single-purpose-qa.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Load the diagnostic code
+        run: |
+          set -eu
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=8 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
+          git diff --exit-code cce95dd977e40c2a043e48357c84eef5c55c9d8c HEAD -- apps/messenger/android apps/messenger/sdk
+      - name: Fetch the pinned SDK and released input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir "$RUNNER_TEMP/sdk"
+          cd "$RUNNER_TEMP/sdk"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/14659184330/zip > sdk.zip
+          echo 'f761f5f0f06f9ac39cd3d9ad5957c207ca5b2becf6ca3d5687d54b8d7ea02545  sdk.zip' | sha256sum -c -
+          unzip -q sdk.zip
+          test "$(cat source-commit.txt)" = cce95dd977e40c2a043e48357c84eef5c55c9d8c
+          sha256sum --check --strict vellivex-matrix-sdk.aar.sha256
+          curl --proto '=https' --fail --location --silent --show-error --max-time 150 --output original.apk https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk
+      - name: Build the QA package
+        run: |
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'build-tools;35.0.0'
+          bash apps/messenger/physical-qa/build-apk.sh "$RUNNER_TEMP/sdk/original.apk" "$RUNNER_TEMP/sdk/vellivex-matrix-sdk.aar" "$RUNNER_TEMP/Vellivex-Native-QA.apk"
+      - name: Stage the raw QA installer for the selected physical device
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          path: ${{ runner.temp }}/Vellivex-Native-QA.apk
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
