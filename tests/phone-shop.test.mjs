@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
+import {runInNewContext} from 'node:vm';
 import {withPhoneShop, PHONE_PRODUCTS, PHONE_SHOP_CSS, PHONE_LAUNCH_PATH, PHONE_SOCIAL_IMAGE, PHONE_PRODUCT_IMAGE} from '../server/phone-shop.mjs';
 import liveConfig from '../server/phone-shop-config.mjs';
 import {page} from '../server/pages.js';
@@ -531,6 +532,48 @@ test('Messenger fallback is a first-party page with a hash-pinned private contac
   assert.match(page.headers.get('Content-Security-Policy'), /default-src 'none'/);
   assert.ok(page.headers.get('Content-Security-Policy').includes("script-src 'sha256-" + digest + "'"));
   assert.match(body, /href="\/messenger">Get Vellivex Messenger for Android/);
-  assert.doesNotMatch(body, /example\.org|matrix\.to|https?:\/\/|localStorage|sessionStorage|sendBeacon|fetch\(/);
+  assert.doesNotMatch(body.replaceAll('https://www.vellivex.com', '').replaceAll('intent://www.vellivex.com', ''), /example\.org|matrix\.to|https?:\/\/|localStorage|sessionStorage|sendBeacon|fetch\(/);
   assert.match(await html('/messenger'), /If an older QR code opens a list of Matrix apps/);
+});
+
+test('Android invitation button opens the exact package, with a manual first-party fallback', async () => {
+  const page = await html('/invite');
+  const script = page.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const contact = '@a+b/c:[::1]:8448';
+  const elements = new Map();
+  const events = new Map();
+  const document = {getElementById(id) {
+    if (!elements.has(id)) elements.set(id, {
+      addEventListener() {},
+      removeAttribute(name) { delete this[name]; },
+    });
+    return elements.get(id);
+  }};
+  const location = {pathname:'/invite', search:'', hash:'#/' + encodeURIComponent(contact)};
+  const navigator = {userAgent:'Android', clipboard:{writeText() {}}};
+  runInNewContext(script, {location, navigator, document, addEventListener(name, fn) { events.set(name, fn); }});
+  assert.equal(elements.get('open-action').hidden, false);
+  const open = elements.get('open-vellivex');
+  const encodedContact = encodeURIComponent(contact);
+  const manual = 'https://www.vellivex.com/invite/manual#/' + encodedContact;
+  assert.equal(open.href, 'intent://www.vellivex.com/invite#/' + encodedContact +
+    '#Intent;scheme=https;package=com.vellivex.messenger.alpha;S.browser_fallback_url=' + encodeURIComponent(manual) + ';end');
+  assert.equal(elements.get('contact').textContent, contact);
+  assert.equal(await html('/invite/manual'), page);
+  location.pathname = '/invite/manual';
+  events.get('hashchange')();
+  assert.equal(elements.get('open-action').hidden, true);
+  assert.equal(open.href, undefined);
+  assert.equal(elements.get('contact').textContent, contact);
+  location.pathname = '/invite';
+  location.hash = '#/@a:bad%23Intent%3Bpackage%3Dother';
+  events.get('hashchange')();
+  assert.equal(open.href, undefined);
+  assert.equal(elements.get('contact-details').hidden, true);
+  navigator.userAgent = 'Desktop';
+  location.hash = '#/' + encodedContact;
+  runInNewContext(script, {location, navigator, document, addEventListener() {}});
+  assert.equal(open.href, undefined);
+  assert.equal(elements.get('open-action').hidden, true);
+  assert.equal(elements.get('copy-action').hidden, false);
 });

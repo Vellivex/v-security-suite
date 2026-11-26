@@ -168,6 +168,9 @@ const messengerInviteScript = String.raw`(() => {
   const details = document.getElementById('contact-details');
   const copy = document.getElementById('copy-contact');
   const status = document.getElementById('invite-status');
+  const open = document.getElementById('open-vellivex');
+  const openAction = document.getElementById('open-action');
+  const isAndroid = navigator.userAgentData?.platform === 'Android' || /Android/i.test(navigator.userAgent);
   function readContact() {
     const hash = location.hash;
     if (location.search || !hash.startsWith('#/') || hash.length > 767) return '';
@@ -183,6 +186,14 @@ const messengerInviteScript = String.raw`(() => {
     const id = readContact();
     contact.textContent = id;
     details.hidden = !id;
+    const manual = location.pathname === '/invite/manual';
+    openAction.hidden = !id || !isAndroid || manual;
+    open.removeAttribute('href');
+    if (!openAction.hidden) {
+      const fragment = '#/' + encodeURIComponent(id);
+      const fallback = 'https://www.vellivex.com/invite/manual' + fragment;
+      open.href = 'intent://www.vellivex.com/invite' + fragment + '#Intent;scheme=https;package=com.vellivex.messenger.alpha;S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
+    }
     document.getElementById('copy-action').hidden = !navigator.clipboard?.writeText;
     status.textContent = id ? '' : 'This link is missing a valid contact ID. Ask your contact to share their invitation again.';
   }
@@ -217,9 +228,11 @@ async function messengerInvitation(request, association) {
     <body class="messenger-setup"><main class="messenger-setup-content">
     <a class="messenger-guide-link" href="/">← Vellivex</a>
     <h1>Vellivex Messenger invitation</h1>
-    <div id="contact-details" hidden><p>Your contact’s Vellivex ID<br><code id="contact"></code></p>
-    <span id="copy-action" hidden><button type="button" class="messenger-download" id="copy-contact">Copy contact ID</button></span>
-    <p>Open Vellivex, tap <strong>New conversation</strong>, paste this ID into <strong>Contact ID or link</strong> and tap <strong>Continue</strong>.</p></div>
+    <div id="contact-details" hidden>
+    <p id="open-action" hidden><a id="open-vellivex" class="messenger-download">Open in Vellivex</a></p>
+    <p>Your contact’s Vellivex ID<br><code id="contact"></code></p>
+    <span id="copy-action" hidden><button type="button" class="messenger-copy-id" id="copy-contact">Copy contact ID</button></span>
+    <p>To add the contact manually, open Vellivex, tap <strong>New conversation</strong>, paste the ID into <strong>Contact ID or link</strong> and tap <strong>Continue</strong>.</p></div>
     <p id="invite-status" role="status"></p>
     <noscript><p>Ask your contact for the Vellivex ID printed below their QR code. Enter it in <strong>New conversation</strong> in Vellivex.</p></noscript>
     <p><a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">Get Vellivex Messenger for Android</a></p>
@@ -332,6 +345,8 @@ export const PHONE_PROMOTION_CSS = `
 .messenger-setup-content .messenger-platform{margin-top:28px}
 .messenger-setup-content li{margin:0 0 12px}
 .messenger-setup-content code{overflow-wrap:anywhere;color:#a5e5ed}
+.messenger-copy-id{font:inherit;font-weight:600;min-height:44px;padding:4px 12px;color:#a5e5ed;border:1px solid #a5e5ed;border-radius:6px;background:transparent;cursor:pointer}
+.messenger-copy-id:focus-visible{outline:2px solid #f3f6fb;outline-offset:3px}
 #vellivex-phone-promotion{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);align-items:center;gap:24px;margin-block:0 28px;padding:18px 23px;border:1px solid #34596c;background:#122638;border-radius:6px}
 #vellivex-phone-promotion .phone-promo-image{display:block;width:100%;height:auto;border-radius:5px}
 #vellivex-phone-promotion h2{font-size:clamp(20px,3vw,28px);line-height:1.2;margin:0;color:#f3f6fb}
@@ -371,7 +386,7 @@ export function withPhoneShop(worker, config = {}) {
     if (url.origin === CANONICAL_ORIGIN && url.pathname === '/.well-known/assetlinks.json') {
       return messengerInvitation(request, true);
     }
-    if (url.origin === CANONICAL_ORIGIN && url.pathname === '/invite') {
+    if (url.origin === CANONICAL_ORIGIN && (url.pathname === '/invite' || url.pathname === '/invite/manual')) {
       return messengerInvitation(request, false);
     }
     const retiredMessengerApk = RETIRED_MESSENGER_APK_PATHS.has(path);

@@ -31,3 +31,16 @@ The candidate passed 562 repository host tests. The website wrapper served both 
 Apply `v46-first-party-invites.patch` to the v46 website module with SHA-256 `f49ef3acf80a996d08f36db91ee819f8c3f439e2e7fabc875f7502d9a4203ec4`. The resulting module SHA-256 is `eff9e0c3844ca5672f4657bcf9ef59c0caf567ce8d86d1da3195fd7ab9ff70a7`. Reverse the same patch to recover the original bytes.
 
 On `www.vellivex.com`, the website serves Android's app association at `/.well-known/assetlinks.json`. The fingerprint is the SHA-256 of the retained alpha signing certificate verified on the signed universal Alpha09 APK. New clients claim the exact `/invite` path. The browser fallback reads the public contact ID from the URL fragment and lets the recipient copy it into Vellivex. The setup guide also covers existing Alpha09 QR codes and shared links.
+
+## Android browser invitation fallback
+
+| Starting module | Patch | Resulting SHA-256 |
+| --- | --- | --- |
+| v47 invitation page, SHA-256 `eff9e0c3844ca5672f4657bcf9ef59c0caf567ce8d86d1da3195fd7ab9ff70a7` | `v47-pinned-alpha10-download.patch` | `a6eaf8bffd6a03cdf9fe322246b7369b7794c2d04516750e17bdaef30733cf57` |
+| v48 pinned Alpha10 download, SHA-256 `a6eaf8bffd6a03cdf9fe322246b7369b7794c2d04516750e17bdaef30733cf57` | `v48-open-in-vellivex.patch` | `f32d4242afb97710d99d99f5c7d99e682be7e44c5d805d0f879c984eca829484` |
+
+The download patch adds the signed Alpha10 object at `/downloads/Vellivex-Messenger-0.1.0-alpha10-universal.apk`. Its full-file SHA-256 is `c994d9243e2c9b9e4ffaade600096682991e16ce27f9e9648e5181f96ad52c65` and its size is 111,798,288 bytes.
+
+On Android, the invitation page offers **Open in Vellivex** for a valid contact. Its intent names the alpha app package and the canonical Vellivex HTTPS invitation. When Chrome falls back to the browser, `/invite/manual` lets the recipient copy the contact ID or open the Vellivex setup guide. Both pages keep the contact in the URL fragment. The manual page contains no further app-launch action. [Android intents in Chrome](https://developer.chrome.com/docs/android/intents)
+
+To roll back, run `git apply --reverse --check` and `git apply --reverse` with the same patch path, then check the resulting module against its starting digest in the table.

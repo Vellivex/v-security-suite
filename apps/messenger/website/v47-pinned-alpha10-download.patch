@@ -1,0 +1,29 @@
+--- a/phone-shop.mjs
++++ b/phone-shop.mjs
+@@ -34,9 +34,17 @@
+   "version": "7e5de7f2fa13e6434acf88d0952a1faa",
+   "etag": "5a7e6059bd33d0717258b0554c87a0ae"
+ });
++const candidateAlpha10 = Object.freeze({
++  "key": "Vellivex-Messenger-0.1.0-alpha10-universal.apk",
++  "bytes": 111798288,
++  "sha256": "c994d9243e2c9b9e4ffaade600096682991e16ce27f9e9648e5181f96ad52c65",
++  "version": "7e5de6f2f7e98cb60dc7b067953557cb",
++  "etag": "63734860e1a6e52ec91a805cada32148"
++});
+ const candidateReleases = new Map([
+   [CANDIDATE_MESSENGER_APK_PATH, candidateAlpha08],
+   ['/downloads/' + candidateAlpha09.key, candidateAlpha09],
++  ['/downloads/' + candidateAlpha10.key, candidateAlpha10],
+ ]);
+ const RETIRED_MESSENGER_APK_PATHS = new Set([
+   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
+@@ -64,7 +72,7 @@
+   return typeof bucket?.get === 'function' && typeof bucket?.head === 'function' ? bucket : null;
+ }
+ function candidateMessengerReleaseMatches(object, release) {
+-  if (release === candidateAlpha09 && (
++  if (release !== candidateAlpha08 && (
+     object?.httpMetadata?.contentType !== 'application/vnd.android.package-archive' ||
+     object.customMetadata?.sha256 !== release.sha256 || !object.checksums?.sha256
+   )) return false;
