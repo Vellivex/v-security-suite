@@ -47,7 +47,7 @@ jobs:
           adb="$ANDROID_HOME/platform-tools/adb"
           device=emulator-5554
           api="${{ matrix.api }}"
-          image="system-images;android-$api;google_apis;x86_64"
+          image="system-images;android-$api;google_apis_playstore;x86_64"
           "$sdk/sdkmanager" --install 'platform-tools' 'emulator' "$image"
           if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
             sudo chown "$(id -u):$(id -g)" /dev/kvm
