@@ -236,7 +236,7 @@ if [[ $# == 1 && ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-
     local serial=$1 role=$2
     shift 2
     timeout 6m "${adb[0]}" -s "$serial" shell am instrument -w -r -e class "$pair_class" \
-      -e qrRole "$role" -e messengerMailboxKey "$mailbox_key" "$@" "$runner" | tr -d '\r'
+      -e qrRole "$role" -e messengerMailboxKey "$mailbox_key" "$@" "$runner" | stdbuf -oL tr -d '\r'
   }
   passed_pair_role() {
     grep -Eq '^OK \(1 test\)$' "$1" && grep -Fxq 'INSTRUMENTATION_CODE: -1' "$1" &&
@@ -266,13 +266,21 @@ if [[ $# == 1 && ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-
     fi
     sleep 1
   done
+  echo 'Second account is signed in and waiting for the external URI.'
   action=(-a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "$scanned")
   component=$("${recipient[@]}" shell cmd package resolve-activity --brief "${action[@]}" | tr -d '\r' | tail -n 1)
-  [[ "$component" == "$test_app/com.vellivex.messenger.MainActivity" ]]
+  if [[ "$component" != "$test_app/com.vellivex.messenger.MainActivity" ]]; then
+    printf 'Unexpected Android handler: %.150s\n' "$component" >&2; exit 1
+  fi
+  echo 'External Android resolver selected Vellivex Messenger.'
   "${recipient[@]}" shell am start -W "${action[@]}" >"$work_dir/recipient-launch"
   grep -Eq 'Status: ok|Warning: Activity not started, intent has been delivered' "$work_dir/recipient-launch"
+  echo 'Android delivered the captured link.'
   wait "$receiver_pid"
-  passed_pair_role "$work_dir/recipient-result"
+  if ! passed_pair_role "$work_dir/recipient-result"; then
+    grep -E 'AssertionError|IllegalStateException|RuntimeException|Exception:|Unable to' "$work_dir/recipient-result" | head -3 | sed -E 's/@[^ ]+/@synthetic/g' || true
+    echo 'The recipient UI did not confirm the matching contact and cancel.' >&2; exit 1
+  fi
   grep -Fxq 'INSTRUMENTATION_STATUS: qrRecipient=matching-contact-cancelled' "$work_dir/recipient-result"
   cat >"$evidence_dir/profile-qr-handoff.json" <<'RECEIPT'
 {"android_api":35,"distinct_emulators":true,"distinct_signed_in_test_accounts":true,"synthetic_synapse":true,"release_signed_build":false,"sender_qr_source":"drawn public profile QR image in app-owned Compose layer","secure_window_enabled":true,"qr_matches_sender_profile":true,"recipient_link_selection":"Android per-user supported link setting on a test-signed install","production_domain_verification_tested_here":false,"external_view_intent_has_no_package_or_component":true,"resolved_activity":"com.vellivex.messenger.alpha/com.vellivex.messenger.MainActivity","recipient_contact_matches_sender":true,"cancel_kept_inbox_unchanged":true,"third_party_chooser_shown":false}
