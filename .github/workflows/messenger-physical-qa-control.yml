@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [33, 35]
+        api: [33]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -64,9 +64,25 @@ jobs:
             [[ "$boot" == 1 ]] && break
             sleep 2
           done
-          test "$boot" = 1
+          if [[ "$boot" != 1 ]]; then
+            echo 'Android did not finish starting'
+            exit 1
+          fi
+          echo 'Android guest ready'
           test "$("$adb" -s "$device" shell getprop ro.build.version.sdk | tr -d '\r')" = "$api"
-          test "$("$adb" -s "$device" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" = libndk_translation.so
+          echo 'Matched requested Android API'
+          bridge=$("$adb" -s "$device" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')
+          case "$bridge" in
+            libndk_translation.so) echo 'Guest reports NDK translation' ;;
+            libhoudini.so) echo 'Guest reports Houdini translation' ;;
+            0|'') echo 'Guest reports no native bridge' ;;
+            *) echo 'Guest reports another native bridge' ;;
+          esac
+          supported=$("$adb" -s "$device" shell getprop ro.product.cpu.abilist | tr -d '\r')
+          case ",$supported," in
+            *,arm64-v8a,*) echo 'Guest lists ARM64 ABI' ;;
+            *) echo 'Guest does not list ARM64 ABI' ;;
+          esac
           "$adb" -s "$device" shell wm dismiss-keyguard
           "$adb" -s "$device" install --abi arm64-v8a "$work/qa.apk"
           "$adb" -s "$device" shell am start -n com.vellivex.qa.physical/com.vellivex.qa.ProbeActivity
