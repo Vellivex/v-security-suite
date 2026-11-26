@@ -50,6 +50,7 @@ emulator_pid=''
 synapse_pid=''
 second_emulator_pid=''
 coordinator_pid=''
+os_probe_pids=()
 adb=("$sdk/platform-tools/adb" -s emulator-5554)
 stop_synapse() {
   if [[ -n "$synapse_pid" ]]; then
@@ -59,6 +60,7 @@ stop_synapse() {
   fi
 }
 cleanup() {
+  for pid in "${os_probe_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   if [[ -n "$coordinator_pid" ]]; then kill "$coordinator_pid" || true; fi
   if [[ -n "$second_emulator_pid" ]]; then kill "$second_emulator_pid" || true; fi
   stop_synapse
@@ -238,6 +240,9 @@ if [[ $# == 1 && "${MESSENGER_PAIR_TEST:-}" == notifications ]]; then
     "${phone[@]}" reverse tcp:8030 tcp:8030
     "${phone[@]}" shell locksettings set-pin 2468 | grep -iq 'pin set'
     "${phone[@]}" shell settings put secure lock_screen_lock_after_timeout 0
+    # Complete first-boot setup on the disposable emulators so Android displays third-party alerts.
+    "${phone[@]}" shell settings put global device_provisioned 1
+    "${phone[@]}" shell settings put secure user_setup_complete 1
     "${phone[@]}" shell settings put secure lock_screen_show_notifications 1
     "${phone[@]}" shell settings put secure lock_screen_allow_private_notifications 0
     "${phone[@]}" shell settings put system screen_off_timeout 1800000
@@ -246,6 +251,73 @@ if [[ $# == 1 && "${MESSENGER_PAIR_TEST:-}" == notifications ]]; then
     "${phone[@]}" shell settings put global transition_animation_scale 0
   done
   pair_key=$(<"$work_dir/pair-key")
+  if ! command -v tesseract >/dev/null; then
+    sudo apt-get -qq update
+    sudo apt-get -y install tesseract-ocr tesseract-ocr-eng
+  fi
+  # Inspect only dedicated Android System UI. Frame pixels and OCR output stay in temporary memory.
+  cat >"$work_dir/os-probe.py" <<'OSPROBE'
+import csv
+import io
+import re
+import subprocess
+import sys
+import time
+
+adb, serial = sys.argv[1:]
+last = ""
+def run(*args, data=None, timeout=10):
+    return subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout).stdout
+def shell(*args):
+    return run(adb, '-s', serial, 'shell', *args).decode(errors='replace').strip()
+while True:
+    time.sleep(.15)
+    try:
+        request = shell("cat", "/data/local/tmp/vx-probe-request")
+        if request == last or not re.fullmatch(r"(fresh|restart)-(home|locked|inbox|removed)-(banner|lock|lockshade|tap)", request):
+            continue
+        last = request
+        visible = False
+        nonblank = False
+        status_text = False
+        visible_words = 0
+        focus = shell("dumpsys", "window", "windows")
+        system_ui = any("com.android.systemui" in line or "NotificationShade" in line for line in focus.splitlines() if "mCurrentFocus=" in line or "mFocusedApp=" in line)
+        # The first screen grabbed is the one actually visible, including the heads-up lifetime.
+        png = run(adb, "-s", serial, "exec-out", "screencap", "-p")
+        if png.startswith(b"\x89PNG"):
+            table = run("tesseract","stdin","stdout","-l","eng","--psm","11","tsv",data=png,timeout=10).decode(errors='replace')
+            groups = {}
+            for row in csv.DictReader(io.StringIO(table), delimiter="\t"):
+                if row.get('level') != "5" or not row.get('text','').strip():
+                    continue
+                group = (row['block_num'],row['par_num'],row['line_num'])
+                groups.setdefault(group,[]).append(row)
+            for rows in groups.values():
+                words = [re.sub(r"[^a-z]", "", row['text'].lower()) for row in rows]
+                line = " ".join(words)
+                visible_words += len(words)
+                if 'background alerts' in line or 'sync is active' in line:
+                    status_text = True
+                # Require the entire generic title or body. Never match only the app's group label.
+                if not (re.search(r"\bnew v[ae]lli[vw]ex message\b",line) or re.search(r"\bopen v[ae]lli[vw]ex to view it\b",line)):
+                    continue
+                visible = True
+                if request.endswith('-tap'):
+                    target = rows[len(rows)//2]
+                    x = int(target['left']) + int(target['width'])//2
+                    y = int(target['top']) + int(target['height'])//2
+                    shell('input','tap',str(x),str(y))
+                break
+        response = ' '.join([request, str(int(visible)),str(min(visible_words,999)),str(int(system_ui)),str(int(status_text))])
+        shell("echo "+response+" > /data/local/tmp/vx-probe-result.tmp && mv /data/local/tmp/vx-probe-result.tmp /data/local/tmp/vx-probe-result")
+    except (OSError,ValueError,subprocess.SubprocessError):
+        continue
+OSPROBE
+  for serial in emulator-5554 emulator-5556; do
+    "$python" "$work_dir/os-probe.py" "${adb[0]}" "$serial" >>"$work_dir/os-probe-$serial.log" 2>&1 &
+    os_probe_pids+=("$!")
+  done
   evidence="$evidence_dir/notification-pair.log"
   : >"$evidence"
   for phase in fresh restart; do
@@ -293,7 +365,7 @@ for role in ('A','B'):
                 assert all(flags[key]=='true' for key in ('service','posted','safe','tap')), (role,phase,case,flags)
                 assert int(flags['importance']) >= 4
                 if case=='locked':
-                    assert flags['lock-eligible']=='true'
+                    assert flags['lock-eligible']=='true' and flags['lock-row']=='true'
     if candidate:
         assert f'{role} restart restored-service=true' in lines
 print('Recorded OS alert results on both independent installations.')

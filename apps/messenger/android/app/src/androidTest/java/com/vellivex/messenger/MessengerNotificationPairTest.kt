@@ -90,13 +90,44 @@ class MessengerNotificationPairTest {
         return root.findAccessibilityNodeInfosByText(value).firstOrNull { it.text?.toString() == value && it.isVisibleToUser }
     }
 
-    private fun clickNode(value: String): Boolean {
-        var n = node(value)
-        while (n != null) {
-            if (n.isClickable && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-            n = n.parent
+    private fun systemNode(): AccessibilityNodeInfo? {
+        val a = instrument.uiAutomation
+        val info = a.serviceInfo
+        info.packageNames = null
+        info.flags = info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+            android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        a.serviceInfo = info
+        val roots = a.windows.mapNotNull { it.root } + listOfNotNull(a.rootInActiveWindow)
+        return roots.filter { root -> root.packageName?.toString() == "com.android.systemui" }
+            .flatMap { root -> listOf("New Vellivex message", "Open Vellivex to view it.").flatMap { text ->
+                root.findAccessibilityNodeInfosByText(text).filter { n -> n.text?.toString()?.trim() == text }
+            } }.firstOrNull { n -> val bounds = android.graphics.Rect(); n.getBoundsInScreen(bounds); !bounds.isEmpty }
+    }
+
+    private suspend fun osRow(case: String, view: String): Boolean {
+        val request = "$phase-$case-$view"
+        val n = systemNode()
+        if (n != null) {
+            if (view == "tap") {
+                val bounds = android.graphics.Rect()
+                n.getBoundsInScreen(bounds)
+                shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
+            }
+            evidence("$case $view system-tree=true")
+            return true
         }
-        return false
+        shell("echo $request > /data/local/tmp/vx-probe-request")
+        var fields = emptyList<String>()
+        val response = waitFor(15) {
+            fields = shell("cat /data/local/tmp/vx-probe-result").trim().split(" ")
+            fields.size == 5 && fields[0] == request && fields.drop(1).all { it.matches(Regex("[0-9]{1,3}")) }
+        }
+        if (!response) {
+            evidence("$case $view os-frame-timeout=true")
+            return false
+        }
+        evidence("$case $view frame-row=${fields[1]} frame-words=${fields[2]} system-focus=${fields[3]} sync-row=${fields[4]}")
+        return fields[1] == "1"
     }
 
     private fun evidence(label: String) {
@@ -248,20 +279,43 @@ class MessengerNotificationPairTest {
             val importance = nm.getNotificationChannel(incoming)?.importance ?: -1
             val visibleWhileLocked = n != null && n.visibility != Notification.VISIBILITY_SECRET
             val service = hasStatus()
-            val headsUp = case == "home" && posted && waitFor(2) { node("New Vellivex message") != null }
+            val headsUp = case == "home" && posted && osRow(case, "banner")
+            val channel = nm.getNotificationChannel(incoming)
+            val dnd = nm.currentInterruptionFilter
+            val showLock = android.provider.Settings.Secure.getInt(context.contentResolver, "lock_screen_show_notifications", -1)
+            val allowPrivate = android.provider.Settings.Secure.getInt(context.contentResolver, "lock_screen_allow_private_notifications", -1)
+            val headsSetting = android.provider.Settings.Global.getInt(context.contentResolver, "heads_up_notifications_enabled", -1)
+            evidence("$case dnd=$dnd show-lock=$showLock private-lock=$allowPrivate heads-setting=$headsSetting channel-lock=${channel?.lockscreenVisibility ?: -1} grouped=${n?.group != null}")
+            val record = shell("dumpsys notification").substringAfter("Notification List:", "").lineSequence().dropWhile {
+                !it.contains("NotificationRecord(") || !it.contains("pkg=${context.packageName} ") || !it.contains("id=1002 ")
+            }.take(95).joinToString(" ")
+            val suppressed = Regex("mSuppressedVisualEffects=(\\d+)").find(record)?.groupValues?.get(1) ?: "unknown"
+            val intercepted = Regex("mIntercept=(true|false)").find(record)?.groupValues?.get(1) ?: "unknown"
+            evidence("$case suppressed=$suppressed intercepted=$intercepted")
             var onKeyguard = false
             if (case == "locked") {
                 assertTrue(!power.isInteractive && lock.isDeviceLocked)
                 shell("input keyevent KEYCODE_WAKEUP")
                 assertTrue(waitFor { power.isInteractive && lock.isDeviceLocked })
-                onKeyguard = waitFor(3) { node("New Vellivex message") != null }
+                delay(800)
+                onKeyguard = osRow(case, "lock")
+                shell("input swipe 350 72 350 1030 400")
+                delay(800)
+                val inLockedShade = osRow(case, "lockshade")
+                assertTrue("Keyguard authentication must remain engaged", lock.isDeviceLocked)
+                evidence("$case immediate-lock-row=$onKeyguard locked-shade-row=$inLockedShade")
+                onKeyguard = onKeyguard || inLockedShade
+                shell("cmd statusbar collapse")
                 unlock()
             }
             var tapped = false
             if (posted) {
                 shell("cmd statusbar expand-notifications")
-                if (waitFor(8) { clickNode("New Vellivex message") }) {
-                    tapped = waitFor(8) { instrument.uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName }
+                delay(900)
+                if (osRow(case, "tap")) {
+                    tapped = waitFor(8) { alert() == null && shell("dumpsys activity activities").lineSequence().any {
+                        (it.contains("topResumedActivity") || it.contains("mResumedActivity")) && it.contains(context.packageName)
+                    } }
                 }
                 shell("cmd statusbar collapse")
             }
