@@ -1,4 +1,4 @@
-name: Physical QA APK translated-emulator control on Android 13
+name: Physical QA APK translated-emulator controls
 on:
   push:
     branches: [test/messenger-alpha08-native-probe-20261126]
@@ -8,6 +8,10 @@ permissions:
   actions: read
 jobs:
   standalone-control:
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [33, 35]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -42,7 +46,8 @@ jobs:
           sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
           adb="$ANDROID_HOME/platform-tools/adb"
           device=emulator-5554
-          image='system-images;android-33;google_apis;x86_64'
+          api="${{ matrix.api }}"
+          image="system-images;android-$api;google_apis;x86_64"
           "$sdk/sdkmanager" --install 'platform-tools' 'emulator' "$image"
           if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
             sudo chown "$(id -u):$(id -g)" /dev/kvm
@@ -60,11 +65,28 @@ jobs:
             sleep 2
           done
           test "$boot" = 1
-          test "$("$adb" -s "$device" shell getprop ro.build.version.sdk | tr -d '\r')" = 33
+          test "$("$adb" -s "$device" shell getprop ro.build.version.sdk | tr -d '\r')" = "$api"
           test "$("$adb" -s "$device" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" = libndk_translation.so
           "$adb" -s "$device" shell wm dismiss-keyguard
           "$adb" -s "$device" install --abi arm64-v8a "$work/qa.apk"
           "$adb" -s "$device" shell am start -n com.vellivex.qa.physical/com.vellivex.qa.ProbeActivity
+          for i in {1..10}; do
+            "$adb" -s "$device" shell uiautomator dump /sdcard/vx-control.xml >/dev/null 2>&1 || true
+            "$adb" -s "$device" exec-out cat /sdcard/vx-control.xml > "$work/first.xml" || true
+            grep -qi 'run diagnostics' "$work/first.xml" && break
+            sleep 1
+          done
+          python3 - "$work/first.xml" "$work/tap" <<'PYTHON'
+          import re, sys, xml.etree.ElementTree as E
+          nodes=[n for n in E.parse(sys.argv[1]).iter('node') if n.get('package')=='com.vellivex.qa.physical' and n.get('class')=='android.widget.Button' and n.get('text','').lower()=='run diagnostics' and n.get('enabled')=='true']
+          assert len(nodes)==1, 'Expected one physical QA Run diagnostics button'
+          match=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',nodes[0].get('bounds',''))
+          assert match
+          x1,y1,x2,y2=map(int,match.groups())
+          with open(sys.argv[2],'w') as out: print((x1+x2)//2,(y1+y2)//2,file=out)
+          PYTHON
+          read -r x y < "$work/tap"
+          "$adb" -s "$device" shell input tap "$x" "$y"
           for i in {1..36}; do
             "$adb" -s "$device" shell uiautomator dump /sdcard/vx-control.xml >/dev/null 2>&1 || true
             "$adb" -s "$device" exec-out cat /sdcard/vx-control.xml > "$work/qa.xml" || true
