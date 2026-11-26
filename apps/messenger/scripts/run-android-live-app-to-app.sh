@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# != 5 && $# != 7 ]]; then
-  printf '%s\n' 'Usage: run-android-live-app-to-app.sh EVIDENCE_DIRECTORY EXACT_APP_APK HARNESS_APP_APK HARNESS_TEST_APK PRIVATE_INPUT_DIRECTORY [--profile alpha06-test|alpha07-release|alpha08-release]' >&2
+  printf '%s\n' 'Usage: run-android-live-app-to-app.sh EVIDENCE_DIRECTORY EXACT_APP_APK HARNESS_APP_APK HARNESS_TEST_APK PRIVATE_INPUT_DIRECTORY [--profile alpha06-test|alpha07-release|alpha08-release|alpha09-release]' >&2
   exit 2
 fi
 profile=alpha06-test
@@ -11,6 +11,7 @@ if [[ $# == 7 ]]; then
   [[ "$6" == --profile ]] || { printf '%s\n' 'An explicit --profile option is required.' >&2; exit 2; }
   profile=$7
 fi
+install_abi=arm64-v8a
 case "$profile" in
   alpha06-test)
     version_code=6
@@ -21,11 +22,15 @@ case "$profile" in
   alpha08-release)
     version_code=8
     ;;
+  alpha09-release)
+    version_code=9
+    install_abi=x86_64
+    ;;
   *) printf '%s\n' 'Unsupported live release profile.' >&2; exit 2 ;;
 esac
 scenario=${MESSENGER_LIVE_SCENARIO:-fresh}
 case "$profile:$scenario" in
-  alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07) ;;
+  alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07|alpha09-release:fresh) ;;
   *) printf '%s\n' 'Unsupported live installer/scenario combination.' >&2; exit 2 ;;
 esac
 
@@ -137,7 +142,12 @@ report['app_manifest_debuggable'] = False
 report_path.write_text(json.dumps(report, indent=2) + '\n')
 PYRELEASE
 fi
-grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_badging"
+if [[ "$profile" == alpha09-release ]]; then
+  grep -Eq "^native-code: ('arm64-v8a' 'x86_64'|'x86_64' 'arm64-v8a')[[:space:]]*$" <<< "$app_badging"
+  [[ "$(uname -m)" == x86_64 ]]
+else
+  grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_badging"
+fi
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a' " <<< "$harness_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a\.test' " <<< "$test_badging"
 "$build_tools/aapt" dump xmltree "$test_apk" AndroidManifest.xml >"$work_dir/test-manifest.txt"
@@ -212,7 +222,11 @@ for serial in "$serial_a" "$serial_b"; do
   "$adb" -s "$serial" shell wm density 320
   native_bridge=$("$adb" -s "$serial" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')
   supported_abis=$("$adb" -s "$serial" shell getprop ro.product.cpu.abilist | tr -d '\r')
-  if [[ -z "$native_bridge" || "$native_bridge" == 0 || ",$supported_abis," != *,arm64-v8a,* ]]; then
+  if [[ "$install_abi" == x86_64 ]]; then
+    guest_abi=$("$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+    guest_arch=$("$adb" -s "$serial" shell uname -m | tr -d '\r')
+    [[ "$guest_abi" == x86_64 && "$guest_arch" == x86_64 && ",$supported_abis," == *,x86_64,* ]]
+  elif [[ -z "$native_bridge" || "$native_bridge" == 0 || ",$supported_abis," != *,arm64-v8a,* ]]; then
     printf 'Dedicated emulator lacks ARM64 native translation: %s\n' "$serial" >&2
     exit 1
   fi
@@ -222,14 +236,24 @@ for serial in "$serial_a" "$serial_b"; do
     installed_apk=$previous_apk
     installed_version=7
   fi
-  "$adb" -s "$serial" install -r -t --abi arm64-v8a "$installed_apk" >/dev/null
+  "$adb" -s "$serial" install -r -t --abi "$install_abi" "$installed_apk" >/dev/null
   "$adb" -s "$serial" install -r -t "$harness_apk" >/dev/null
   "$adb" -s "$serial" install -r -t "$test_apk" >/dev/null
   "$adb" -s "$serial" shell dumpsys package com.vellivex.messenger.alpha >"$work_dir/package-$serial.txt"
-  grep -Eq '^[[:space:]]*primaryCpuAbi=arm64-v8a[[:space:]]*$' "$work_dir/package-$serial.txt"
+  grep -Eq "^[[:space:]]*primaryCpuAbi=$install_abi[[:space:]]*$" "$work_dir/package-$serial.txt"
   grep -Eq "^[[:space:]]*versionCode=$installed_version([[:space:]]|$)" "$work_dir/package-$serial.txt"
   "$adb" -s "$serial" shell settings get secure android_id >"$work_dir/android-id-$serial"
-  printf '%s versionCode=%s primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$installed_version" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
+  if [[ "$install_abi" == x86_64 ]]; then
+    device_path=$("$adb" -s "$serial" shell pm path com.vellivex.messenger.alpha | tr -d '\r')
+    [[ "$device_path" =~ ^package:(/data/app/[A-Za-z0-9._=+~/-]+/base\.apk)$ ]]
+    remote_hash=$("$adb" -s "$serial" exec-out cat "${BASH_REMATCH[1]}" | sha256sum | cut -d ' ' -f1)
+    local_hash=$(sha256sum "$installed_apk" | cut -d ' ' -f1)
+    [[ "$remote_hash" == "$local_hash" ]]
+    printf '%s versionCode=%s primaryCpuAbi=x86_64 guestAbi=x86_64 guestKernel=x86_64 installedSha256=%s\n' \
+      "$serial" "$installed_version" "$remote_hash" >>"$evidence_dir/installed-apps.txt"
+  else
+    printf '%s versionCode=%s primaryCpuAbi=arm64-v8a native-bridge=%s\n' "$serial" "$installed_version" "$native_bridge" >>"$evidence_dir/installed-apps.txt"
+  fi
 done
 "$python_bin" - "$work_dir/android-id-$serial_a" "$work_dir/android-id-$serial_b" "$evidence_dir/device-separation.json" <<'PY'
 import hashlib, json, pathlib, sys
@@ -241,6 +265,11 @@ pathlib.Path(sys.argv[3]).write_text(json.dumps({
     'android_id_sha256': [hashlib.sha256(value.encode()).hexdigest() for value in ids],
 }, indent=2) + '\n')
 PY
+
+if [[ "$profile" == alpha09-release ]]; then
+  # A run-bound public ready marker, only after signed byte readback and independent device checks.
+  printf 'both-independent-native-x86-64-installations-verified\n' >"$evidence_dir/native-install-ready.txt"
+fi
 
 python="$python_bin"
 "$python" - "$work_dir/coordinator-key" <<'PYKEY'
@@ -357,7 +386,7 @@ profile = sys.argv[2]
 scenario = sys.argv[4]
 if profile == 'alpha06-test':
     profile_checkpoints = {'default-production-https-confirmed'}
-elif profile in ('alpha07-release', 'alpha08-release'):
+elif profile in ('alpha07-release', 'alpha08-release', 'alpha09-release'):
     identity = json.loads(pathlib.Path(sys.argv[3]).read_text())
     if (identity.get('profile') != profile or identity.get('app_manifest_debuggable') is not False or
             identity.get('production_origin') != 'https://messenger.vellivex.com' or
@@ -400,5 +429,5 @@ if scenario == 'upgrade-alpha07':
 else:
     scenario_report = {'installation_scenario': 'fresh', 'scope': 'two fresh installations of the selected exact release'}
 pathlib.Path(sys.argv[6]).write_text(json.dumps(scenario_report, indent=2) + '\n')
-print('PASS: two exact installed ARM64 apps completed real-email production HTTPS and cold-restart UI exchanges.')
+print('PASS: two exact installed release apps completed real-email production HTTPS and cold-restart UI exchanges.')
 PY

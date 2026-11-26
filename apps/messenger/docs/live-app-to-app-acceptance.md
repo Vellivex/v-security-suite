@@ -78,6 +78,12 @@ inboxes and genuinely received codes. All shared real-code, recovery-setup, full
 rejection, message, restart, sign-out and private-input checks remain required.
 Preparing this profile or compiling it does not establish a live acceptance pass.
 
+## Alpha09 universal native acceptance
+
+The `alpha09-release` fresh scenario installs the same signed universal APK on two separately created Android 35 x86_64 emulators. The release profile verifies its original SHA-256, byte length, reviewed production origin, and both ARM64 and x86_64 Matrix SDK and JNA library hashes. Each guest must boot an x86_64 kernel and declare x86_64 as its primary ABI. The runner explicitly selects x86_64, verifies the installed package ABI and version, and reads the installed APK on each guest to compare its full SHA-256 with the downloaded release.
+
+The release operator authenticates the same-run native-install receipts and public key before granting either private test mailbox address. The separate code-ready artifact records when both app UIs requested their codes. The signed universal release contains 111,794,192 bytes with SHA-256 `eab2468488a6a34451a47bc0e5dda2ed51e8dcf2f8fed191fadf97ebb55e1471`. Its application entries match the build from commit `89a7c498f05c913ddb2a6a7f424c475908900df9`. This scenario covers the x86_64 Android runtime. Physical Android and GrapheneOS acceptance are recorded separately.
+
 ## Preserved Alpha07 session update scenario
 
 `installation_scenario: upgrade-alpha07` is available only with `alpha08-release`.
