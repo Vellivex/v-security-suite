@@ -200,7 +200,7 @@ jobs:
             'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
           echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
           echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
-      - name: Run JVM tests and lint and build both debug APKs
+      - name: Run debug and release checks and assemble the universal Alpha11 package
         working-directory: apps/messenger/android
         shell: bash
         run: |
@@ -210,6 +210,16 @@ jobs:
           (cd -- "$sdk_bundle" && sha256sum --check --strict vellivex-matrix-sdk.aar.sha256)
           ./gradlew --no-daemon --console=plain "-PmatrixSdkAar=$sdk_bundle/vellivex-matrix-sdk.aar" \
             testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+          ./gradlew --no-daemon --console=plain "-PmatrixSdkAar=$sdk_bundle/vellivex-matrix-sdk.aar" \
+            -PmessengerUniversalApk=true -PmessengerProductionServerUrl=https://messenger.vellivex.com \
+            testReleaseUnitTest lintRelease assembleRelease
+      - name: Preserve the unsigned universal package for release signing
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vellivex-alpha11-unsigned-universal
+          path: apps/messenger/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
 
   backend-test:
     runs-on: ubuntu-24.04
