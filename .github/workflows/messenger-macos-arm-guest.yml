@@ -1,0 +1,33 @@
+name: Alpha08 no-account full ARM Android on Apple silicon
+on:
+  push:
+    branches: [test/messenger-alpha08-macos-arm-20261126]
+    paths: ['.github/workflows/messenger-macos-arm-guest.yml', 'apps/messenger/physical-qa/macos-arm-guest.sh']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  full-arm:
+    runs-on: macos-15
+    timeout-minutes: 29
+    steps:
+      - name: Load the checked-in QA procedure
+        run: |
+          set -eu
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=1 origin "$GITHUB_SHA" fe4b731dd3d770a19dd2497259d5507f3a8c122e
+          git checkout --detach "$GITHUB_SHA"
+          git diff --exit-code fe4b731dd3d770a19dd2497259d5507f3a8c122e HEAD -- apps/messenger/android apps/messenger/sdk apps/messenger/physical-qa/src
+      - name: Get and authenticate the two APK inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/15116856736/zip > native-qa.apk
+          echo '237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e  native-qa.apk' | shasum -a 256 -c -
+          curl --fail --location --proto '=https' --max-time 120 --silent --show-error --output alpha08.apk https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk
+          echo '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4  alpha08.apk' | shasum -a 256 -c -
+      - name: Run native TLS and encrypted storage checks without accounts
+        run: bash apps/messenger/physical-qa/macos-arm-guest.sh

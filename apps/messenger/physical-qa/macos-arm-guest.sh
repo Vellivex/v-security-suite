@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+work=$(mktemp -d "$RUNNER_TEMP/full-arm.XXXXXXXX")
+pid=''
+cleanup() {
+    if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
+    rm -rf -- "$work"
+}
+trap cleanup EXIT
+sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+bt="$ANDROID_HOME/build-tools/36.0.0"
+adb="$ANDROID_HOME/platform-tools/adb"
+serial=emulator-5554
+test "$(uname -m)" = arm64
+export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+command -v timeout
+image='system-images;android-35;google_apis;arm64-v8a'
+export ANDROID_AVD_HOME="$work/avd"
+mkdir -p "$ANDROID_AVD_HOME"
+cd "$RUNNER_TEMP"
+"$sdk/sdkmanager" 'build-tools;36.0.0' 'platform-tools' 'emulator' "$image"
+"$bt/apksigner" verify --print-certs alpha08.apk | grep -F 'Signer #1 certificate SHA-256 digest: 3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
+"$bt/apksigner" verify --print-certs native-qa.apk | grep -F 'Signer #1 certificate SHA-256 digest: 39901bf944f1c1756c161ad31a1edd389aa428a996661b163698b99db8186f7c'
+emulator="$ANDROID_HOME/emulator/emulator"
+grep -F "Pkg.Revision" "$ANDROID_HOME/emulator/source.properties"
+file "$emulator" | grep -F arm64
+file "$ANDROID_HOME/emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless" | grep -F arm64
+printf 'no\n' | "$sdk/avdmanager" create avd -n native-guest -k "$image"
+cat >> "$ANDROID_AVD_HOME/native-guest.avd/config.ini" <<'INI'
+hw.lcd.width=480
+hw.lcd.height=800
+hw.lcd.density=160
+hw.keyboard=yes
+INI
+"$adb" start-server
+"$emulator" -avd native-guest -port 5554 -accel off -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -cores 2 -memory 1536 -gpu swiftshader -verbose -show-kernel -qemu -accel tcg > "$work/boot.log" 2>&1 &
+pid=$!
+device() { timeout 50 "$adb" -s "$serial" "$@"; }
+property() { timeout 5 "$adb" -s "$serial" shell getprop "$1" 2>/dev/null | tr -d '\r'; }
+deadline=$((SECONDS+780))
+while [[ "$(property sys.boot_completed || true)" != 1 ]]; do
+    if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= deadline )); then
+        echo 'Full ARM guest did not complete Android boot within the bound.'
+        grep -Ei "accel|hvf|TCG|qemu-system|FATAL|ERROR|panic|Linux version|Boot completed|init:.*starting service" "$work/boot.log" | tail -80 || true
+        echo "ADB state: $(timeout 5 "$adb" -s "$serial" get-state 2>/dev/null || true)"
+        echo "Guest boot animation: $(property init.svc.bootanim || true)"
+        exit 1
+    fi
+    if ((SECONDS % 100 < 6)); then echo "Waiting for full ARM guest boot ($SECONDS seconds)"; fi
+    sleep 5
+done
+echo "Full Android ARM guest booted after $SECONDS seconds."
+abi=$(property ro.product.cpu.abi)
+bridge=$(property ro.dalvik.vm.native.bridge || true)
+kernel=$(device shell uname -m | tr -d '\r')
+api=$(property ro.build.version.sdk)
+echo "Guest ABI=$abi kernel=$kernel API=$api bridge=${bridge:-none}"
+test "$abi" = arm64-v8a
+test "$kernel" = aarch64
+test "$api" = 35
+[[ -z "$bridge" || "$bridge" == 0 ]]
+for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
+    device shell settings put global "$setting" 0
+done
+device shell input keyevent 82
+device install native-qa.apk
+device install alpha08.apk
+device shell dumpsys package com.vellivex.messenger.alpha > "$work/package.txt"
+grep -m1 'primaryCpuAbi=arm64-v8a' "$work/package.txt"
+device shell am start -W -n com.vellivex.messenger.alpha/com.vellivex.messenger.MainActivity
+device shell dumpsys activity activities > "$work/activities.txt"
+grep -E '(mResumedActivity|topResumedActivity).*com.vellivex.messenger.alpha/'  "$work/activities.txt"
+echo 'Canonical signed installer installed and opened; no authentication input.'
+device shell am force-stop com.vellivex.messenger.alpha
+device shell am start -W -n com.vellivex.qa.physical/com.vellivex.qa.ProbeActivity
+snapshot() {
+    device shell uiautomator dump /sdcard/qa-window.xml >/dev/null &&
+    device exec-out cat /sdcard/qa-window.xml > "$work/window.xml"
+}
+step_deadline=$((SECONDS+150))
+point=''
+while [[ -z "$point" ]] && ((SECONDS < step_deadline)); do
+    if snapshot; then
+        point=$(python3 - "$work/window.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as E
+for node in E.parse(sys.argv[1]).iter('node'):
+    if node.get('class') == 'android.widget.Button' and node.get('text','').lower()=='run diagnostics':
+        x1,y1,x2,y2=map(int,re.findall(r'\d+',node.get('bounds','')))
+        print((x1+x2)//2,(y1+y2)//2)
+        break
+PY
+)
+    fi
+    [[ -n "$point" ]] || sleep 3
+done
+test -n "$point"
+read -r x y <<< "$point"
+device shell input tap "$x" "$y"
+checks='Android HTTPS PASS|Native bootstrap PASS|Native memory PASS|Encrypted store PASS|Diagnostics complete'
+deadline=$((SECONDS+300))
+while (( SECONDS < deadline )); do
+    if snapshot && grep -q 'Diagnostics complete' "$work/window.xml"; then break; fi
+    sleep 4
+done
+python3 - "$work/window.xml" "$checks" <<'PY'
+import sys, xml.etree.ElementTree as E
+text='\n'.join(n.get('text','') for n in E.parse(sys.argv[1]).iter('node'))
+for line in text.splitlines():
+    if line.startswith(('Checking ', 'Android HTTPS ', 'Native bootstrap ', 'Native memory ', 'Encrypted store ', 'Diagnostics complete')):
+        print(line[:220])
+expected=sys.argv[2].split('|')
+sys.exit(0 if all(v in text for v in expected) else 1)
+PY
