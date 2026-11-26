@@ -23,11 +23,16 @@ jobs:
           python3 - "$work" <<'PY'
           import hashlib, pathlib, sys, zipfile
           out = pathlib.Path(sys.argv[1])
-          with zipfile.ZipFile(out/'source.zip') as archive:
-              files=[n for n in archive.namelist() if n.endswith('.apk')]
-              assert len(files)==1
-              data=archive.read(files[0])
-          assert hashlib.sha256(data).hexdigest()=='237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e'
+          source=(out/'source.zip').read_bytes()
+          pinned='237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e'
+          if hashlib.sha256(source).hexdigest()==pinned:
+              data=source
+          else:
+              with zipfile.ZipFile(out/'source.zip') as archive:
+                  choices=[info for info in archive.infolist() if info.file_size==50571495]
+                  hits=[value for item in choices if hashlib.sha256(value:=archive.read(item)).hexdigest()==pinned]
+              assert len(hits)==1, 'Pinned physical QA binary absent from retained artifact'
+              data=hits[0]
           (out/'qa.apk').write_bytes(data)
           PY
       - name: Launch the original QA APK through Android without instrumentation
