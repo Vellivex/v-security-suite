@@ -10,6 +10,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// The universal release carries both complete native stacks in one installable APK.
+val universalApk = providers.gradleProperty("messengerUniversalApk")
+    .map { it.toBooleanStrict() }
+    .orElse(false)
+
 android {
     namespace = "com.vellivex.messenger"
     compileSdk = 36
@@ -17,8 +22,11 @@ android {
         applicationId = "com.vellivex.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.1.0-alpha08"
+        versionCode = 9
+        versionName = "0.1.0-alpha09"
+        if (universalApk.get()) {
+            ndk { abiFilters += setOf("arm64-v8a", "x86_64") }
+        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -41,7 +49,7 @@ android {
     buildFeatures { compose = true; buildConfig = true }
     splits {
         abi {
-            isEnable = true
+            isEnable = !universalApk.get()
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = false
