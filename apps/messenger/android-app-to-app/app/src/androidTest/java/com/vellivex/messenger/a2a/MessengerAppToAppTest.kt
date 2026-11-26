@@ -450,9 +450,17 @@ class MessengerAppToAppTest {
     private fun clickNewConversation() {
         val described = if (appVersion >= 6) {
             lastAction = "find-accessible-new-conversation"
-            waitValue("unique accessible new-conversation button") {
-                device.findObjects(By.pkg(APP).desc("New conversation").enabled(true).clickable(true))
-                    .filter { !it.visibleBounds.isEmpty }.singleOrNull()
+            waitValue("uniquely named new-conversation control") {
+                val named = device.findObjects(By.pkg(APP).desc("New conversation")) +
+                    device.findObjects(By.pkg(APP).text("New conversation"))
+                val targets = named.filter { !it.visibleBounds.isEmpty }.mapNotNull { label ->
+                    var candidate: UiObject2? = label
+                    var depth = 0
+                    while (candidate != null && !candidate.isClickable && depth++ < 4) candidate = candidate.parent
+                    candidate?.takeIf { it.applicationPackage == APP && it.isEnabled &&
+                        it.isClickable && !it.visibleBounds.isEmpty }
+                }.distinctBy { listOf(it.className, it.visibleBounds.toShortString()) }
+                targets.singleOrNull()
             }.also { stage("accessible-new-conversation-control-observed") }
         } else null
         val named = described ?: device.findObject(By.pkg(APP).text("New conversation"))?.takeIf { !it.visibleBounds.isEmpty }
