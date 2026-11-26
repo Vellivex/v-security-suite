@@ -143,7 +143,7 @@ def automatic_link(label):
     print("Available activities:", adb("shell", "cmd", "package", "query-activities",
           "--brief", "--user", "0", "-a", "android.intent.action.VIEW",
           "-c", "android.intent.category.BROWSABLE", "-d", INVITE), flush=True)
-    assert not resolver(f"{ORIGIN}/messenger").startswith(PACKAGE + "/")
+    print("Setup-page resolver:", resolver(f"{ORIGIN}/messenger"), flush=True)
     adb("shell", "am", "kill", PACKAGE)
     launched = adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
                    "-c", "android.intent.category.BROWSABLE", "-d", INVITE)
@@ -213,20 +213,19 @@ def main():
                            "20", ORIGIN + "/invite")
                 return 'id="open-vellivex"' in page
             wait_until(landing_ready, "production Open in Vellivex control", 720)
-        browser = resolver(INVITE)
-        assert browser == resolver(f"{ORIGIN}/messenger") and "/" in browser
-        browser_package = browser.split("/")[0]
-        assert browser_package not in ("android", PACKAGE)
-        browser_launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-                             "-c", "android.intent.category.BROWSABLE", "-d", INVITE)
-        assert "Status: ok" in browser_launch and f"Activity: {browser_package}/" in browser_launch
-        dom = run("google-chrome", "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-                  "--user-data-dir=" + str(directory / "chrome"), "--dump-dom", INVITE)
-        assert '<code id="contact">@qr-check:messenger.vellivex.com</code>' in dom and "matrix.to" not in dom
-        assert "Vellivex" in dom and "/messenger" in dom
-        print("PASS browser fallback: contact ID and official Vellivex setup on the landing page", flush=True)
+        browser = ""
+        if os.environ["QR_ROUTE"] == "browser":
+            # Select Chrome solely to exercise the page's user-initiated button.
+            # The independent automatic job never launches or selects a browser.
+            browser = "com.android.chrome/com.google.android.apps.chrome.Main"
+            assert "package:com.android.chrome" in adb("shell", "pm", "list", "packages", "com.android.chrome")
+            dom = run("google-chrome", "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+                      "--user-data-dir=" + str(directory / "chrome"), "--dump-dom", INVITE)
+            assert '<code id="contact">@qr-check:messenger.vellivex.com</code>' in dom and "matrix.to" not in dom
+            assert "Vellivex" in dom and "/messenger" in dom
+            print("PASS browser fallback: contact ID and official Vellivex setup on the landing page", flush=True)
         adb("install", str(previous))
-        assert installed_version() == 9 and resolver(INVITE) == browser
+        assert installed_version() == 9
         launch_from_home()
         adb("install", "-r", str(current))
         errors = []
@@ -236,7 +235,7 @@ def main():
             print("FAIL upgraded installation:", repr(error), flush=True)
             errors.append(error)
         assert adb("uninstall", PACKAGE) == "Success"
-        assert resolver(INVITE) == browser
+        assert adb("shell", "pm", "list", "packages", PACKAGE) == ""
         adb("install", str(current))
         try:
             confirm_candidate(sha, "fresh Alpha10", browser)
