@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.core.graphics.createBitmap
@@ -87,6 +88,7 @@ private const val RECOVERED_HISTORY_NOTE = "Your recovery key restores your acco
 
 class MessengerApplication : Application() {
     val repository by lazy { MatrixRepository(this) }
+    internal val alertPreferences by lazy { MessengerAlertPreferences(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -236,13 +238,13 @@ class MainActivity : ComponentActivity() {
         outState.putString("invitedContact", invitedContact)
     }
 
-    override fun onStart() {
-        super.onStart()
+    override fun onResume() {
+        super.onResume()
         MessengerBackgroundSyncService.setAppVisible(true)
     }
-    override fun onStop() {
+    override fun onPause() {
         MessengerBackgroundSyncService.setAppVisible(false)
-        super.onStop()
+        super.onPause()
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -268,6 +270,9 @@ private fun MessengerApp(model: MessengerViewModel, invitedContact: String?, cle
     val state by model.repository.state.collectAsStateWithLifecycle()
     val alertsRunning by MessengerBackgroundSyncService.running.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val alertSettings = (context.applicationContext as MessengerApplication).alertPreferences
+    val alertsRequested by alertSettings.enabled.collectAsStateWithLifecycle()
+    var alertsAllowed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var showProfile by remember { mutableStateOf(false) }
     var showNewChat by remember { mutableStateOf(false) }
@@ -275,18 +280,24 @@ private fun MessengerApp(model: MessengerViewModel, invitedContact: String?, cle
     val canUseMessages = state.recovery == MessengerRecovery.Ready
     val snackbars = remember { SnackbarHostState() }
     val startAlerts = {
+        alertsAllowed = MessengerBackgroundSyncService.canShowNotifications(context)
         if (!MessengerBackgroundSyncService.start(context)) scope.launch {
-            snackbars.showSnackbar("Alerts could not start. Allow Vellivex notifications in Android settings, then try again.")
+            snackbars.showSnackbar("Alerts could not start. Check Android notification settings in your profile.")
         }
         Unit
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-        if (allowed) startAlerts() else scope.launch {
-            snackbars.showSnackbar("Notifications are off. Open Vellivex to check your messages.")
-        }
+        if (allowed) startAlerts() else alertsAllowed = false
     }
-    LaunchedEffect(state.userId, state.recovery) {
-        if (!canUseMessages) MessengerBackgroundSyncService.stop(context)
+    LifecycleResumeEffect(alertsRequested, canUseMessages) {
+        alertsAllowed = MessengerBackgroundSyncService.canShowNotifications(context)
+        if (alertsRequested && canUseMessages && alertsAllowed && !MessengerBackgroundSyncService.running.value) {
+            MessengerBackgroundSyncService.start(context)
+        }
+        onPauseOrDispose {}
+    }
+    LaunchedEffect(state.userId, state.recovery, state.hasSavedSession) {
+        if (state.userId == null && !state.hasSavedSession) MessengerBackgroundSyncService.stop(context)
         if (state.recovery != MessengerRecovery.SetupRequired) model.forgetRecoveryKeyDisplay()
     }
     LaunchedEffect(invitedContact) {
@@ -320,13 +331,17 @@ private fun MessengerApp(model: MessengerViewModel, invitedContact: String?, cle
     if (showProfile && state.userId != null && (canUseMessages || state.recovery == MessengerRecovery.SetupRequired)) ProfileDialog(state.userId!!,
         recoveryReady = canUseMessages,
         setupRecovery = { showProfile = false; model.createRecoveryKey() },
-        alertsRunning = alertsRunning,
+        alertsRunning = alertsRunning, alertsRequested = alertsRequested, alertsAllowed = alertsAllowed,
         toggleAlerts = {
-            if (alertsRunning) MessengerBackgroundSyncService.stop(context)
-            else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
-                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else startAlerts()
+            if (alertsRequested) {
+                MessengerBackgroundSyncService.stop(context)
+            } else {
+                alertSettings.setEnabled(true)
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
+                        Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else startAlerts()
+            }
         },
         close = { showProfile = false }, signOut = { showProfile = false; signOut = true })
     if ((showNewChat || invitedContact != null) && canUseMessages && state.userId != null &&
@@ -737,7 +752,8 @@ private fun NewChatDialog(initialContact: String?, close: () -> Unit, create: (S
 
 @Composable
 private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery: () -> Unit,
-    alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
+    alertsRunning: Boolean, alertsRequested: Boolean, alertsAllowed: Boolean, toggleAlerts: () -> Unit,
+    close: () -> Unit, signOut: () -> Unit) {
     val context = LocalContext.current
     val invitation = vellivexInvitation(userId)
     val qr = remember(userId) {
@@ -760,10 +776,19 @@ private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery:
                 Text("Recovery is set up", fontWeight = FontWeight.SemiBold)
                 Text("Keep your saved key somewhere private. $RECOVERED_HISTORY_NOTE",
                     color = Muted, fontSize = 12.sp)
-                Text(if (alertsRunning) "Background alerts are on" else "Background alerts are off", fontWeight = FontWeight.SemiBold)
-                Text("Keep a visible sync notification to receive generic alerts while the app is closed. Messages and contact names stay out of notifications. Android may pause delivery; reopen Vellivex after a restart or force stop.",
+                val alertStatus = when {
+                    !alertsRequested -> "Background alerts are off"
+                    !alertsAllowed -> "Android is blocking message notifications"
+                    alertsRunning -> "Background alerts are on"
+                    else -> "Background alerts are paused"
+                }
+                Text(alertStatus, fontWeight = FontWeight.SemiBold)
+                Text("Alerts say “New Vellivex message”. Android controls sound, banners and lock-screen display. Reopen Vellivex after restarting your phone or force-stopping the app.",
                     color = Muted, fontSize = 12.sp)
-                OutlinedButton(onClick = toggleAlerts) { Text(if (alertsRunning) "Stop background alerts" else "Enable background alerts") }
+                OutlinedButton(onClick = toggleAlerts) { Text(if (alertsRequested) "Stop background alerts" else "Enable background alerts") }
+                TextButton(onClick = { context.startActivity(MessengerBackgroundSyncService.settingsIntent(context)) }) {
+                    Text("Android notification settings")
+                }
             } else {
                 OutlinedButton(onClick = setupRecovery) { Text("Set up recovery") }
             }
