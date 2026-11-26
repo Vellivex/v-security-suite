@@ -1,0 +1,10 @@
+import { withBlog } from './blog-publisher.mjs';
+import { withPhoneShop } from './phone-shop.mjs';
+import phoneShopConfig from './phone-shop-config.mjs';
+import original from './index.mjs';
+export * from './index.mjs';
+import { withAppAccess } from './app-access/entry.mjs';
+import overrides from './app-access/site-overrides.mjs';
+import { transformSiteResponse } from './app-access/site-overlay.mjs';
+import { createMailProxy } from './app-access/mail-proxy.mjs';
+export default withAppAccess(withBlog(withPhoneShop(original,phoneShopConfig)),{origins:["https://www.vellivex.com","https://vellivex.com"],overrides,transform:transformSiteResponse,proxy:createMailProxy()});

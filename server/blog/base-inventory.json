@@ -1,0 +1,86 @@
+[
+  {
+    "name": "acquisition-collector.mjs",
+    "type": "application/javascript+module",
+    "size": 5829,
+    "sha256": "a9d5745459ed9da0522e3e19747c0d97a12f529042f34ff21c89e40cb8405638"
+  },
+  {
+    "name": "acquisition-context.mjs",
+    "type": "application/javascript+module",
+    "size": 15462,
+    "sha256": "137bf0652486dc5f6ffd635c6d1e9a1bde56fec92a70f8e8d4c0af21ca568f7b"
+  },
+  {
+    "name": "app-access-entry.mjs",
+    "type": "application/javascript+module",
+    "size": 616,
+    "sha256": "e460fb64cc656acc22c14c7706471e9ec095358e365379d3cd2f203660503796"
+  },
+  {
+    "name": "app-access/entry.mjs",
+    "type": "application/javascript+module",
+    "size": 2956,
+    "sha256": "863c02d6215b6187c4bb6d49d24d71d0bcd8f267d5f012b11f6096ad840f1c31"
+  },
+  {
+    "name": "app-access/gate.mjs",
+    "type": "application/javascript+module",
+    "size": 14711,
+    "sha256": "dccfbd5e427eae8d5ae535e63089351de71adf82463adf11511a690c6e7d6707"
+  },
+  {
+    "name": "app-access/mail-proxy.mjs",
+    "type": "application/javascript+module",
+    "size": 2330,
+    "sha256": "ce3f050c00a8fd7ab3cea7961dec6eb08266f2d4036e6fe74b55bd3d1d3e90b0"
+  },
+  {
+    "name": "app-access/mail-transport.mjs",
+    "type": "application/javascript+module",
+    "size": 1278,
+    "sha256": "fc65dd7f2fb9f4b9289e11ef9dd1eeb635fc2b5897e7d99d0c58cb2b5288eedc"
+  },
+  {
+    "name": "app-access/registry.mjs",
+    "type": "application/javascript+module",
+    "size": 3949,
+    "sha256": "db0c7285120b6121861d4c26ed48b39f13b269bd30f68b5726e065266b66c6bc"
+  },
+  {
+    "name": "app-access/site-overlay.mjs",
+    "type": "application/javascript+module",
+    "size": 13840,
+    "sha256": "bf1abef163f2a6228de590c4cb297d70d132efa26e0bd4647c6029dff2813fd3"
+  },
+  {
+    "name": "app-access/site-overrides.mjs",
+    "type": "application/javascript+module",
+    "size": 68920,
+    "sha256": "f0be3a32c0c0b245106de1368c0e1a4c5d1a7bde1f95ecce18a04f8e97697b65"
+  },
+  {
+    "name": "index.mjs",
+    "type": "application/javascript+module",
+    "size": 5268963,
+    "sha256": "c5af81d05ef8c66b8a9d2263b2acefa2501f50e366e071e765afe553588d4235"
+  },
+  {
+    "name": "phone-shop-config.mjs",
+    "type": "application/javascript+module",
+    "size": 275,
+    "sha256": "011e6a182d65fa50fcb6792f7681f4e99abbe68a98a82c06353bf4a047137ca8"
+  },
+  {
+    "name": "phone-shop-media.mjs",
+    "type": "application/javascript+module",
+    "size": 893151,
+    "sha256": "88c5fa4b85f35c5489596b66bb2eb040e2f39da3d4c7c11c056ceb2248c0a353"
+  },
+  {
+    "name": "phone-shop.mjs",
+    "type": "application/javascript+module",
+    "size": 83206,
+    "sha256": "12f56b92ea0ab9bdad849a78cafa984808d6cab1a749b313ad82b439e991564a"
+  }
+]
