@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "run_id": "45835870947",
+  "run_attempt": 1,
+  "head_sha": "b85746eb3a4fb000a88e6b8ab3795d5475b8dc90",
+  "session_id": "0f9acb2552f1d96bf2bbe373",
+  "key_id": "e1d38adc722e9789048b8c3fd2d8b2feee68c5157436716e027ef707b42e2080",
+  "metadata": {
+    "role": "B",
+    "purpose": "email",
+    "nonce": "9a66e5be549676eaa76b7f6172bb6fe1",
+    "issued_at": 1795702455,
+    "expires_at": 1795703655
+  },
+  "encrypted_key": "BYGlySi9W0QnvnFLilqheSzRm0FQ91xWljp1ZlvwBq4d8f2+SLY/1pe+Y+1E3gDWLOSZem5WZxqvnZrY4OuB5LPHX5rw1lKLP2g8kw2VcWak02BKildy1uaE3MeahkgyGioC/DicilWX3KWSpYaxjUs7l2rqo37fbip8inBYh5tGryulUp4DwgAqKd9c+NEM3PXGG7INORN5E/Km8dgm3uLye6vs62AOosF7RUyNzpIY5YXyivX7k+G4m5UsD+BjafUuzWNlOVkpOLbN8qqtlz3jbaHP+HdVEeEgoOLMfn7A57KfQSJt5RWFxxqj0moJ4gm67XkufmZFtxHAT3fSpB3Pvl0QG2zbIIgPL8d3JeyLW6caD13VKhRyNlN0m1k3Q/XY7+ALuzWJSjCjNw2sKZOQI5cR0P7koCgA2tMw4l84jxX8c8NDVMlHcUJUnxwNmOGJuWazyk978/ptFBifjRL1xIwHyQ3KZd7+Ll4XoLoFB1hlmmcQEXgraP2R1nDI",
+  "iv": "v89xTvmR6i4rrwAg",
+  "ciphertext": "nxBkQyME0r9qrRXx+sXIN9PRBaHdWQEwhz0yI2rDSGEILiCfzoZI9fhFp1eijJqQodCVQNQkbg2BGGL5fXEtFzKPdPbeuZCrsA==",
+  "tag": "6UAloGMoGakyJyzgQvKQ7Q=="
+}
