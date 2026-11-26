@@ -104,7 +104,7 @@ class MessengerProductionHttpsTest {
             block()
         } catch (error: Throwable) {
             // No cause: native exceptions may contain request/response details.
-            throw AssertionError("$message (${error.javaClass.simpleName})")
+            throw diagnosticFailure(message, error)
         }
     }
 

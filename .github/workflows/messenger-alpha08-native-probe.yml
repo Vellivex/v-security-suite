@@ -6,6 +6,7 @@ on:
       - '.github/workflows/messenger-alpha08-native-probe.yml'
       - 'apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/ReleaseNativeStoreProbe.kt'
       - 'apps/messenger/scripts/run-alpha08-native-probe.sh'
+      - 'apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerProductionHttpsTest.kt'
 permissions:
   contents: read
   actions: read
