@@ -9,7 +9,6 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.request import urlopen
 
 HOST = "www.vellivex.com"
 ORIGIN = f"https://{HOST}"
@@ -99,9 +98,13 @@ def main():
         current, previous = directory / "alpha10.apk", directory / "alpha09.apk"
         get_apk("alpha09", "eab2468488a6a34451a47bc0e5dda2ed51e8dcf2f8fed191fadf97ebb55e1471", previous)
         get_apk("alpha10", sha, current)
-        with urlopen(f"{ORIGIN}/.well-known/assetlinks.json", timeout=20) as response:
-            assert response.geturl() == f"{ORIGIN}/.well-known/assetlinks.json"
-            relations = json.load(response)
+        association = directory / "assetlinks.json"
+        response_status = run("curl", "--proto", "=https", "--silent", "--show-error", "--fail",
+                              "--max-time", "20", "--output", association, "--write-out", "%{http_code}",
+                              f"{ORIGIN}/.well-known/assetlinks.json")
+        assert response_status == "200"
+        relations = json.loads(association.read_text())
+        print("PASS both exact release digests and APK certificates", flush=True)
         assert any("delegate_permission/common.handle_all_urls" in relation["relation"] and
                    relation["target"].get("namespace") == "android_app" and
                    relation["target"].get("package_name") == PACKAGE and
