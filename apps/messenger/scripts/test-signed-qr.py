@@ -50,9 +50,16 @@ def get_apk(version, digest, destination):
 
 
 def resolver(url):
-    return adb("shell", "cmd", "package", "resolve-activity", "--brief",
+    return adb("shell", "cmd", "package", "resolve-activity", "--brief", "--user", "0",
                "-a", "android.intent.action.VIEW", "-c", "android.intent.category.BROWSABLE",
                "-d", url).splitlines()[-1]
+
+
+def launch_from_home():
+    result = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                 "-c", "android.intent.category.LAUNCHER", "-p", PACKAGE)
+    assert "Status: ok" in result, result
+    adb("shell", "input", "keyevent", "KEYCODE_HOME")
 
 
 def installed_version():
@@ -72,9 +79,18 @@ def confirm_candidate(sha, label, directory):
     wait_until(lambda: re.search(r"^\s*www\.vellivex\.com:\s*verified\s*$",
                                  adb("shell", "pm", "get-app-links", PACKAGE), re.M),
                "automatic Android domain verification", 185)
-    assert resolver(INVITE).startswith(PACKAGE + "/")
+    print(adb("shell", "pm", "get-app-links", "--user", "0", PACKAGE), flush=True)
+    print("Initial resolver:", resolver(INVITE), flush=True)
+    print("Available activities:", adb("shell", "cmd", "package", "query-activities",
+          "--brief", "--user", "0", "-a", "android.intent.action.VIEW",
+          "-c", "android.intent.category.BROWSABLE", "-d", INVITE), flush=True)
+    # The receiving user has launched the app before scanning. A force-stop sets
+    # the package's stopped flag, unlike Android reclaiming a background process.
+    launch_from_home()
+    wait_until(lambda: resolver(INVITE).startswith(PACKAGE + "/"),
+               "first-party invitation resolver (last result printed above)", 45)
     assert not resolver(f"{ORIGIN}/messenger").startswith(PACKAGE + "/")
-    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "am", "kill", PACKAGE)
     launched = adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
                    "-c", "android.intent.category.BROWSABLE", "-d", INVITE)
     assert "Status: ok" in launched and (f"Activity: {PACKAGE}/" in launched or
@@ -130,6 +146,7 @@ def main():
         print("PASS browser fallback: contact ID and official Vellivex setup on the landing page", flush=True)
         adb("install", str(previous))
         assert installed_version() == 9 and resolver(INVITE) == browser
+        launch_from_home()
         adb("install", "-r", str(current))
         confirm_candidate(sha, "upgrade Alpha09 to Alpha10", directory)
         assert adb("uninstall", PACKAGE) == "Success"
