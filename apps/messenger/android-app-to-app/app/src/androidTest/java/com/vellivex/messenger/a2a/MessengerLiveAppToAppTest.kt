@@ -41,7 +41,7 @@ class MessengerLiveAppToAppTest {
     private val phase = requireNotNull(arguments.getString("messengerA2aPhase")).also { require(it in setOf("fresh", "restart")) }
     private val releaseProfile = ReleaseProfile.from(arguments.getString("messengerLiveReleaseProfile"))
     private val installationScenario = (arguments.getString("messengerLiveScenario") ?: "fresh").also {
-        require(it == "fresh" || (it == "upgrade-alpha07" && releaseProfile == ReleaseProfile.Alpha08Release))
+        require(releaseProfile.supportsScenario(it))
     }
     private val upgradesThisApp = installationScenario == "upgrade-alpha07" && role == "A"
     private val coordinator = LiveCoordinator(
@@ -73,21 +73,6 @@ class MessengerLiveAppToAppTest {
     private var lastStage = "launch"
     private var lastAction = "launch"
     private var expectedControl = ExpectedControl.TextControl
-
-    private enum class ReleaseProfile(val argument: String, val versionCode: Int, val versionName: String, val normalRelease: Boolean) {
-        Alpha06Test("alpha06-test", 6, "0.1.0-alpha06-test", false),
-        Alpha07Release("alpha07-release", 7, "0.1.0-alpha07", true),
-        Alpha08Release("alpha08-release", 8, "0.1.0-alpha08", true);
-
-        companion object {
-            fun from(value: String?): ReleaseProfile = when (value) {
-                null, Alpha06Test.argument -> Alpha06Test
-                Alpha07Release.argument -> Alpha07Release
-                Alpha08Release.argument -> Alpha08Release
-                else -> throw IllegalArgumentException("Unsupported live release profile")
-            }
-        }
-    }
 
     private enum class ExpectedControl(val token: String, val label: String? = null) {
         NewConversation("new-conversation", "New conversation"),
@@ -256,7 +241,7 @@ class MessengerLiveAppToAppTest {
                 clickText("Test server settings")
                 stage("default-production-https-confirmed")
             }
-            ReleaseProfile.Alpha07Release, ReleaseProfile.Alpha08Release -> assertNormalReleaseSignInSurface()
+            ReleaseProfile.Alpha07Release, ReleaseProfile.Alpha08Release, ReleaseProfile.Alpha09Release -> assertNormalReleaseSignInSurface()
         }
         coordinator.post("mail/begin")
         clickText("Continue with email")

@@ -8,7 +8,7 @@ on:
         required: true
         type: choice
         default: alpha08-release
-        options: [alpha08-release, alpha07-release, alpha06-test]
+        options: [alpha09-release, alpha08-release, alpha07-release, alpha06-test]
       installation_scenario:
         description: Fresh apps, or recover one preserved Alpha07 session by updating it
         required: true
@@ -19,12 +19,16 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'apps/messenger/android-app-to-app/app/src/androidTest/java/com/vellivex/messenger/a2a/MessengerLiveAppToAppTest.kt'
+      - 'apps/messenger/android-app-to-app/app/src/androidTest/java/com/vellivex/messenger/a2a/MessengerPublicNetworkReadinessTest.kt'
       - 'apps/messenger/android-app-to-app/app/src/main/java/com/vellivex/messenger/a2a/SignInObservation.java'
+      - 'apps/messenger/android-app-to-app/app/src/main/java/com/vellivex/messenger/a2a/ReleaseProfile.kt'
+      - 'apps/messenger/android-app-to-app/app/src/test/java/com/vellivex/messenger/a2a/ReleaseProfileTest.kt'
       - 'apps/messenger/android-app-to-app/app/src/test/java/com/vellivex/messenger/a2a/SignInObservationTest.java'
       - 'apps/messenger/scripts/live-input-*'
       - 'apps/messenger/scripts/live-release-profile.py'
       - 'apps/messenger/scripts/live-preserved-session-update.py'
       - 'apps/messenger/android/arm64-alpha0*-live-acceptance.json'
+      - 'apps/messenger/android/universal-alpha09-live-acceptance.json'
       - 'apps/messenger/scripts/tests/test-live-release-profile.py'
       - 'apps/messenger/scripts/tests/test-live-preserved-session-update.py'
       - 'apps/messenger/scripts/live-app-to-app-coordinator.py'
@@ -41,7 +45,7 @@ concurrency:
 
 env:
   CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  MESSENGER_LIVE_PROFILE: ${{ inputs.release_profile || 'alpha08-release' }}
+  MESSENGER_LIVE_PROFILE: ${{ inputs.release_profile || (github.head_ref == 'test/messenger-alpha09-x86-acceptance' && 'alpha09-release') || 'alpha08-release' }}
   MESSENGER_LIVE_SCENARIO: ${{ inputs.installation_scenario || 'fresh' }}
 
 jobs:
@@ -65,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 apps/messenger/scripts/tests/test-live-input-coordinator.py
+          python3 apps/messenger/scripts/tests/test-live-release-profile.py
           export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
           export PATH="$JAVA_HOME/bin:$PATH"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-36' 'build-tools;35.0.0'
@@ -73,7 +78,10 @@ jobs:
             :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 
   two-live-installed-apps:
-    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.head_ref != 'test/messenger-alpha09-x86-acceptance' || github.event.action == 'ready_for_review'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -108,8 +116,11 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
             'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
           mkdir -p "$RUNNER_TEMP/messenger-live-inputs" "$RUNNER_TEMP/messenger-live-evidence"
+          if [[ "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" == test/messenger-alpha09-x86-acceptance ]]; then
+            [[ "$MESSENGER_LIVE_PROFILE:$MESSENGER_LIVE_SCENARIO" == alpha09-release:fresh ]]
+          fi
           case "$MESSENGER_LIVE_PROFILE:$MESSENGER_LIVE_SCENARIO" in
-            alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07) ;;
+            alpha06-test:fresh|alpha07-release:fresh|alpha08-release:fresh|alpha08-release:upgrade-alpha07|alpha09-release:fresh) ;;
             *) echo '::error::Unsupported live installer/scenario combination.'; exit 1 ;;
           esac
           python3.12 apps/messenger/scripts/live-release-profile.py download \
@@ -144,6 +155,7 @@ jobs:
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CHECK_SHA"
 
       - name: Publish only the run-bound public input key
+        if: env.MESSENGER_LIVE_PROFILE != 'alpha09-release'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: messenger-live-public-key-${{ github.run_id }}-${{ github.run_attempt }}
@@ -151,7 +163,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Start both apps and wait for their real email-code screens
+      - name: Start the two apps and prepare the verified input handoff
         shell: bash
         run: |
           set -euo pipefail
@@ -175,18 +187,57 @@ jobs:
           printf '%s\n' "$!" > "$control/pid"
           deadline=$((SECONDS + 1200))
           while (( SECONDS < deadline )); do
-            if [[ -f "$RUNNER_TEMP/messenger-live-evidence/execution/code-handoff.json" ]]; then
+            if [[ "$MESSENGER_LIVE_PROFILE" == alpha09-release && -f "$RUNNER_TEMP/messenger-live-evidence/execution/native-install-ready.txt" ]]; then
+              echo 'Both native x86_64 installs passed exact byte, package and separation checks.'
+              exit 0
+            fi
+            if [[ "$MESSENGER_LIVE_PROFILE" != alpha09-release && -f "$RUNNER_TEMP/messenger-live-evidence/execution/code-handoff.json" ]]; then
               echo 'Both real apps are ready for their privately supplied received email codes.'
               exit 0
             fi
             if [[ -f "$control/exit" ]]; then
-              echo '::error::The live apps stopped before both email-code screens were ready.'
+              echo '::error::The live apps stopped during preparation. The final artifact retains fixed pre-account operation names.'
               exit 1
             fi
             sleep 2
           done
           echo '::error::The bounded live-code preparation window expired.'
           exit 1
+
+      - name: Publish both Alpha09 native-install receipts
+        if: env.MESSENGER_LIVE_PROFILE == 'alpha09-release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: messenger-live-native-installed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/messenger-live-evidence/execution/installed-apps.txt
+            ${{ runner.temp }}/messenger-live-evidence/execution/apk-identity.json
+            ${{ runner.temp }}/messenger-live-evidence/execution/device-separation.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Publish only the Alpha09 run-bound public encryption key
+        if: env.MESSENGER_LIVE_PROFILE == 'alpha09-release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: messenger-live-public-key-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/messenger-live-public-key/public-key.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Wait for both Alpha09 code screens after the private receiver is ready
+        if: env.MESSENGER_LIVE_PROFILE == 'alpha09-release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          limit=$((SECONDS + 900))
+          until [[ -f "$RUNNER_TEMP/messenger-live-evidence/execution/code-handoff.json" ]]; do
+            if [[ -f "$RUNNER_TEMP/messenger-live-control/exit" ]] || ((SECONDS >= limit)); then
+              echo '::error::The paired private code-entry window closed.'
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Publish the sanitized code-entry handoff
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -247,6 +298,7 @@ jobs:
             ${{ runner.temp }}/messenger-live-evidence/execution/apk-identity.json
             ${{ runner.temp }}/messenger-live-evidence/execution/installed-apps.txt
             ${{ runner.temp }}/messenger-live-evidence/execution/device-separation.json
+            ${{ runner.temp }}/messenger-live-evidence/execution/host-install-stages.txt
             ${{ runner.temp }}/messenger-live-evidence/execution/cold-restart.txt
             ${{ runner.temp }}/messenger-live-evidence/execution/upgrade-alpha07.json
             ${{ runner.temp }}/messenger-live-evidence/execution/installation-scenario.json
