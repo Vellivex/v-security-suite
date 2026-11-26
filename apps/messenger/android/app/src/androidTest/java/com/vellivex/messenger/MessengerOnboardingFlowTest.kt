@@ -1,5 +1,14 @@
 package com.vellivex.messenger
 
+import android.graphics.Bitmap
+import android.view.WindowManager
+import androidx.compose.ui.graphics.asAndroidBitmap
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeReader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -243,6 +252,62 @@ class MessengerOnboardingFlowTest {
 }
 
 /** The host runner stops the app process after the UI flow and before invoking this class. */
+@RunWith(AndroidJUnit4::class)
+class MessengerProfileQrPairTest {
+    @get:Rule
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun handOffTheVisibleProfileQrBetweenSignedInInstallations() = runBlocking<Unit> {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val args = InstrumentationRegistry.getArguments()
+        val role = requireNotNull(args.getString("qrRole"))
+        require(role == "sender" || role == "recipient")
+        val fixture = localFixture()
+        val app = instrumentation.targetContext.applicationContext as MessengerApplication
+        val repository = app.repository
+        compose.waitForText("Email address")
+        lateinit var model: MessengerViewModel
+        compose.activityRule.scenario.onActivity { model = ViewModelProvider(it)[MessengerViewModel::class.java] }
+        compose.waitUntil(30_000) { !model.authenticationPending && !repository.state.value.busy }
+        fixture.signIn(repository, "qr-$role-" + UUID.randomUUID().toString().take(8) + "@example.test")
+        fixture.createRecoveryFor(repository).fill('\u0000')
+        compose.waitForText("Messages")
+        assertTrue("This QA must keep Messenger screen protection", compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+        val userId = checkNotNull(repository.state.value.userId)
+        if (role == "sender") {
+            compose.onNodeWithContentDescription("Your profile").performClick()
+            compose.waitForText("Your Vellivex ID")
+            compose.onNodeWithText(userId).assertIsDisplayed()
+            val qr = compose.onNodeWithContentDescription("QR code for your public contact ID").assertIsDisplayed()
+            val layer = qr.fetchSemanticsNode().config[PublicProfileQrLayer]
+            val bitmap = withContext(Dispatchers.Main) { layer.toImageBitmap() }
+                .asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            val luminance = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
+            val decoded = QRCodeReader().decode(BinaryBitmap(HybridBinarizer(luminance))).text
+            bitmap.recycle()
+            assertEquals("The visible QR must encode this profile", "https://www.vellivex.com/invite#/$userId", decoded)
+            instrumentation.sendStatus(2, Bundle().apply { putString("qrHandoff", decoded) })
+        } else {
+            val source = checkNotNull(args.getString("expectedQr"))
+            val sender = checkNotNull(vellivexInvitationContact(source))
+            assertFalse("The devices must use distinct accounts", sender == userId)
+            compose.onNodeWithText("Start a conversation").assertDoesNotExist()
+            instrumentation.sendStatus(2, Bundle().apply { putString("qrRecipient", "ready") })
+            compose.waitForText("Start a conversation")
+            compose.onNodeWithText(sender).assertIsDisplayed()
+            assertTrue("Scanning an invitation must wait for confirmation", repository.state.value.rooms.none { it.peerId == sender })
+            compose.onNodeWithText("Continue").assertIsDisplayed().assertIsEnabled()
+            compose.onNodeWithText("Cancel").performClick()
+            compose.waitForTextToClear("Start a conversation")
+            assertTrue("Cancel must preserve the recipient inbox", repository.state.value.rooms.none { it.peerId == sender })
+            instrumentation.sendStatus(2, Bundle().apply { putString("qrRecipient", "matching-contact-cancelled") })
+        }
+    }
+}
+
 @RunWith(AndroidJUnit4::class)
 class MessengerOnboardingRestartTest {
     @get:Rule

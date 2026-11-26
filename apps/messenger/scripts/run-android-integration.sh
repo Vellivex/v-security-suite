@@ -47,6 +47,7 @@ emulator="$sdk/emulator/emulator"
 
 work_dir=$(mktemp -d)
 emulator_pid=''
+second_emulator_pid=''
 synapse_pid=''
 adb=("$sdk/platform-tools/adb" -s emulator-5554)
 stop_synapse() {
@@ -57,6 +58,10 @@ stop_synapse() {
   fi
 }
 cleanup() {
+  if [[ -n "$second_emulator_pid" ]]; then
+    kill "$second_emulator_pid" 2>/dev/null || true
+    wait "$second_emulator_pid" 2>/dev/null || true
+  fi
   stop_synapse
   if [[ -n "$emulator_pid" ]]; then
     kill "$emulator_pid" 2>/dev/null || true
@@ -194,6 +199,94 @@ if [[ $# == 5 ]]; then
   run_instrumentation MessengerOnboardingRestartTest -e messengerUiRestart true \
     -e messengerUpgradeFromVersion "$previous_app_version" -e messengerUpgradeTargetVersion "$target_app_version"
   exit
+fi
+
+# This QA branch adds one isolated two-device handoff before the usual integration suite.
+if [[ $# == 1 && ${GITHUB_HEAD_REF:-} == test/messenger-alpha10-profile-qr-pair-20261126 ]]; then
+  sender=("${adb[@]}")
+  recipient=("${adb[0]}" -s emulator-5556)
+  printf 'no\n' | "$sdk_tools/avdmanager" create avd --name vellivex-qr-recipient --package "$system_image"
+  "$emulator" -avd vellivex-qr-recipient -port 5556 -accel on -memory 1536 -cores 2 -gpu swiftshader \
+    -no-window -no-audio -no-snapshot -no-boot-anim >"$work_dir/qr-recipient-boot.log" 2>&1 &
+  second_emulator_pid=$!
+  deadline=$((SECONDS + 300))
+  while [[ $(timeout 5 "${recipient[@]}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true) != 1 ]]; do
+    (( SECONDS < deadline )) || { echo 'Second Android emulator did not boot.' >&2; exit 1; }
+    sleep 2
+  done
+  for serial in sender recipient; do
+    declare -n phone=$serial
+    "${phone[@]}" shell settings get secure android_id | tr -d '\r' >"$work_dir/$serial-id"
+    "${phone[@]}" shell wm dismiss-keyguard
+    "${phone[@]}" shell wm size 720x1280
+    "${phone[@]}" shell wm density 320
+    unset -n phone
+  done
+  [[ -s "$work_dir/sender-id" && -s "$work_dir/recipient-id" ]]
+  if cmp -s "$work_dir/sender-id" "$work_dir/recipient-id"; then
+    echo 'Two independent device identities are required.' >&2; exit 1
+  fi
+  "${recipient[@]}" install -t "$app_apk"
+  "${recipient[@]}" install -t "$test_apk"
+  "${recipient[@]}" reverse tcp:8008 tcp:8008
+  "${recipient[@]}" reverse tcp:8025 tcp:8025
+  start_synapse qr
+  pair_class=com.vellivex.messenger.MessengerProfileQrPairTest
+  run_pair_role() {
+    local serial=$1 role=$2
+    shift 2
+    timeout 6m "${adb[0]}" -s "$serial" shell am instrument -w -r -e class "$pair_class" \
+      -e qrRole "$role" -e messengerMailboxKey "$mailbox_key" "$@" "$runner" | tr -d '\r'
+  }
+  passed_pair_role() {
+    grep -Eq '^OK \(1 test\)$' "$1" && grep -Fxq 'INSTRUMENTATION_CODE: -1' "$1" &&
+      ! grep -Eq '^INSTRUMENTATION_STATUS_CODE: -[0-9]+$' "$1"
+  }
+  run_pair_role emulator-5554 sender >"$work_dir/sender-result"
+  if ! passed_pair_role "$work_dir/sender-result"; then
+    grep -E 'AssertionError|IllegalStateException|RuntimeException|NotFoundException|Exception:|Unable to' "$work_dir/sender-result" | head -3 | sed -E 's/@[^ ]+/@synthetic/g' || true
+    echo 'Sender could not decode its own visible profile QR.' >&2; exit 1
+  fi
+  scanned=$(sed -n 's/^INSTRUMENTATION_STATUS: qrHandoff=//p' "$work_dir/sender-result")
+  [[ "$scanned" =~ ^https://www\.vellivex\.com/invite#/@[a-zA-Z0-9_.=-]+:[a-zA-Z0-9.:-]+$ ]]
+  printf '%s\n' 'Decoded public QR pixels rendered in the sender profile. Account data remains local to this fixture.'
+  # A debug signer has no association with the production host. Exercise Android's per-user
+  # supported-link setting on this dedicated device, leaving domain verification untouched.
+  "${recipient[@]}" shell pm set-app-links-user-selection --user 0 --package "$test_app" true www.vellivex.com
+  "${recipient[@]}" shell pm get-app-links --user 0 "$test_app" | tr -d '\r' >"$work_dir/link-state"
+  if grep -Eq 'www\.vellivex\.com: verified' "$work_dir/link-state"; then
+    echo 'Unexpected verified domain on this debug installation.' >&2; exit 1
+  fi
+  run_pair_role emulator-5556 recipient -e expectedQr "$scanned" >"$work_dir/recipient-result" &
+  receiver_pid=$!
+  deadline=$((SECONDS + 210))
+  until grep -Fxq 'INSTRUMENTATION_STATUS: qrRecipient=ready' "$work_dir/recipient-result"; do
+    if (( SECONDS >= deadline )) || ! kill -0 "$receiver_pid" 2>/dev/null; then
+      echo 'Second test account did not finish sign-in and recovery.' >&2; exit 1
+    fi
+    sleep 1
+  done
+  action=(-a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "$scanned")
+  component=$("${recipient[@]}" shell cmd package resolve-activity --brief "${action[@]}" | tr -d '\r' | tail -n 1)
+  [[ "$component" == "$test_app/com.vellivex.messenger.MainActivity" ]]
+  "${recipient[@]}" shell am start -W "${action[@]}" >"$work_dir/recipient-launch"
+  grep -Eq 'Status: ok|Warning: Activity not started, intent has been delivered' "$work_dir/recipient-launch"
+  wait "$receiver_pid"
+  passed_pair_role "$work_dir/recipient-result"
+  grep -Fxq 'INSTRUMENTATION_STATUS: qrRecipient=matching-contact-cancelled' "$work_dir/recipient-result"
+  cat >"$evidence_dir/profile-qr-handoff.json" <<'RECEIPT'
+{"android_api":35,"distinct_emulators":true,"distinct_signed_in_test_accounts":true,"synthetic_synapse":true,"release_signed_build":false,"sender_qr_source":"drawn public profile QR image in app-owned Compose layer","secure_window_enabled":true,"qr_matches_sender_profile":true,"recipient_link_selection":"Android per-user supported link setting on a test-signed install","production_domain_verification_tested_here":false,"external_view_intent_has_no_package_or_component":true,"resolved_activity":"com.vellivex.messenger.alpha/com.vellivex.messenger.MainActivity","recipient_contact_matches_sender":true,"cancel_kept_inbox_unchanged":true,"third_party_chooser_shown":false}
+RECEIPT
+  cat "$evidence_dir/profile-qr-handoff.json"
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+    printf '%s\n' 'Two signed-in Android test installations passed the profile QR handoff. The public QR was decoded from its rendered pixels. Android opened Vellivex using a per-user supported-link preference for the test signer. The matching contact appeared and Cancel left the inbox unchanged.' >>"$GITHUB_STEP_SUMMARY"
+  fi
+  # A fresh run of the ordinary integration suite must start with an unused installation.
+  "${sender[@]}" shell pm clear "$test_app" >/dev/null
+  stop_synapse
+  kill "$second_emulator_pid" || true
+  wait "$second_emulator_pid" || true
+  second_emulator_pid=''
 fi
 
 overall_status=0
