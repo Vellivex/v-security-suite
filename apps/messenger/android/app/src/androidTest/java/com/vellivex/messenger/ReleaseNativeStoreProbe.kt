@@ -88,11 +88,22 @@ internal fun diagnosticFailure(stage: String, error: Throwable): AssertionError 
         "linker", "dlopen", "cannot locate symbol", "android", "initialized", "thread", "java vm", "classloader",
         "class not found", "classnotfound", "null pointer", "java exception", "tls", "not found", "ffi", "incompatible",
         "unsupported", "already borrowed", "jni", "bindings", "mapping", "pointer", "alignment",
-        "hardware", "dns", "tokio", "runtime", "reqwest", "trust anchor", "builder", "resource", "store key",
+        "expect rustls-platform-verifier to be initialized", "hardware", "dns", "tokio", "runtime", "reqwest", "trust anchor", "builder", "resource", "store key",
         "null", "backtrace", "uninitialized", "returned empty", "uniffi", "join error", "read-only").filter { it in details }
     val frames = chain.flatMap { it.stackTrace.asList() }.filter {
         it.className.startsWith("org.matrix.") || it.className.startsWith("uniffi.") || it.className.startsWith("com.sun.jna.")
     }.take(6).map { it.className.substringAfterLast('.') + "." + it.methodName }
-    return AssertionError("NATIVE-DIAG stage=$stage type=" + chain.joinToString("/") { it.javaClass.simpleName } +
+    val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+    val loader = org.matrix.rustsdk.Android::class.java.classLoader as dalvik.system.BaseDexClassLoader
+    val jvmPath = loader.findLibrary("matrix_sdk_ffi")
+    val mode = InstrumentationRegistry.getArguments().getString("loaderStrategy")
+    val libName = if (mode == "canonical-path") requireNotNull(jvmPath) else "matrix_sdk_ffi"
+    val libraryFile = com.sun.jna.NativeLibrary.getInstance(libName).file
+    val mapping = java.io.File("/proc/self/maps").useLines { lines ->
+        lines.filter { it.contains("libmatrix_sdk_ffi.so") }.map { line -> line.substringAfterLast(' ') }.distinct().count()
+    }
+    val orig = when { jvmPath == null -> "none"; jvmPath.contains("!/") -> "in-apk"; else -> "extracted" }
+    val jnaPath = when { libraryFile.path == jvmPath -> "same"; libraryFile.isAbsolute -> "absolute-other"; else -> "relative" }
+    return AssertionError("NATIVE-DIAG loader=$orig/$jnaPath explicitMapCount=$mapping stage=$stage type=" + chain.joinToString("/") { it.javaClass.simpleName } +
         " categories=" + categories.joinToString(",") + " frames=" + frames.joinToString(","))
 }

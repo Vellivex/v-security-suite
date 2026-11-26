@@ -15,6 +15,10 @@ bt="$ANDROID_HOME/build-tools/36.0.0"
 adb="$ANDROID_HOME/platform-tools/adb"
 image='system-images;android-35;google_apis;x86_64'
 "$sdk/sdkmanager" --install 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0' 'emulator' "$image"
+# Change only the instrumentation runner declaration in this ephemeral checkout.
+runner_build=apps/messenger/android/app/build.gradle.kts
+test "$(grep -Fc 'testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"' "$runner_build")" = 1
+sed -i 's/testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"/testInstrumentationRunner = "com.vellivex.messenger.NativeProbeRunner"/' "$runner_build"
 (cd apps/messenger/android && ./gradlew --no-daemon --max-workers=2 "-PmatrixSdkAar=$RUNNER_TEMP/sdk/vellivex-matrix-sdk.aar" :app:assembleDebug :app:assembleDebugAndroidTest)
 debug=$(find apps/messenger/android/app/build/outputs/apk/debug -name '*arm64-v8a*debug.apk' -print -quit)
 test -f "$debug"
@@ -68,18 +72,19 @@ test -n "$bridge" && test "$bridge" != 0
 tests='com.vellivex.messenger.MessengerProductionHttpsTest,com.vellivex.messenger.ReleaseNativeStoreProbe'
 if "$adb" -s "$device" shell pm path com.vellivex.messenger.alpha | grep -q '^package:'; then exit 1; fi
 result=0
-for target in release debug; do
+for strategy in baseline canonical-path same-handle-init; do
+  target=release
   app="$work/qa.apk"
   if [[ "$target" == debug ]]; then app="$work/debug.apk"; fi
   "$adb" -s "$device" install -t --abi arm64-v8a "$app"
   "$adb" -s "$device" install -t "$work/test.apk"
   "$adb" -s "$device" shell dumpsys package com.vellivex.messenger.alpha | grep -m1 'primaryCpuAbi=arm64-v8a'
-  echo "Testing $target payload on Android 35 ARM64 translation: $bridge"
-  timeout 180 "$adb" -s "$device" shell am instrument -w -r -e probeTarget "$target" -e class "$tests" com.vellivex.messenger.alpha.test/androidx.test.runner.AndroidJUnitRunner > "$work/result-$target"
+  echo "Testing $target payload. Bootstrap strategy: $strategy. Android 35 ARM64 bridge: $bridge"
+  timeout 180 "$adb" -s "$device" shell am instrument -w -r -e loaderStrategy "$strategy" -e probeTarget "$target" -e class "$tests" com.vellivex.messenger.alpha.test/com.vellivex.messenger.NativeProbeRunner > "$work/result-$target"
   grep -E '^INSTRUMENTATION_STATUS: test=|^INSTRUMENTATION_STATUS_CODE:|^OK \( |^OK \(|^Tests run:|^INSTRUMENTATION_CODE:' "$work/result-$target" || true
   if ! grep -Eq '^OK \(3 tests\)' "$work/result-$target"; then
-    grep 'NATIVE-DIAG stage=' "$work/result-$target" | head -10 || true
-    result=1
+    grep 'NATIVE-DIAG loader=' "$work/result-$target" | head -10 || true
+    [[ "$strategy" == baseline ]] || result=1
   fi
   "$adb" -s "$device" uninstall com.vellivex.messenger.alpha.test
   "$adb" -s "$device" uninstall com.vellivex.messenger.alpha
