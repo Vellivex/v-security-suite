@@ -297,7 +297,8 @@ class MessengerProfileQrPairTest {
             compose.onNodeWithText("Start a conversation").assertDoesNotExist()
             instrumentation.sendStatus(2, Bundle().apply { putString("qrRecipient", "ready") })
             compose.waitUntil(110_000) {
-                compose.onAllNodes(hasText("Start a conversation")).fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodes(hasText("Start a conversation"))
+                    .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
             }
             compose.onNodeWithText(sender).assertIsDisplayed()
             assertTrue("Scanning an invitation must wait for confirmation", repository.state.value.rooms.none { it.peerId == sender })
