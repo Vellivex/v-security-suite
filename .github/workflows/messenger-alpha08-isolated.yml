@@ -1,0 +1,72 @@
+name: Two isolated Alpha08 Android installations
+on:
+  push:
+    branches: [test/messenger-alpha08-isolated-20261126]
+    paths:
+      - '.github/workflows/messenger-alpha08-isolated.yml'
+      - 'apps/messenger/scripts/run-android-app-to-app.sh'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  two-android-apps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Check out the test harness and verify the unmodified application sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=20 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
+          base=cce95dd977e40c2a043e48357c84eef5c55c9d8c
+          git diff --exit-code "$base" HEAD -- apps/messenger/android apps/messenger/android-app-to-app apps/messenger/sdk apps/messenger/server apps/messenger/scripts/app-to-app-coordinator.py
+      - name: Verify the exact SDK previously built from this source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/14659184330/zip > "$RUNNER_TEMP/sdk.zip"
+          echo "f761f5f0f06f9ac39cd3d9ad5957c207ca5b2becf6ca3d5687d54b8d7ea02545  $RUNNER_TEMP/sdk.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/sdk.zip" -d "$RUNNER_TEMP/sdk"
+          cd "$RUNNER_TEMP/sdk"
+          test "$(cat source-commit.txt)" = cce95dd977e40c2a043e48357c84eef5c55c9d8c
+          sha256sum --check --strict vellivex-matrix-sdk.aar.sha256
+      - name: Build separate debug application and Android interface driver
+        working-directory: apps/messenger
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:?}" PATH="${JAVA_HOME_21_X64:?}/bin:$PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
+          (cd android && ./gradlew --no-daemon --console=plain --max-workers=2 "-PmatrixSdkAar=$RUNNER_TEMP/sdk/vellivex-matrix-sdk.aar" :app:assembleDebug)
+          app=$(find android/app/build/outputs/apk/debug -name '*arm64-v8a*debug.apk' -print -quit)
+          test -f "$app"
+          cp "$app" "$RUNNER_TEMP/alpha08-source.apk"
+          # Sign the driver independently, using a clean per-build debug keystore.
+          mkdir -p "$RUNNER_TEMP/driver-android"
+          (cd android-app-to-app && ANDROID_USER_HOME="$RUNNER_TEMP/driver-android" ../android/gradlew --no-daemon --console=plain --max-workers=2 :app:assembleDebug :app:assembleDebugAndroidTest)
+          echo "MESSENGER_SOURCE_TEST_SHA256=$(sha256sum "$app" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$app" | sed -n 's/^Signer #1 certificate SHA-256 digest: /MESSENGER_SOURCE_TEST_SIGNER=/p' >> "$GITHUB_ENV"
+      - name: Run the two installed apps against isolated Synapse
+        env:
+          MESSENGER_ACCEPTANCE_ALPHA: alpha08-source
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            sudo chown "$(id -u):$(id -g)" /dev/kvm
+            sudo chmod u+rw /dev/kvm
+          fi
+          driver=apps/messenger/android-app-to-app/app/build/outputs/apk
+          bash apps/messenger/scripts/run-android-app-to-app.sh "$RUNNER_TEMP/test-evidence" "$RUNNER_TEMP/alpha08-source.apk" "$driver/debug/app-debug.apk" "$driver/androidTest/debug/app-debug-androidTest.apk"
+      - name: Save sanitized emulator evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: alpha08-source-two-emulator-results
+          path: ${{ runner.temp }}/test-evidence
+          if-no-files-found: warn
+          retention-days: 7

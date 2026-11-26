@@ -12,7 +12,8 @@ acceptance_alpha=${MESSENGER_ACCEPTANCE_ALPHA:-alpha06}
 case "$acceptance_alpha" in
   alpha05) expected_version=5 ;;
   alpha06) expected_version=6 ;;
-  *) printf '%s\n' 'MESSENGER_ACCEPTANCE_ALPHA must be alpha05 or alpha06.' >&2; exit 2 ;;
+  alpha08-source) expected_version=8 ;;
+  *) printf '%s\n' 'MESSENGER_ACCEPTANCE_ALPHA must be alpha05, alpha06 or alpha08-source.' >&2; exit 2 ;;
 esac
 evidence_dir=$1
 mkdir -p -- "$evidence_dir"
@@ -58,6 +59,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ "$acceptance_alpha" == alpha08-source ]]; then
+  # This profile exercises the freshly built debug APK on a local test server.
+  # It cannot qualify the production binary or stand in for release signing.
+  "$python_bin" - "$app_apk" "$evidence_dir/apk-identity.json" "${MESSENGER_SOURCE_TEST_SHA256:?}" "${MESSENGER_SOURCE_TEST_SIGNER:?}" <<'PYTHON'
+import hashlib, json, pathlib, re, sys
+app, report = map(pathlib.Path, sys.argv[1:3])
+digest, signer = sys.argv[3:5]
+if not all(re.fullmatch(r'[0-9a-f]{64}', item) for item in (digest, signer)):
+    raise SystemExit('Missing source APK identity')
+if hashlib.sha256(app.read_bytes()).hexdigest() != digest:
+    raise SystemExit('Source test APK does not match the build step')
+if signer == '3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2':
+    raise SystemExit('Source fixture must have its own disposable signing certificate')
+report.write_text(json.dumps({
+    'acceptance_alpha': 'alpha08-source', 'production_installer': False,
+    'source_commit': 'cce95dd977e40c2a043e48357c84eef5c55c9d8c',
+    'app_sha256': digest, 'expected_signer_sha256': signer,
+    'app_bytes': app.stat().st_size, 'version_code': 8,
+}, indent=2) + '\n')
+PYTHON
+  printf '%s' "$MESSENGER_SOURCE_TEST_SIGNER" > "$work_dir/expected-signer"
+  expected_name='0.1.0-alpha08-test'
+else
+  expected_name="0.1.0-$acceptance_alpha-test"
 "$python_bin" - "$messenger_dir/android/arm64-$acceptance_alpha-acceptance.json" "$app_apk" "$work_dir/expected-signer" "$evidence_dir/apk-identity.json" <<'PY'
 import hashlib, json, pathlib, re, sys
 manifest_path, app_path, signer_path, report_path = map(pathlib.Path, sys.argv[1:])
@@ -82,6 +107,7 @@ pathlib.Path(report_path).write_text(json.dumps({
     'acceptance_alpha': alpha, 'version_code': {'alpha05': 5, 'alpha06': 6}[alpha],
 }, indent=2) + '\n')
 PY
+fi
 expected_signer=$(<"$work_dir/expected-signer")
 for input in "$app_apk" "$harness_apk" "$test_apk"; do
   "$build_tools/apksigner" verify "$input" >/dev/null
@@ -96,7 +122,7 @@ test_signer=$(signer_for "$test_apk")
 app_badging=$("$build_tools/aapt" dump badging "$app_apk")
 harness_badging=$("$build_tools/aapt" dump badging "$harness_apk")
 test_badging=$("$build_tools/aapt" dump badging "$test_apk")
-grep -Fq "package: name='com.vellivex.messenger.alpha' versionCode='$expected_version' versionName='0.1.0-$acceptance_alpha-test'" <<< "$app_badging"
+grep -Fq "package: name='com.vellivex.messenger.alpha' versionCode='$expected_version' versionName='$expected_name'" <<< "$app_badging"
 grep -Eq "^native-code: 'arm64-v8a'[[:space:]]*$" <<< "$app_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a' " <<< "$harness_badging"
 grep -Eq "^package: name='com\.vellivex\.messenger\.a2a\.test' " <<< "$test_badging"
