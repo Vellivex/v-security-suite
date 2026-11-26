@@ -80,6 +80,20 @@ for setting in window_animation_scale transition_animation_scale animator_durati
     device shell settings put global "$setting" 0
 done
 device shell wm dismiss-keyguard
+# sys.boot_completed can precede Android publishing its default network/DNS configuration.
+# ICMP need not succeed: the numeric peer in ping's header demonstrates DNS is usable.
+dns_ready=false
+deadline=$((SECONDS+75))
+while (( SECONDS < deadline )); do
+    device shell ping -c 1 -W 2 messenger.vellivex.com > "$work/dns-probe" 2>/dev/null || true
+    if grep -Eq '^PING [^ ]+ \([0-9a-fA-F.:]+\)' "$work/dns-probe"; then
+        dns_ready=true
+        break
+    fi
+    sleep 2
+done
+test "$dns_ready" = true
+echo 'Android resolved the public messaging service hostname.'
 device install --abi x86_64 "$work/probe.apk"
 device shell dumpsys package com.vellivex.qa.physical > "$work/package.txt"
 grep -Eq '^[[:space:]]*primaryCpuAbi=x86_64[[:space:]]*$' "$work/package.txt"
