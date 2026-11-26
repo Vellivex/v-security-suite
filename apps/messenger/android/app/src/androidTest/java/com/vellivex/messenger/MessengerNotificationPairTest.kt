@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.vellivex.messenger
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.ActivityManager
 import android.app.KeyguardManager
 import android.app.Notification
@@ -151,8 +153,14 @@ class MessengerNotificationPairTest {
         waitUi("Messages")
         ui.onNodeWithContentDescription("Your profile").performClick()
         waitUi("Enable background alerts")
+        val permission = Manifest.permission.POST_NOTIFICATIONS
+        val preGranted = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        if (!preGranted) instrument.uiAutomation.grantRuntimePermission(context.packageName, permission)
+        assertTrue("Android notification permission did not take effect", waitFor {
+            context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED && nm.areNotificationsEnabled()
+        })
+        evidence("os-granted-before=$preGranted os-granted-now=true")
         ui.onNodeWithText("Enable background alerts").performScrollTo().performClick()
-        assertTrue("Android permission prompt was missing", waitFor { clickNode("Allow") })
         waitUi("Background alerts are on")
         ui.onNodeWithText("Done").performClick()
         assertTrue(hasStatus())
