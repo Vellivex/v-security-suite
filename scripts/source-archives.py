@@ -34,6 +34,7 @@ messenger_text_files = {
     messenger_root + 'sdk/peer-device-verification.patch',
     messenger_root + 'website/v44-invite-only-alpha09.patch',
     messenger_root + 'website/v45-alpha09-tester-wording.patch',
+    messenger_root + 'website/v46-first-party-invites.patch',
 }
 public_executables = public_hooks | {gradle_launcher}
 private_suffixes = {'.pem', '.key', '.der', '.pfx', '.p12', '.jks', '.keystore', '.pass', '.sqlite', '.sqlite3', '.db', '.db3'}

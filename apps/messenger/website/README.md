@@ -25,3 +25,9 @@ printf '%s  %s\n' f49ef3acf80a996d08f36db91ee819f8c3f439e2e7fabc875f7502d9a4203e
 If the source digest differs, compare the current deployment before applying the guide changes. Publish through the existing website deployment process, which preserves the other modules, bindings and runtime settings.
 
 The candidate passed 562 repository host tests. The website wrapper served both complete signed APKs with the expected checksums and handled HEAD and byte-range requests. The offline comparison also covered the guide and homepage for invited testers, 18 responses from existing routes, and the unavailable-download fallback.
+
+## Vellivex contact invitations
+
+Apply `v46-first-party-invites.patch` to the v46 website module with SHA-256 `f49ef3acf80a996d08f36db91ee819f8c3f439e2e7fabc875f7502d9a4203ec4`. The resulting module SHA-256 is `eff9e0c3844ca5672f4657bcf9ef59c0caf567ce8d86d1da3195fd7ab9ff70a7`. Reverse the same patch to recover the original bytes.
+
+On `www.vellivex.com`, the website serves Android's app association at `/.well-known/assetlinks.json`. The fingerprint is the SHA-256 of the retained alpha signing certificate verified on the signed universal Alpha09 APK. New clients claim the exact `/invite` path. The browser fallback reads the public contact ID from the URL fragment and lets the recipient copy it into Vellivex. The setup guide also covers existing Alpha09 QR codes and shared links.

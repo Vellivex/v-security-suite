@@ -497,3 +497,40 @@ test('sitemap removes existing legal entries while preserving unrelated metadata
   assert.doesNotMatch(body,/phones\/(?:terms|privacy)/);
   assert.match(body,/<loc>https:\/\/www\.vellivex\.com\/blog\/keep<\/loc><lastmod>2026-11-12<\/lastmod>/);
 });
+
+test('Messenger publishes the signed Android app association on the canonical host', async () => {
+  const path = '/.well-known/assetlinks.json';
+  const worker = shop();
+  const association = await worker.fetch(request(path), {});
+  assert.equal(association.status, 200);
+  assert.equal(association.headers.get('Content-Type'), 'application/json');
+  assert.deepEqual(await association.json(), [{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: {
+      namespace: 'android_app', package_name: 'com.vellivex.messenger.alpha',
+      sha256_cert_fingerprints: ['3A:AC:05:CA:DC:D0:CB:90:DF:F2:47:41:18:58:6D:53:7C:E4:5C:F1:77:F2:37:AA:90:A8:4A:6E:D3:40:0D:F2'],
+    },
+  }]);
+  for (const route of [path, '/invite']) {
+    assert.equal((await worker.fetch(request(route, 'HEAD'), {})).status, 200);
+    assert.equal(await (await worker.fetch(request(route, 'HEAD'), {})).text(), '');
+    assert.equal((await worker.fetch(request(route, 'PUT'), {})).status, 405);
+    assert.equal(await (await worker.fetch(request(route, 'GET', 'https://vellivex.com'), {})).text(), 'Preserved application');
+  }
+});
+
+test('Messenger fallback is a first-party page with a hash-pinned private contact reader', async () => {
+  const worker = shop();
+  const page = await worker.fetch(request('/invite#/@example:example.org'), {});
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('Referrer-Policy'), 'no-referrer');
+  const body = await page.text();
+  const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  assert.equal(scripts.length, 1);
+  const digest = createHash('sha256').update(scripts[0][1]).digest('base64');
+  assert.match(page.headers.get('Content-Security-Policy'), /default-src 'none'/);
+  assert.ok(page.headers.get('Content-Security-Policy').includes("script-src 'sha256-" + digest + "'"));
+  assert.match(body, /href="\/messenger">Get Vellivex Messenger for Android/);
+  assert.doesNotMatch(body, /example\.org|matrix\.to|https?:\/\/|localStorage|sessionStorage|sendBeacon|fetch\(/);
+  assert.match(await html('/messenger'), /If an older QR code opens a list of Matrix apps/);
+});

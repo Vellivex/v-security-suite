@@ -104,6 +104,7 @@
   "apps/messenger/website/README.md",
   "apps/messenger/website/v44-invite-only-alpha09.patch",
   "apps/messenger/website/v45-alpha09-tester-wording.patch",
+  "apps/messenger/website/v46-first-party-invites.patch",
   "apps/vault/crypto.js",
   "apps/vguard/.gitignore",
   "apps/vguard/README.md",

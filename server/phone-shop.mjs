@@ -152,6 +152,81 @@ function messengerHero(downloadAvailable) {
     </div>
   </section>`;
 }
+// Android verifies the alpha package against the certificate on the signed public APK.
+const messengerAssociation = JSON.stringify([{
+  relation: ['delegate_permission/common.handle_all_urls'],
+  target: {
+    namespace: 'android_app',
+    package_name: 'com.vellivex.messenger.alpha',
+    sha256_cert_fingerprints: ['3A:AC:05:CA:DC:D0:CB:90:DF:F2:47:41:18:58:6D:53:7C:E4:5C:F1:77:F2:37:AA:90:A8:4A:6E:D3:40:0D:F2'],
+  },
+}]);
+
+// The fragment stays in the browser. This script only displays and copies a contact ID.
+const messengerInviteScript = String.raw`(() => {
+  const contact = document.getElementById('contact');
+  const details = document.getElementById('contact-details');
+  const copy = document.getElementById('copy-contact');
+  const status = document.getElementById('invite-status');
+  function readContact() {
+    const hash = location.hash;
+    if (location.search || !hash.startsWith('#/') || hash.length > 767) return '';
+    try {
+      const id = decodeURIComponent(hash.slice(2));
+      if (id.length > 255 || /[^A-Za-z0-9_.=+/@:\[\]-]/.test(id)) return '';
+      return /^@[A-Za-z0-9_.=+/-]+:[A-Za-z0-9.:\[\]-]+$/.test(id) ? id : '';
+    } catch {
+      return '';
+    }
+  }
+  function showContact() {
+    const id = readContact();
+    contact.textContent = id;
+    details.hidden = !id;
+    document.getElementById('copy-action').hidden = !navigator.clipboard?.writeText;
+    status.textContent = id ? '' : 'This link is missing a valid contact ID. Ask your contact to share their invitation again.';
+  }
+  copy.addEventListener('click', async () => {
+    const id = readContact();
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(id);
+      status.textContent = 'Contact ID copied.';
+    } catch {
+      status.textContent = 'Select and copy the contact ID shown above.';
+    }
+  });
+  addEventListener('hashchange', showContact);
+  showContact();
+})();`;
+
+async function messengerInvitation(request, association) {
+  const headers = {...envelope, 'X-Robots-Tag':'noindex, nofollow'};
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('Method not allowed', {status:405, headers:{...headers, Allow:'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'}});
+  }
+  if (association) {
+    headers['Content-Type'] = 'application/json';
+    return new Response(request.method === 'HEAD' ? null : messengerAssociation, {headers});
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(messengerInviteScript)));
+  headers['Content-Security-Policy'] += "; script-src 'sha256-" + btoa(String.fromCharCode(...digest)) + "'";
+  headers['Content-Type'] = 'text/html; charset=utf-8';
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Contact invitation · Vellivex Messenger</title><link rel="stylesheet" href="/phones-promotion.css"></head>
+    <body class="messenger-setup"><main class="messenger-setup-content">
+    <a class="messenger-guide-link" href="/">← Vellivex</a>
+    <h1>Vellivex Messenger invitation</h1>
+    <div id="contact-details" hidden><p>Your contact’s Vellivex ID<br><code id="contact"></code></p>
+    <span id="copy-action" hidden><button type="button" class="messenger-download" id="copy-contact">Copy contact ID</button></span>
+    <p>Open Vellivex, tap <strong>New conversation</strong>, paste this ID into <strong>Contact ID or link</strong> and tap <strong>Continue</strong>.</p></div>
+    <p id="invite-status" role="status"></p>
+    <noscript><p>Ask your contact for the Vellivex ID printed below their QR code. Enter it in <strong>New conversation</strong> in Vellivex.</p></noscript>
+    <p><a class="messenger-guide-link" href="${MESSENGER_SETUP_PATH}">Get Vellivex Messenger for Android</a></p>
+    </main><script>${messengerInviteScript}</script></body></html>`;
+  return new Response(request.method === 'HEAD' ? null : body, {headers});
+}
+
 function messengerSetup(downloadAvailable) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="description" content="Install the Vellivex Messenger test alpha on Android. Sign-in requires an invited email address; downloading the app does not grant access.">
@@ -183,6 +258,7 @@ function messengerSetup(downloadAvailable) {
     <p>Sign in again with the same email address and its email code. When you see <strong>Recover your account</strong>, enter the saved <strong>Recovery key</strong> and tap <strong>Recover account</strong> to restore your account’s encryption keys.</p>
     <p>Earlier conversations may remain unreadable after recovery. If you need access to the message history already available on this phone, keep the existing installation and remain signed in. Without your saved recovery key, you cannot recover your account’s encryption keys after losing this installation.</p>
     <h2>Start a conversation</h2>
+    <p>If an older QR code opens a list of Matrix apps, copy the invitation link from your camera or browser. In Vellivex, tap <strong>New conversation</strong>, paste it into <strong>Contact ID or link</strong> and tap <strong>Continue</strong>. You can also enter the Vellivex ID shown below your contact’s QR code. Vellivex Messenger is the only app you need.</p>
     <ol>
       <li>Open your profile to find and share your Vellivex ID. If you already have your contact’s ID, tap <strong>New conversation</strong> and enter it.</li>
       <li>Once you’ve both joined the conversation, tap <strong>Verify contact</strong> and compare the codes in person or through another channel you trust. Both people should tap <strong>They match</strong> only when the codes agree.</li>
@@ -292,6 +368,12 @@ export function withPhoneShop(worker, config = {}) {
   return {...worker, async fetch(request, env, ctx) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
+    if (url.origin === CANONICAL_ORIGIN && url.pathname === '/.well-known/assetlinks.json') {
+      return messengerInvitation(request, true);
+    }
+    if (url.origin === CANONICAL_ORIGIN && url.pathname === '/invite') {
+      return messengerInvitation(request, false);
+    }
     const retiredMessengerApk = RETIRED_MESSENGER_APK_PATHS.has(path);
     if (path === MESSENGER_SETUP_PATH || path === MESSENGER_APK_PATH || retiredMessengerApk) {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {
