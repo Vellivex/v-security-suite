@@ -73,8 +73,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
 import androidx.core.content.ContextCompat
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -221,6 +219,23 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
 class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
+    private var invitedContact by mutableStateOf<String?>(null)
+
+    private fun receiveInvitation(intent: Intent) {
+        if (intent.action != Intent.ACTION_VIEW) return
+        intent.dataString?.let(::vellivexInvitationContact)?.let { invitedContact = it }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveInvitation(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("invitedContact", invitedContact)
+    }
+
     override fun onStart() {
         super.onStart()
         MessengerBackgroundSyncService.setAppVisible(true)
@@ -231,6 +246,8 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) receiveInvitation(intent)
+        else invitedContact = savedInstanceState.getString("invitedContact")
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -241,13 +258,13 @@ class MainActivity : ComponentActivity() {
                 primary = Accent, onPrimary = Ink, background = Ink, surface = Surface,
                 onBackground = Color(0xFFF0F6F9), onSurface = Color(0xFFF0F6F9),
                 surfaceVariant = Color(0xFF20323F), outline = Color(0xFF435866),
-            )) { MessengerApp(model) }
+            )) { MessengerApp(model, invitedContact, clearInvitation = { invitedContact = null }) }
         }
     }
 }
 
 @Composable
-private fun MessengerApp(model: MessengerViewModel) {
+private fun MessengerApp(model: MessengerViewModel, invitedContact: String?, clearInvitation: () -> Unit) {
     val state by model.repository.state.collectAsStateWithLifecycle()
     val alertsRunning by MessengerBackgroundSyncService.running.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -271,6 +288,9 @@ private fun MessengerApp(model: MessengerViewModel) {
     LaunchedEffect(state.userId, state.recovery) {
         if (!canUseMessages) MessengerBackgroundSyncService.stop(context)
         if (state.recovery != MessengerRecovery.SetupRequired) model.forgetRecoveryKeyDisplay()
+    }
+    LaunchedEffect(invitedContact) {
+        if (invitedContact != null) showProfile = false
     }
     LaunchedEffect(state.error) {
         state.error?.let { snackbars.showSnackbar(it); model.run { clearError() } }
@@ -309,15 +329,20 @@ private fun MessengerApp(model: MessengerViewModel) {
             } else startAlerts()
         },
         close = { showProfile = false }, signOut = { showProfile = false; signOut = true })
-    if (showNewChat && canUseMessages) NewChatDialog(close = { showNewChat = false }, create = {
-        showNewChat = false; model.run { createDirectMessage(it) }
-    })
+    if ((showNewChat || invitedContact != null) && canUseMessages && state.userId != null &&
+        !showProfile && !signOut && state.verification == null) {
+        val close = { showNewChat = false; clearInvitation() }
+        NewChatDialog(initialContact = invitedContact, close = close, create = {
+            close()
+            model.run { createDirectMessage(it) }
+        })
+    }
     if (signOut) AlertDialog(onDismissRequest = { signOut = false },
         title = { Text("Sign out of this phone?") },
         text = { Text(if (canUseMessages || state.recovery == MessengerRecovery.OtherDevice)
             "Signing out removes the session and keys from this phone. Keep your saved recovery key. $RECOVERED_HISTORY_NOTE To update Messenger, stay signed in and install the update over this app to keep these keys."
             else "Signing out removes the session and encryption keys from this phone. Set up recovery first if you still have access to your keys here, and keep the saved key. $RECOVERED_HISTORY_NOTE") },
-        confirmButton = { TextButton(onClick = { signOut = false; model.run { signOut() } }) { Text("Sign out") } },
+        confirmButton = { TextButton(onClick = { signOut = false; clearInvitation(); model.run { signOut() } }) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = { signOut = false }) { Text("Keep signed in") } })
     state.verification?.takeIf { canUseMessages }?.let { v -> VerificationDialog(v, state.busy,
         accept = { model.run { acceptVerification() } },
@@ -699,11 +724,12 @@ private fun Avatar(title: String, small: Boolean = false) {
 }
 
 @Composable
-private fun NewChatDialog(close: () -> Unit, create: (String) -> Unit) {
-    var contact by remember { mutableStateOf("") }
+private fun NewChatDialog(initialContact: String?, close: () -> Unit, create: (String) -> Unit) {
+    var contact by remember(initialContact) { mutableStateOf(initialContact.orEmpty()) }
     AlertDialog(onDismissRequest = close, title = { Text("Start a conversation") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Ask your contact for their ID or paste their invitation link.", color = Muted)
+            Text(if (initialContact == null) "Ask your contact for their ID or paste their invitation link."
+                else "Check the contact ID from this invitation, then tap Continue.", color = Muted)
             OutlinedTextField(contact, { contact = it.take(512) }, label = { Text("Contact ID or link") }, singleLine = true)
         } }, confirmButton = { TextButton(onClick = { create(contact.trim()) }, enabled = contact.isNotBlank()) { Text("Continue") } },
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } })
@@ -713,11 +739,11 @@ private fun NewChatDialog(close: () -> Unit, create: (String) -> Unit) {
 private fun ProfileDialog(userId: String, recoveryReady: Boolean, setupRecovery: () -> Unit,
     alertsRunning: Boolean, toggleAlerts: () -> Unit, close: () -> Unit, signOut: () -> Unit) {
     val context = LocalContext.current
-    val invitation = "https://matrix.to/#/$userId"
-    val qr = remember(invitation) {
-        val bits = QRCodeWriter().encode(invitation, BarcodeFormat.QR_CODE, 360, 360)
-        createBitmap(360, 360).also { bitmap ->
-            for (y in 0 until 360) for (x in 0 until 360) bitmap[x, y] = if (bits[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    val invitation = vellivexInvitation(userId)
+    val qr = remember(userId) {
+        val bits = invitationQrCode(userId)
+        createBitmap(bits.width, bits.height).also { bitmap ->
+            for (y in 0 until bits.height) for (x in 0 until bits.width) bitmap[x, y] = if (bits[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
         }.asImageBitmap()
     }
     AlertDialog(onDismissRequest = close, title = { Text("Your Vellivex ID") },

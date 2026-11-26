@@ -1,5 +1,7 @@
 package com.vellivex.messenger
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.compose.ui.geometry.Rect
@@ -72,10 +74,36 @@ class MessengerOnboardingFlowTest {
         var otherRecoveryKey: CharArray? = null
         var leaveSessionForRestart = false
         try {
+            val acceptsContactLinks = installedVersionCode() >= 10L
+            val pendingContact = "@invite-$runId:example.test"
+            if (acceptsContactLinks) {
+                compose.activityRule.scenario.onActivity { activity ->
+                    activity.startActivity(testInvitation(activity, pendingContact))
+                }
+                compose.waitForText("Email address")
+                compose.onNodeWithText("Start a conversation").assertDoesNotExist()
+            }
             val firstRequestAt = compose.signInWithSyntheticMail(fixture, email, compose.activity,
                 useIme = !legacySeed, tryWrongCode = true)
             if (!legacySeed) {
                 deviceRecoveryKey = compose.createRecoveryThroughUi(device, compose.activity)
+            }
+            if (acceptsContactLinks) {
+                compose.waitForText("Start a conversation")
+                compose.activityRule.scenario.recreate()
+                compose.waitForText(pendingContact)
+                compose.onNodeWithText("Continue").assertIsEnabled()
+                compose.onNodeWithText("Cancel").performClick()
+                compose.waitForTextToClear("Start a conversation")
+                assertTrue(device.state.value.rooms.none { it.peerId == pendingContact })
+                val secondContact = "@invite-again-$runId:example.test"
+                compose.activityRule.scenario.onActivity { activity ->
+                    activity.startActivity(testInvitation(activity, secondContact))
+                }
+                compose.waitForText(secondContact)
+                compose.onNodeWithText("Cancel").performClick()
+                compose.waitForTextToClear("Start a conversation")
+                assertTrue(device.state.value.rooms.none { it.peerId == secondContact })
             }
             compose.waitForText("Messages")
             if (installedVersionCode() == 6L) {
@@ -607,6 +635,11 @@ private fun ComposeTestRule.signOutThroughUi() {
 }
 
 @Suppress("DEPRECATION")
+// This debug fixture exercises the app UI; the signed release check separately verifies OS resolution.
+private fun testInvitation(activity: MainActivity, contact: String): Intent =
+    Intent(Intent.ACTION_VIEW, Uri.parse("https://www.vellivex.com/invite#/$contact"), activity, MainActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
 private fun installedVersionCode(): Long {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     return PackageInfoCompat.getLongVersionCode(context.packageManager.getPackageInfo(context.packageName, 0))

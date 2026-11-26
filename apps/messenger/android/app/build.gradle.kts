@@ -22,8 +22,8 @@ android {
         applicationId = "com.vellivex.messenger"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.1.0-alpha09"
+        versionCode = 10
+        versionName = "0.1.0-alpha10"
         if (universalApk.get()) {
             ndk { abiFilters += setOf("arm64-v8a", "x86_64") }
         }

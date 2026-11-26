@@ -57,6 +57,7 @@
   "apps/messenger/android/app/src/androidTest/java/com/vellivex/messenger/MessengerSavedSessionTest.kt",
   "apps/messenger/android/app/src/debug/AndroidManifest.xml",
   "apps/messenger/android/app/src/main/AndroidManifest.xml",
+  "apps/messenger/android/app/src/main/java/com/vellivex/messenger/InvitationQrCode.kt",
   "apps/messenger/android/app/src/main/java/com/vellivex/messenger/MainActivity.kt",
   "apps/messenger/android/app/src/main/java/com/vellivex/messenger/MatrixRepository.kt",
   "apps/messenger/android/app/src/main/java/com/vellivex/messenger/MatrixUserId.kt",
