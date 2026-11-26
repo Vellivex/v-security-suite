@@ -14,8 +14,8 @@
   {
     "name": "app-access-entry.mjs",
     "type": "application/javascript+module",
-    "size": 616,
-    "sha256": "e460fb64cc656acc22c14c7706471e9ec095358e365379d3cd2f203660503796"
+    "size": 675,
+    "sha256": "be2e40ac048499f7f28de17f84d1a7e2052de3c6f8babff9be3b7d3e56b53f08"
   },
   {
     "name": "app-access/entry.mjs",
@@ -58,6 +58,12 @@
     "type": "application/javascript+module",
     "size": 68920,
     "sha256": "f0be3a32c0c0b245106de1368c0e1a4c5d1a7bde1f95ecce18a04f8e97697b65"
+  },
+  {
+    "name": "blog-publisher.mjs",
+    "type": "application/javascript+module",
+    "size": 8080,
+    "sha256": "43a5bf144c7f19e08e93938a0ecbaa0b0f0b271f7fa3966d180d4e2ed319e581"
   },
   {
     "name": "index.mjs",

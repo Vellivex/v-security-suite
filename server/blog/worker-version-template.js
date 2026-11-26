@@ -32,23 +32,23 @@ async () => {
   const old=await read(config.baseVersion);
   const expectedKeys=['annotations','author_email','author_id','bindings','compatibility_date','created_on','env','id','main_module','modules','number','source','startup_time_ms','urls','usage_model'];
   check(same(Object.keys(old).sort(),expectedKeys),'Review unexpected version settings before publishing');
-  check(old.number===53 && old.id===config.baseVersion && old.main_module==='app-access-entry.mjs' &&
+  check(old.number===54 && old.id===config.baseVersion && old.main_module==='app-access-entry.mjs' &&
     old.compatibility_date==='2026-10-27' && old.usage_model==='standard','Incorrect baseline');
   await compareModules(old.modules,config.baseline);
-  check(same(old.bindings.map(b=>b.name).sort(),['APP_ACCESS','DB','FEEDBACK_RATE_SECRET','MAIL_API','MARKETING_METRICS_DB','MESSENGER_RELEASES','PHONE_SHOP_SELLER_JSON','VELLIVEX_FEEDBACK_WRITE_HOLD_20261031']),'Unexpected baseline bindings');
-  const added={type:'d1',name:'BLOG_DB',database_id:config.database};
+  check(same(old.bindings.map(b=>b.name).sort(),['APP_ACCESS','BLOG_DB','DB','FEEDBACK_RATE_SECRET','MAIL_API','MARKETING_METRICS_DB','MESSENGER_RELEASES','PHONE_SHOP_SELLER_JSON','VELLIVEX_FEEDBACK_WRITE_HOLD_20261031']),'Unexpected baseline bindings');
+  const blog=old.bindings.find(b=>b.name==='BLOG_DB');
+  check(blog?.type==='d1' && (blog.database_id??blog.id)===config.database,'Incorrect original BLOG_DB binding');
   if (config.action==='stage' || config.action==='test') {
     await requireOriginal();
     const db=(await cloudflare.request({method:'GET',path:account+'/d1/database/'+config.database})).result;
     check(db.name==='vellivex-blog-content' && db.uuid===config.database,'Incorrect BLOG_DB');
     const modules=old.modules.map(({name,content_type,content_base64})=>({name,content_type,content_base64}));
-    modules.find(m=>m.name===old.main_module).content_base64=config.entry;
-    modules.push({name:'blog-publisher.mjs',content_type:'application/javascript+module',content_base64:config.renderer});
+    modules.find(m=>m.name==='blog-publisher.mjs').content_base64=config.renderer;
     await compareModules(modules,config.proposed);
     if(config.action==='test')return {ok:true,baseline:old.id,modules:modules.length,bindings:9};
     const payload={main_module:old.main_module,compatibility_date:old.compatibility_date,usage_model:old.usage_model,
-      annotations:{'workers/message':'Serve owner-published Vellivex articles, listings and feeds.'},
-      bindings:[...old.bindings.map(b=>({name:b.name,type:'inherit',version_id:old.id})),added],modules};
+      annotations:{'workers/message':'Serve photos on published Vellivex articles.'},
+      bindings:old.bindings.map(b=>({name:b.name,type:'inherit',version_id:old.id})),modules};
     await requireOriginal();
     const newVersion=(await cloudflare.request({method:'POST',path:versions,query:{deploy:false},body:payload})).result;
     return {id:newVersion.id,number:newVersion.number,created_on:newVersion.created_on};
@@ -59,10 +59,7 @@ async () => {
     check(same(old[key],target[key]),'Runtime setting changed: '+key);
   }
   check(target.bindings.length===9 && old.bindings.every(b=>same(b,target.bindings.find(c=>c.name===b.name))),'Existing binding changed');
-  check(same(Object.keys(target.env).sort(),[...Object.keys(old.env),added.name].sort()) &&
-    Object.keys(old.env).every(k=>same(old.env[k],target.env[k])),'Inherited environment map changed');
-  const blog=target.bindings.find(b=>b.name===added.name);
-  check(blog?.type==='d1' && (blog.database_id??blog.id)===config.database,'Incorrect new binding');
+  check(same(old.env,target.env),'Inherited environment map changed');
   await compareModules(target.modules,config.proposed);
   const summary={verified:true,target:target.id,number:target.number,modules:target.modules.length,bindings:target.bindings.length,database:config.database};
   if(config.action==='verify') {
@@ -71,7 +68,7 @@ async () => {
   check(config.action==='deploy' || config.action==='rollback','Unknown action');
   let dest, annotation;
   if (config.action==='deploy'){
-    await requireOriginal();dest=target.id;annotation='Publish live Vellivex blog support';
+    await requireOriginal();dest=target.id;annotation='Publish photo support for Vellivex blog posts';
   } else {
     const d=await active();check(d.id===config.deployed && isLive(d,target.id),'Rollback guard: target no longer active');
     dest=old.id;annotation='Restore previous Vellivex site version';

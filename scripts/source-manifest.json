@@ -274,6 +274,7 @@
   "server/blog/assemble.py",
   "server/blog/base-inventory.json",
   "server/blog/blog-publisher.mjs",
+  "server/blog/photos.sql",
   "server/blog/schema.sql",
   "server/blog/worker-version-template.js",
   "server/blog/worker.mjs",

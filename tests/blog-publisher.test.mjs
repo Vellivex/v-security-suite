@@ -2,6 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {withBlog} from '../server/blog/blog-publisher.mjs';
 
 const origin = 'https://www.vellivex.com';
@@ -16,10 +18,11 @@ const legacy = {
 };
 function fixture() {
   const sql = new DatabaseSync(':memory:');
-  sql.exec('CREATE TABLE blog_posts(slug TEXT PRIMARY KEY,title TEXT,summary TEXT,body TEXT,published_at TEXT,updated_at TEXT,status TEXT)');
+  sql.exec('CREATE TABLE blog_posts(slug TEXT PRIMARY KEY,title TEXT,summary TEXT,body TEXT,published_at TEXT,updated_at TEXT,status TEXT,revision INTEGER DEFAULT 1)');
+  sql.exec(readFileSync(new URL('../server/blog/photos.sql', import.meta.url), 'utf8'));
   const calls = [];
   const put = (slug, title, status = 'published', date = at) => sql.prepare(
-    'INSERT INTO blog_posts VALUES (?,?,?,?,?,?,?)'
+    'INSERT INTO blog_posts (slug,title,summary,body,published_at,updated_at,status) VALUES (?,?,?,?,?,?,?)'
   ).run(slug, title, 'A & B "guide"', 'First paragraph.\n\n## Heading\nText & <script>alert()</script>\nsecond line\n\n### Next\nLast.', date, date, status);
   const env = {BLOG_DB: {prepare(query) {
     calls.push(query);
@@ -106,4 +109,57 @@ test('unavailable D1 preserves the original static index and only known public p
   const index = await get('/blog', 'GET', unavailable);
   assert.equal(await index.text(), legacy['/blog']);
   assert.equal((await get('/blog/unknown', 'GET', unavailable)).status, 404);
+});
+
+test('photo metadata, caption and share card are escaped and bytes are served only while published', async () => {
+  const {sql, put, get, calls} = fixture();
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jY0UAAAAASUVORK5CYII=', 'base64');
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const path = '/blog/field-note/photo';
+  const versioned = path + '?v=' + digest;
+  put('field-note', 'Field note', 'draft');
+  sql.prepare('INSERT INTO blog_photos VALUES (?,?,?,?,?,?,?)')
+    .run('field-note','image/png','A "lit" window & light','<Evening> $&',bytes.byteLength,digest,bytes);
+  for (const method of ['GET', 'HEAD']) {
+    const hidden = await get(versioned, method);
+    assert.equal(hidden.status, 404);
+    assert.equal(hidden.headers.get('cache-control'), 'no-store');
+    assert.equal(await hidden.text(), '');
+  }
+  assert.equal((await get('/blog/field-note')).status, 404);
+  sql.exec("UPDATE blog_posts SET status='published' WHERE slug='field-note'");
+  const article = await (await get('/blog/field-note')).text();
+  assert.match(article, /<figure class="blog-photo"><img[^>]+alt="A &quot;lit&quot; window &amp; light"/);
+  assert.ok(article.includes('<figcaption class="fine">&lt;Evening&gt; $&amp;</figcaption>'));
+  assert.ok(article.includes('src="' + versioned + '"'));
+  assert.ok(article.includes('<meta property="og:image" content="' + origin + versioned + '">'));
+  assert.ok(article.includes('<link rel="stylesheet" href="/assets/blog-photo.css">'));
+  assert.ok(!calls.at(-1).includes('f.data'));
+  const css = await get('/assets/blog-photo.css');
+  assert.match(css.headers.get('content-type'), /text\/css/);
+  assert.match(await css.text(), /max-width:100%;height:auto/);
+  for (const url of [path, versioned]) {
+    const image = await get(url);
+    assert.equal(image.headers.get('cache-control'), 'no-store');
+    assert.equal(image.headers.get('content-type'), 'image/png');
+    assert.equal(image.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(image.headers.get('content-length'), String(bytes.byteLength));
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), bytes);
+    const head = await get(url, 'HEAD');
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('content-length'), String(bytes.byteLength));
+    assert.equal(await head.text(), '');
+    assert.ok(!calls.at(-1).includes('f.data'));
+  }
+  sql.exec("UPDATE blog_photos SET caption='' WHERE slug='field-note'");
+  assert.ok(!(await (await get('/blog/field-note')).text()).includes('<figcaption'));
+  assert.equal((await get(path + '?v=old')).status, 404);
+  assert.equal((await get(path + '?v=' + '0'.repeat(64))).status, 404);
+  sql.exec("UPDATE blog_posts SET status='draft' WHERE slug='field-note'");
+  for (const url of [path, versioned]) assert.equal((await get(url)).status, 404);
+  sql.exec("UPDATE blog_posts SET status='published' WHERE slug='field-note'; DELETE FROM blog_photos WHERE slug='field-note'");
+  const textOnly = await (await get('/blog/field-note')).text();
+  assert.ok(textOnly.includes('<h1>Field note</h1>'));
+  assert.ok(!textOnly.includes('<figure') && !textOnly.includes('blog-photo.css') && !textOnly.includes('summary_large_image'));
+  assert.equal((await get(versioned)).status, 404);
 });

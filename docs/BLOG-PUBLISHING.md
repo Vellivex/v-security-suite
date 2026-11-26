@@ -2,7 +2,13 @@
 
 In an ordinary ChatGPT chat, select **Vellivex Blog Publisher** from Apps. Ask, “Publish this on the Vellivex blog. Use the title and article below, write a short summary and give me its live link.” To keep a post private, ask to **save a draft**. To change a live article, give its URL and the change you want. To take it off the website, ask to **unpublish** it. The owner-private app handles publication, editing and withdrawal. Work mode can stay off.
 
-The connected Vellivex Cloudflare account also supports the workflow below for ordinary chats with editorial database access.
+To publish a post with a photo, attach the image to the same chat and say, “Use this photo on the article. Add a short description for readers who use a screen reader, then publish it and give me the link.” Include a caption if you want one shown under the photo. The app can also replace or remove the photo from an existing article. Supply the article link and say which change to make. Each article has room for one JPEG, PNG or WebP image. The app accepts larger JPEG uploads up to 12 MiB and 13 megapixels and resizes them to fit. The stored photo can be up to 1.5 MiB. A draft keeps its photo private, and unpublishing hides both the article and its photo.
+
+To use an existing Vellivex image, ask, “Find a relevant photo from the Vellivex media library for this article.” The app can select a checked library image and attach it to the post.
+
+For a new article with a photo, save the draft, attach the photo at the returned revision, then publish at the latest revision. Wait for the photo to succeed before publishing the draft. In the event of an interrupted response, read the draft and its photo metadata before retrying.
+
+The connected Vellivex Cloudflare account also supports the text publishing workflow below for ordinary chats with editorial database access.
 
 ## Where to publish
 
