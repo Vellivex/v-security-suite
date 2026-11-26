@@ -384,6 +384,19 @@ test('Messenger supports bounded, open-ended and suffix download ranges and reje
   }
 });
 
+test('Messenger leaves the noncanonical APK path to the original redirect without reading storage', async () => {
+  const bucket = releaseBucket();
+  const original = {fetch: () => Response.redirect(origin + messengerApkPath, 308)};
+  for (const method of ['GET', 'HEAD']) {
+    const response = await shop({links}, original).fetch(
+      request(messengerApkPath + '/', method), {...sellerEnv, MESSENGER_RELEASES:bucket}
+    );
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get('Location'), origin + messengerApkPath);
+    assert.deepEqual(bucket.calls, []);
+  }
+});
+
 test('Messenger conditional requests avoid bytes and mismatched If-Range safely restarts the full download', async () => {
   const etag = `"sha256-${messengerApkSha256}"`;
   for (const match of [etag,`W/${etag}`,`"older", ${etag}`,'*']) {

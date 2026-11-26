@@ -377,7 +377,7 @@ export function withPhoneShop(worker, config = {}) {
     const url = new URL(request.url), path = url.pathname.replace(/\/$/,'') || '/';
     if (!ORIGINS.has(url.origin)) return worker.fetch(request, env, ctx);
     const retiredMessengerApk = RETIRED_MESSENGER_APK_PATHS.has(path);
-    if (path === MESSENGER_SETUP_PATH || path === MESSENGER_APK_PATH || retiredMessengerApk) {
+    if (path === MESSENGER_SETUP_PATH || url.pathname === MESSENGER_APK_PATH || retiredMessengerApk) {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {
         status:405, headers:{...envelope, 'Allow':'GET, HEAD', 'Content-Type':'text/plain; charset=utf-8'},
       });
