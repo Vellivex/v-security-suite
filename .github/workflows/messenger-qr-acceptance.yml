@@ -1,0 +1,55 @@
+name: Messenger signed QR invitation acceptance
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/messenger-qr-acceptance.yml'
+      - 'apps/messenger/scripts/test-signed-qr.py'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  signed-android:
+    if: >-
+      github.repository == 'Vellivex/v-security-suite' &&
+      (github.event_name != 'pull_request' || (github.head_ref == 'test/messenger-alpha10-qr-acceptance' &&
+      github.event.pull_request.head.repo.full_name == github.repository))
+    strategy:
+      fail-fast: false
+      matrix:
+        route: [automatic, browser]
+    env:
+      QR_ROUTE: ${{ matrix.route }}
+      CHECK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Fetch the reviewed source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Check the web fallback and the signed Android installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          tools="$ANDROID_HOME/cmdline-tools/latest/bin"
+          image='system-images;android-35;google_apis;x86_64'
+          "$tools/sdkmanager" --install 'build-tools;36.0.0' 'platform-tools' emulator "$image"
+          test -c /dev/kvm
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          sudo chmod u+rw /dev/kvm
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/invite-avd"
+          mkdir -m 700 "$ANDROID_AVD_HOME"
+          "$tools/avdmanager" create avd --name vellivex-qr --package "$image" <<< no
+          "$ANDROID_HOME/emulator/emulator" -avd vellivex-qr -port 5554 -accel on -cores 2 -memory 2048 \
+            -gpu swiftshader -no-window -no-audio -no-snapshot -no-boot-anim >"$RUNNER_TEMP/invite-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          python3 apps/messenger/scripts/test-signed-qr.py
