@@ -44,3 +44,15 @@ The download patch adds the signed Alpha10 object at `/downloads/Vellivex-Messen
 On Android, the invitation page offers **Open in Vellivex** for a valid contact. Its intent names the alpha app package and the canonical Vellivex HTTPS invitation. When Chrome falls back to the browser, `/invite/manual` lets the recipient copy the contact ID or open the Vellivex setup guide. Both pages keep the contact in the URL fragment. The manual page contains no further app-launch action. [Android intents in Chrome](https://developer.chrome.com/docs/android/intents)
 
 To roll back, run `git apply --reverse --check` and `git apply --reverse` with the same patch path, then check the resulting module against its starting digest in the table.
+
+## Alpha10 tester guide
+
+`v50-alpha10-guide.patch` switches the homepage and setup guide from Alpha09 to Alpha10. Applying it to the v50 module above produces SHA-256 `74c0ff6b43bf665ed10adeb8754913699901fdfdc0618e0e91fecd67e0f308dd`. Applying it in reverse restores the v50 module.
+
+On Android 15, a touchscreen tap on **Open in Vellivex** in Chrome launched the original-signed Alpha10 app at sign-in both after a fresh install and after updating from Alpha09. The browser page showed the contact ID and Vellivex setup link with the app absent. The guide explains how to use the browser fallback and how to handle older QR codes. Earlier Alpha09 two-emulator messaging results are identified separately. [Android acceptance](https://github.com/Vellivex/v-security-suite/actions/runs/45876515251/job/140104846704)
+
+The offline check below requires both website modules, the directory of production modules containing `app-access-entry.mjs`, and the signed Alpha10 APK. It verifies the complete signed bytes and a byte range against both website wrappers, checks 24 other responses, and checks the new download and release instructions.
+
+```shell
+node apps/messenger/website/verify-alpha10-release.mjs "$V50_MODULE" "$V51_MODULE" "$MODULES_DIR" "$SIGNED_ALPHA10_APK"
+```

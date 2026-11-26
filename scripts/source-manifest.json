@@ -107,6 +107,8 @@
   "apps/messenger/website/v46-first-party-invites.patch",
   "apps/messenger/website/v47-pinned-alpha10-download.patch",
   "apps/messenger/website/v48-open-in-vellivex.patch",
+  "apps/messenger/website/v50-alpha10-guide.patch",
+  "apps/messenger/website/verify-alpha10-release.mjs",
   "apps/vault/crypto.js",
   "apps/vguard/.gitignore",
   "apps/vguard/README.md",
