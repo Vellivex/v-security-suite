@@ -195,6 +195,12 @@ def main():
         assert adb("shell", "getprop", "ro.build.version.sdk") == "35"
         adb("shell", "wm", "dismiss-keyguard")
         assert adb("shell", "pm", "list", "packages", PACKAGE) == ""
+        if os.environ["QR_ROUTE"] == "browser":
+            def landing_ready():
+                page = run("curl", "--proto", "=https", "--silent", "--show-error", "--fail", "--max-time",
+                           "20", ORIGIN + "/invite")
+                return 'id="open-vellivex"' in page
+            wait_until(landing_ready, "production Open in Vellivex control", 720)
         browser = resolver(INVITE)
         assert browser == resolver(f"{ORIGIN}/messenger") and "/" in browser
         browser_package = browser.split("/")[0]
