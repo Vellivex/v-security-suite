@@ -19,6 +19,8 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'apps/messenger/android-app-to-app/app/src/androidTest/java/com/vellivex/messenger/a2a/MessengerLiveAppToAppTest.kt'
+      - 'apps/messenger/android-app-to-app/app/src/main/java/com/vellivex/messenger/a2a/SignInObservation.java'
+      - 'apps/messenger/android-app-to-app/app/src/test/java/com/vellivex/messenger/a2a/SignInObservationTest.java'
       - 'apps/messenger/scripts/live-input-*'
       - 'apps/messenger/scripts/live-release-profile.py'
       - 'apps/messenger/scripts/live-preserved-session-update.py'
@@ -43,6 +45,33 @@ env:
   MESSENGER_LIVE_SCENARIO: ${{ inputs.installation_scenario || 'fresh' }}
 
 jobs:
+  check-interface-driver:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch the proposed driver without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REPOSITORY" == 'Vellivex/v-security-suite' ]]
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECK_SHA"
+          git checkout --detach FETCH_HEAD
+      - name: Test observation privacy and build the independent driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 apps/messenger/scripts/tests/test-live-input-coordinator.py
+          export JAVA_HOME="${JAVA_HOME_21_X64:?JDK 21 is required}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-36' 'build-tools;35.0.0'
+          cd apps/messenger/android-app-to-app
+          ../android/gradlew --no-daemon --console=plain --max-workers=2 \
+            :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+
   two-live-installed-apps:
     if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
@@ -96,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           ../android/gradlew --no-daemon --console=plain --max-workers=2 \
-            :app:assembleDebug :app:assembleDebugAndroidTest
+            :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 
       - name: Enable hardware acceleration and create the ephemeral input key
         shell: bash

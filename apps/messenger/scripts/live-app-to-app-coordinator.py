@@ -22,6 +22,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 NAME = re.compile(r"[a-z0-9-]{1,80}\Z")
+# Only reviewed observations may enter the report namespace after the private code is submitted.
+POST_LOGIN_STATES = {
+    "code-entry", "email-entry", "incomplete-code", "code-rejected", "token-rejected",
+    "service-error", "sign-in-error", "saved-session", "encryption-setup-error", "checking-keys",
+    "create-recovery", "recover-account", "no-recovery", "other-device", "messages",
+    "rate-limited", "capacity", "no-known-screen", "wait-expired",
+}
+
 MAX_BODY = 8 * 1024 * 1024
 
 
@@ -218,6 +226,9 @@ def coordinator_handler(state: State):
                     checkpoint, phase = body.get("name"), body.get("phase")
                     if not isinstance(checkpoint, str) or not NAME.fullmatch(checkpoint) or phase not in {"fresh", "restart"}:
                         raise ValueError("invalid checkpoint")
+                    if checkpoint.startswith("post-login-") and (
+                            phase != "fresh" or checkpoint.removeprefix("post-login-") not in POST_LOGIN_STATES):
+                        raise ValueError("invalid post-login observation")
                     state.checkpoints.append({"role": role, "phase": phase, "name": checkpoint})
                     state.save()
                     ready = {item["role"] for item in state.checkpoints

@@ -237,6 +237,7 @@ class MessengerLiveAppToAppTest {
 
     private fun signInAndSaveRecovery() {
         requestAndVerifyEmailCode()
+        waitForFreshRecovery()
         completeRecoverySetup()
     }
 
@@ -268,8 +269,52 @@ class MessengerLiveAppToAppTest {
         clickText("Open Vellivex")
         waitText("That code could not be verified.", substring = true)
         stage("wrong-code-rejected")
-        setOnlyField(code)
-        clickText("Open Vellivex")
+        lastAction = "wait-received-code-editor"
+        val editor = waitValue("enabled code entry") { editableFields().singleOrNull()?.takeIf { it.isEnabled } }
+        editor.text = code
+        // Compare transiently inside the runner; never log the field, length, hash, or supplied value.
+        waitValue("received code entered") {
+            editableFields().singleOrNull()?.takeIf { it.isEnabled && it.text == code }
+        }
+        stage("received-code-field-confirmed")
+        lastAction = "find-received-code-submit"
+        val submit = waitValue("enabled code submission control") {
+            var node = device.findObject(By.pkg(APP).text("Open Vellivex"))
+            while (node != null && !node.isClickable) node = node.parent
+            node?.takeIf { it.applicationPackage == APP && it.isEnabled && !it.visibleBounds.isEmpty }
+        }
+        // The negative-control snackbar can remain while the new request is already under way.
+        wrongCodeNoticeStillVisible = hasText("That code could not be verified. Check it or request a new one.")
+        lastAction = "tap-received-code-submit"
+        submit.click()
+        stage("received-code-submit-tapped")
+    }
+
+    private var wrongCodeNoticeStillVisible = false
+
+    private fun waitForFreshRecovery() {
+        lastAction = "observe-after-code"
+        val observations = SignInObservation.Tracker(wrongCodeNoticeStillVisible)
+        var lastSnapshotWasEmpty = true
+        val deadline = SystemClock.elapsedRealtime() + 60_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            // Find only reviewed, public labels. Never dump the tree or inspect editable text here.
+            val visible = try {
+                device.findObjects(By.pkg(APP).text(SignInObservation.VISIBLE_LABELS))
+                    .filter { it.className != EDIT_TEXT && !it.visibleBounds.isEmpty }
+                    .mapNotNull { SignInObservation.classify(it.text) }.toSet()
+            } catch (_: androidx.test.uiautomator.StaleObjectException) {
+                SystemClock.sleep(200)
+                continue
+            }
+            lastSnapshotWasEmpty = visible.isEmpty()
+            for (state in observations.newlyVisible(visible)) stage("post-login-${state.token}")
+            if (SignInObservation.CREATE_RECOVERY in visible) return
+            SystemClock.sleep(200)
+        }
+        if (lastSnapshotWasEmpty) stage("post-login-no-known-screen")
+        stage("post-login-wait-expired")
+        throw AssertionError("Fresh recovery setup was not visible before the deadline")
     }
 
     private fun restoreAlpha07SessionByUpdating() {

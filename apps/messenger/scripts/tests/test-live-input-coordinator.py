@@ -60,6 +60,19 @@ class CoordinatorChecks(unittest.TestCase):
         self.assertTrue(self.request(role, "mail/config")["ready"])
         self.assertTrue(self.request(role, "mail/begin", {})["ok"])
 
+    def test_private_values_and_stale_phases_cannot_become_reported_sign_in_observations(self):
+        for role in ("A", "B"):
+            self.request(role, "checkpoint", {"name": "post-login-checking-keys", "phase": "fresh"})
+        for name, phase in [("post-login-12345678", "fresh"), ("post-login-arbitrary-error", "fresh"),
+                            ("post-login-checking-keys", "restart")]:
+            with self.assertRaises(HTTPError):
+                self.request("A", "checkpoint", {"name": name, "phase": phase})
+        report = (self.root / "summary.json").read_text()
+        self.assertNotIn("12345678", report)
+        self.assertNotIn("arbitrary-error", report)
+        checkpoints = json.loads(report)["checkpoints"]
+        self.assertEqual([item["name"] for item in checkpoints], ["post-login-checking-keys"] * 2)
+
     def test_wrong_coordinator_key_is_rejected(self):
         with self.assertRaises(HTTPError) as error:
             self.request("A", "mail/config", key="incorrect")
