@@ -4,8 +4,10 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import secrets
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -14,7 +16,6 @@ from device import Device, DeviceError, token
 
 API = "https://api-cloud.browserstack.com/app-automate"
 HUB = "https://hub-cloud.browserstack.com/wd/hub"
-APK_SHA = "95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4"
 MODELS = {"A": ("Google Pixel 7", "13.0"), "B": ("Google Pixel 8", "14.0")}
 PRIVACY = {"appiumVersion": "2.18.0", "video": False, "debug": False, "appiumLogs": False,
            "deviceLogs": False, "networkLogs": False, "maskCommands": "setValues,getValues,screenshot"}
@@ -26,8 +27,16 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def physical_release(profile):
+    if profile not in {"alpha08-release", "alpha09-release"}:
+        raise DeviceError("unsupported physical release profile")
+    validator = Path(__file__).resolve().parents[1] / "live-release-profile.py"
+    return runpy.run_path(str(validator))["load_manifest"](profile)
+
+
 class Provider:
     def __init__(self):
+        self.release = physical_release(os.environ.get("VELLIVEX_PHYSICAL_RELEASE", "alpha08-release"))
         pair = [os.environ.get(k, "") for k in ("BROWSERSTACK_USERNAME", "BROWSERSTACK_ACCESS_KEY")]
         if not all(pair):
             raise DeviceError("private BrowserStack environment is missing credentials")
@@ -73,7 +82,7 @@ class Provider:
 
     def upload(self, apk):
         data = apk.read_bytes()
-        if len(data) != 57_542_436 or hashlib.sha256(data).hexdigest() != APK_SHA:
+        if len(data) != self.release["app_bytes"] or hashlib.sha256(data).hexdigest() != self.release["app_sha256"]:
             raise DeviceError("incorrect installer")
         boundary = "vellivex" + secrets.token_hex(16)
         prefix = ("--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="messenger.apk"\r\n'

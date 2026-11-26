@@ -1,10 +1,13 @@
 """Private-provider contract tests. No external connection or actual accounts."""
+import hashlib
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import MagicMock
 
 from device import Device, DeviceError, Element
-from provider import MODELS, PRIVACY, Provider
+from provider import MODELS, PRIVACY, Provider, physical_release
 from run import MailInput, source_digest
 
 
@@ -14,6 +17,32 @@ MASKED = (b"REQUEST POST /session/aaaaaaaa/element/bbbbbbbb/value {\"text\":\"RE
 
 
 class ProviderTests(unittest.TestCase):
+    def test_physical_release_choices_share_the_normal_package_and_signer(self):
+        original = physical_release("alpha08-release")
+        universal = physical_release("alpha09-release")
+        self.assertEqual([original["version_code"], universal["version_code"]], [8, 9])
+        self.assertEqual(original["application_id"], "com.vellivex.messenger.alpha")
+        self.assertEqual(original["application_id"], universal["application_id"])
+        self.assertEqual(original["signer_sha256"], universal["signer_sha256"])
+        self.assertNotEqual(original["app_sha256"], universal["app_sha256"])
+        with self.assertRaises(DeviceError):
+            physical_release("alpha06-test")
+
+    def test_upload_rechecks_the_selected_release_before_contacting_the_provider(self):
+        with tempfile.TemporaryDirectory() as folder:
+            apk = Path(folder) / "fixture.apk"
+            apk.write_bytes(b"fixture")
+            provider = object.__new__(Provider)
+            provider.release = {"app_bytes": apk.stat().st_size, "app_sha256": hashlib.sha256(b"fixture").hexdigest()}
+            provider.request = MagicMock(return_value={"app_url": "bs://" + "a" * 40})
+            self.assertEqual(provider.upload(apk), "bs://" + "a" * 40)
+            provider.request.reset_mock()
+            for changed in (b"changed", b"short"):
+                apk.write_bytes(changed)
+                with self.assertRaises(DeviceError):
+                    provider.upload(apk)
+                provider.request.assert_not_called()
+
     def test_input_exclusively_uses_masked_commands(self):
         transport = MagicMock()
         dev = Device(transport, "f" * 40)

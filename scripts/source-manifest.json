@@ -90,6 +90,7 @@
   "apps/messenger/android/gradlew",
   "apps/messenger/android/gradlew.bat",
   "apps/messenger/android/settings.gradle.kts",
+  "apps/messenger/android/universal-alpha09-live-acceptance.json",
   "apps/messenger/docs/app-to-app-acceptance.md",
   "apps/messenger/docs/architecture.md",
   "apps/messenger/docs/live-app-to-app-acceptance.md",

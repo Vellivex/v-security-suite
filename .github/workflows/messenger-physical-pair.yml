@@ -35,6 +35,8 @@ jobs:
     needs: offline
     if: github.event_name == 'push' && github.repository == 'Vellivex/v-security-suite' && github.actor == 'VellivexHQ'
     environment: vellivex-physical-qa
+    env:
+      VELLIVEX_PHYSICAL_RELEASE: ${{ vars.VELLIVEX_PHYSICAL_RELEASE || 'alpha08-release' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -48,7 +50,17 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           /usr/bin/python3 -c 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM'
           installer="$RUNNER_TEMP/physical-original.apk"
-          python3 apps/messenger/scripts/live-release-profile.py download alpha08-release "$installer" --signer-output "$RUNNER_TEMP/physical-signer"
+          case "$VELLIVEX_PHYSICAL_RELEASE" in
+            alpha08-release|alpha09-release) ;;
+            *) echo 'Unsupported physical release profile.'; exit 1 ;;
+          esac
+          report="$RUNNER_TEMP/physical-release.json"
+          python3 apps/messenger/scripts/live-release-profile.py download "$VELLIVEX_PHYSICAL_RELEASE" "$installer" \
+            --signer-output "$RUNNER_TEMP/physical-signer" --report "$report"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$installer" > "$RUNNER_TEMP/physical-package"
+          version_code="$(jq -er '.version_code' "$report")"
+          version_name="$(jq -er '.version_name' "$report")"
+          grep -Fq "package: name='com.vellivex.messenger.alpha' versionCode='$version_code' versionName='$version_name'" "$RUNNER_TEMP/physical-package"
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           test -x "$signer"
           "$signer" verify --print-certs "$installer" > "$RUNNER_TEMP/physical-cert"

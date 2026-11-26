@@ -115,7 +115,8 @@ class PrivateHandoff:
             self._key, self._descriptor = key, d
             return d.copy()
 
-    def bind_physical(self, driver_sha256, privacy_preflight_sha256, session_ids_by_role):
+    def bind_physical(self, driver_sha256, privacy_preflight_sha256, session_ids_by_role, *, apk_sha256=APK_SHA256):
+        _require(_hex(apk_sha256, 64))
         with self._lock:
             d = self._descriptor
             _require(d and self._key and not self._pair_bound and int(time.time()) < d["expires_at"])
@@ -126,7 +127,7 @@ class PrivateHandoff:
             _require(ids[0] != ids[1])
             identity = {"kind": "browserstack-paired-appium", "run_id": d["run_id"], "run_attempt": d["run_attempt"],
                         "session_id": d["session_id"], "reviewed_commit": d["head_sha"], "runner_key_sha256": d["key_id"],
-                        "apk_sha256": APK_SHA256, "driver_sha256": driver_sha256, "privacy_preflight_sha256": privacy_preflight_sha256,
+                        "apk_sha256": apk_sha256, "driver_sha256": driver_sha256, "privacy_preflight_sha256": privacy_preflight_sha256,
                         "sessions": [_sha(s.encode("ascii")) for s in ids]}
             self._artifact("physical-attestation.json", identity)
             self._pair_bound = True

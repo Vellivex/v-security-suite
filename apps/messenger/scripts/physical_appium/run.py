@@ -18,7 +18,7 @@ from pathlib import Path
 from device import DeviceError
 from flow import STAGES, run_pair
 from handoff import PrivateHandoff
-from provider import APK_SHA, MODELS, Provider
+from provider import MODELS, Provider
 
 ROLES = ("A", "B")
 ROOT = Path(__file__).resolve().parent
@@ -163,7 +163,7 @@ def exercise_canaries(provider, devices):
 
 def audit(provider, app, build, devices, fake, live):
     checks = [provider.audit_canary(devices[r], r, app, build, fake[r], live=live) for r in ROLES]
-    return {"schema": 1, "apk_sha256": APK_SHA, "driver_sha256": source_digest(), "devices": checks}
+    return {"schema": 1, "apk_sha256": provider.release["app_sha256"], "driver_sha256": source_digest(), "devices": checks}
 
 
 def main():
@@ -201,7 +201,7 @@ def main():
         sealed = PrivateHandoff(private, args.artifacts, run, int(attempt), sha)
         descriptor = sealed.prepare()
         sealed.bind_physical(source_digest(), hashlib.sha256(privacy_path.read_bytes()).hexdigest(),
-                             {r: devices[r].session for r in ROLES})
+                             {r: devices[r].session for r in ROLES}, apk_sha256=provider.release["app_sha256"])
         inputs = MailInput(sealed, descriptor, Path(private))
         events = {r: [] for r in ROLES}
 
@@ -215,7 +215,7 @@ def main():
         if not all("signed-out" in events[r] for r in ROLES):
             raise DeviceError("both signed-out completions required")
         write_public(args.artifacts / "result.json", {"fresh_two_stock_phones": "passed", "roles": list(ROLES),
-                     "apk_sha256": APK_SHA, "driver_sha256": source_digest(), "grapheneos_tested": False})
+                     "apk_sha256": provider.release["app_sha256"], "driver_sha256": source_digest(), "grapheneos_tested": False})
 
 
 if __name__ == "__main__":

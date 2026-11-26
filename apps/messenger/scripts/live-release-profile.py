@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import zipfile
 from urllib.parse import urlsplit
 
 SIGNER = "3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2"
@@ -18,12 +19,23 @@ PROFILES = {
     "alpha06-test": "arm64-alpha06-acceptance.json",
     "alpha07-release": "arm64-alpha07-live-acceptance.json",
     "alpha08-release": "arm64-alpha08-live-acceptance.json",
+    "alpha09-release": "universal-alpha09-live-acceptance.json",
 }
 ALPHA06_URL = "https://github.com/Vellivex/v-security-suite/releases/download/messenger-v0.1.0-alpha06/Vellivex-Messenger-0.1.0-alpha06-arm64.apk"
 ALPHA06_HASH = "13f22deb969792f6b73a8c945ef16f682520a46ea78a93b8ddf14c470fc3dc9b"
 ALPHA08_URL = "https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha08-arm64.apk"
 ALPHA08_SOURCE = "6e29154ce8f67da8828abb198cd4e74f00951730"
 ALPHA08_INSTALLER = ("95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4", 57_542_436)
+ALPHA09_URL = "https://www.vellivex.com/downloads/Vellivex-Messenger-0.1.0-alpha09-universal.apk"
+# Original-signed universal release verified against its retained build and source.
+ALPHA09_SOURCE = "89a7c498f05c913ddb2a6a7f424c475908900df9"
+ALPHA09_INSTALLER = ("eab2468488a6a34451a47bc0e5dda2ed51e8dcf2f8fed191fadf97ebb55e1471", 111_794_192)
+ALPHA09_NATIVE = {
+    "lib/arm64-v8a/libmatrix_sdk_ffi.so": "ab78268c932792091e8431709b6c21d452ee4579e63a474d77e2e592aad5ca22",
+    "lib/arm64-v8a/libjnidispatch.so": "abc26e994517bcaa3309acdb0a27373864086c7569c89d3087b8626fada9ef06",
+    "lib/x86_64/libmatrix_sdk_ffi.so": "43389d1ca31baf356c31248ad79bbf0b8f2067975890c240d89c7376f02d3dde",
+    "lib/x86_64/libjnidispatch.so": "3809247e9b804a05ed8377b87d545cf5b5e97f960f75e725bc8497b40260e417",
+}
 RELEASE_FIELDS = {
     "schema_version", "profile", "app_url", "app_sha256", "app_bytes", "signer_sha256",
     "application_id", "version_code", "version_name", "debuggable", "production_origin",
@@ -48,7 +60,7 @@ def validate_manifest(profile: str, manifest: dict) -> dict:
 
     if set(manifest) != RELEASE_FIELDS or any(value is None for value in manifest.values()):
         raise ValueError("Live release acceptance requires complete reviewed installer and production-origin metadata.")
-    version = 7 if profile == "alpha07-release" else 8
+    version = {"alpha07-release": 7, "alpha08-release": 8, "alpha09-release": 9}[profile]
     expected = (1, profile, APPLICATION, version, f"0.1.0-alpha0{version}", False, ORIGIN, SIGNER)
     actual = tuple(manifest[key] for key in (
         "schema_version", "profile", "application_id", "version_code", "version_name",
@@ -76,6 +88,12 @@ def validate_manifest(profile: str, manifest: dict) -> dict:
             "4f3ca6d6fd857b690b3c4e78f35e104620966c3d31774a47df2248914820a9e5", 57525706,
         ):
             raise ValueError("The Alpha07 profile must retain its reviewed original installer.")
+    elif profile == "alpha09-release":
+        if (ALPHA09_INSTALLER is None or not isinstance(ALPHA09_SOURCE, str) or
+                not re.fullmatch(r"[0-9a-f]{40}", ALPHA09_SOURCE) or
+                manifest["build_source_commit"] != ALPHA09_SOURCE or url_value != ALPHA09_URL or
+                (digest, manifest["app_bytes"]) != ALPHA09_INSTALLER):
+            raise ValueError("Alpha09 needs its exact reviewed signed universal installer and source.")
     elif (manifest["build_source_commit"] != ALPHA08_SOURCE or url_value != ALPHA08_URL or
           (digest, manifest["app_bytes"]) != ALPHA08_INSTALLER):
         raise ValueError("Alpha08 requires its reviewed build source, public download route and exact installer.")
@@ -108,6 +126,19 @@ def verify_installer(profile: str, manifest: dict, installer: Path) -> dict:
             "production_origin_build_attestation_checked": True,
             "build_source_commit": manifest["build_source_commit"],
         })
+    if profile == "alpha09-release":
+        with zipfile.ZipFile(installer) as package:
+            names = package.namelist()
+            abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}
+            if abis != {"arm64-v8a", "x86_64"}:
+                raise ValueError("Alpha09 must contain exactly the two reviewed native ABIs.")
+            for name, expected in ALPHA09_NATIVE.items():
+                if names.count(name) != 1:
+                    raise ValueError("A required unique native SDK component is missing.")
+                with package.open(name) as component:
+                    if hashlib.file_digest(component, "sha256").hexdigest() != expected:
+                        raise ValueError("The universal native SDK payload differs from its reviewed input.")
+        report["verified_native_abis"] = sorted(abis)
     return report
 
 

@@ -1,6 +1,6 @@
 # Two stock Android phones
 
-The independent Appium test installs the reviewed, signed Alpha08 ARM64 APK on two BrowserStack App Automate devices. It checks the normal production sign-in UI, recovery setup, matching verification displays, bidirectional delivery, persistence after restarting both apps, and sign-out. It records fixed checkpoints for each phone. GrapheneOS and the other release checks have separate acceptance records.
+The independent Appium test installs the reviewed, signed Alpha08 ARM64 APK or Alpha09 universal APK on two BrowserStack App Automate devices. It checks the normal production sign-in UI, recovery setup, matching verification displays, bidirectional delivery, persistence after restarting both apps, and sign-out. It records fixed checkpoints for each phone. GrapheneOS and the other release checks have separate acceptance records.
 
 ## Operator setup
 
@@ -12,6 +12,8 @@ Create the GitHub environment `vellivex-physical-qa` under repository settings. 
 | `BROWSERSTACK_ACCESS_KEY` | BrowserStack Account settings, Automate credentials |
 | `VELLIVEX_QA_EMAIL_SHA256_A` | Private QA enrollment record for phone A |
 | `VELLIVEX_QA_EMAIL_SHA256_B` | Private QA enrollment record for phone B |
+
+The optional environment variable `VELLIVEX_PHYSICAL_RELEASE` selects `alpha08-release` (the default) or `alpha09-release`. Keep the same selection for the canary and acceptance runs. The workflow checks the package name, version, signer and complete digest before using a device. The upload and device receipts use that same release digest.
 
 Before promoting a reviewed commit, verify the account's remaining free device minutes and the production sign-in quota. Each privacy run uses two stock devices. An acceptance run first audits the completed privacy sessions and then opens two fresh sessions. The App Automate plan API must report two available device slots. The runner never signs up for or purchases service.
 
