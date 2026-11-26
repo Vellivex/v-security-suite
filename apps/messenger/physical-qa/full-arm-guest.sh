@@ -19,7 +19,14 @@ cd "$RUNNER_TEMP"
 "$sdk/sdkmanager" 'build-tools;36.0.0' 'platform-tools' 'emulator' "$image"
 "$bt/apksigner" verify --print-certs alpha08.apk | grep -F 'Signer #1 certificate SHA-256 digest: 3aac05cadcd0cb90dff2474118586d537ce45cf177f237aa90a84a6ed3400df2'
 "$bt/apksigner" verify --print-certs native-qa.apk | grep -F 'Signer #1 certificate SHA-256 digest: 39901bf944f1c1756c161ad31a1edd389aa428a996661b163698b99db8186f7c'
-grep -F "Pkg.Revision" "$ANDROID_HOME/emulator/source.properties"
+# The current Linux launcher supports only x86 guests. This official archived
+# version still selects its ARM64 system emulator for API 27.
+curl --proto '=https' --fail --location --silent --show-error --max-time 180 \
+    --output "$work/emulator.zip" https://dl.google.com/android/repository/emulator-linux_x64-12038310.zip
+echo "621c9384efa919ecf42d94b29e47abbc097261fa7bff667adf4bddb9a35f7254  $work/emulator.zip" | sha256sum -c -
+unzip -q "$work/emulator.zip" -d "$work/tool"
+emulator="$work/tool/emulator/emulator"
+grep -F "Pkg.Revision=34.2.16" "$work/tool/emulator/source.properties"
 printf 'no\n' | "$sdk/avdmanager" create avd -n native-guest -k "$image"
 cat >> "$ANDROID_AVD_HOME/native-guest.avd/config.ini" <<'INI'
 hw.lcd.width=480
@@ -27,7 +34,7 @@ hw.lcd.height=800
 hw.lcd.density=160
 hw.keyboard=yes
 INI
-"$ANDROID_HOME/emulator/emulator" -avd native-guest -port 5554 -accel off -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -cores 2 -memory 1536 -gpu swiftshader_indirect > "$work/boot.log" 2>&1 &
+"$emulator" -avd native-guest -port 5554 -accel off -no-window -no-audio -no-boot-anim -no-snapshot -cores 2 -memory 1536 -gpu swiftshader_indirect > "$work/boot.log" 2>&1 &
 pid=$!
 "$adb" start-server
 device() { timeout 50 "$adb" -s "$serial" "$@"; }
