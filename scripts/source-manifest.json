@@ -1,8 +1,10 @@
 [
   ".github/ISSUE_TEMPLATE/bug_report.md",
+  ".github/scripts/test-installed-alpha11.py",
   ".github/workflows/browser-chat-acceptance.yml",
   ".github/workflows/browser-engine-acceptance.yml",
   ".github/workflows/call-browser-readiness.yml",
+  ".github/workflows/messenger-alpha11-installed.yml",
   ".github/workflows/messenger-android.yml",
   ".github/workflows/messenger-app-to-app.yml",
   ".github/workflows/messenger-arm64-apk.yml",
