@@ -12,6 +12,8 @@ const messengerApkName = 'Vellivex-Messenger-0.1.0-alpha08-arm64.apk';
 const messengerApkPath = '/downloads/' + messengerApkName;
 const messengerApkBytes = 57542436;
 const messengerApkSha256 = '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4';
+const messengerR2Version = '7e5de8972eb52fec22615efc2c9882d7';
+const messengerR2Etag = 'dd0ff562938b7ae238c7b7de2e97d61e';
 const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
   '/downloads/Vellivex-Messenger-0.1.0-alpha03-arm64.apk',
@@ -21,8 +23,7 @@ const retiredMessengerApkPaths = [
   '/downloads/Vellivex-Messenger-0.1.0-alpha07-arm64.apk',
 ];
 function releaseBucket(overrides = {}) {
-  const metadata = {key:messengerApkName, size:messengerApkBytes, etag:'fixture-upload',
-    customMetadata:{sha256:messengerApkSha256}};
+  const metadata = {key:messengerApkName, size:messengerApkBytes, etag:messengerR2Etag, version:messengerR2Version};
   const calls = [];
   return {calls,
     async head(key) { calls.push(['head',key]); return {...metadata}; },
@@ -270,7 +271,7 @@ test('Messenger setup and download support public GET and HEAD without trusting 
       assert.equal(await download.text(), '');
       assert.deepEqual(bucket.calls, [['head',messengerApkName]]);
     } else {
-      assert.deepEqual(bucket.calls[1][2], {onlyIf:{etagMatches:'fixture-upload'}});
+      assert.deepEqual(bucket.calls[1][2], {onlyIf:{etagMatches:messengerR2Etag}});
       const reader = download.body.getReader();
       assert.equal((await reader.read()).value.length,65536);
       await reader.cancel();
@@ -309,8 +310,11 @@ test('Messenger keeps its setup guide available when the release binding is abse
 
 test('Messenger refuses missing or mismatched release objects and storage failures without exposing details', async () => {
   const good = await releaseBucket().head(messengerApkName);
-  for (const metadata of [null, {...good,key:'private'}, {...good,size:good.size-1}, {...good,customMetadata:{}},
-    {...good,customMetadata:{sha256:'wrong'}}]) {
+  for (const metadata of [null, {...good,key:'private'}, {...good,size:good.size-1}, {...good,version:undefined},
+    {...good,version:'other-version'}, {...good,etag:'other-etag'},
+    {...good,customMetadata:{sha256:messengerApkSha256, SHA256:'wrong'}},
+    {...good,checksums:{sha256:new ArrayBuffer(32)}}, {...good,checksums:{sha256:new ArrayBuffer(2)}},
+    {...good,checksums:{sha256:messengerApkSha256}}, {...good,checksums:{sha256:null}}]) {
     const bucket = releaseBucket({async head(){return metadata;}});
     const response = await shop().fetch(request(messengerApkPath), {...sellerEnv,MESSENGER_RELEASES:bucket});
     assert.equal(response.status,503);
@@ -329,6 +333,32 @@ test('Messenger refuses missing or mismatched release objects and storage failur
     'a failed conditional read must never become a successful empty installer');
 });
 
+test('Messenger serves the pinned object with absent or matching optional checksums', async () => {
+  const metadata = await releaseBucket().head(messengerApkName);
+  const digest = Uint8Array.from(Buffer.from(messengerApkSha256, 'hex')).buffer;
+  for (const checks of [{}, {customMetadata:{}}, {checksums:{sha256:digest}},
+    {customMetadata:{SHA256:messengerApkSha256}, checksums:{sha256:digest}}]) {
+    const bucket = releaseBucket({async head() { return {...metadata, ...checks}; }});
+    const response = await shop().fetch(request(messengerApkPath, 'HEAD'), {...sellerEnv, MESSENGER_RELEASES:bucket});
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('X-Content-SHA256'), messengerApkSha256);
+  }
+});
+
+test('Messenger discards a replacement or partial body observed after a valid release header', async () => {
+  const metadata = await releaseBucket().head(messengerApkName);
+  for (const change of [{version:'another-version'}, {etag:'another-etag'}, {size:1},
+    {customMetadata:{SHA256:'different'}}, {checksums:{sha256:new ArrayBuffer(32)}},
+    {range:{offset:0, length:1}}]) {
+    let cancelled = false;
+    const body = new ReadableStream({cancel() { cancelled = true; }});
+    const bucket = releaseBucket({async get() { return {...metadata, ...change, body}; }});
+    const response = await shop().fetch(request(messengerApkPath), {...sellerEnv, MESSENGER_RELEASES:bucket});
+    assert.equal(response.status, 503);
+    assert.equal(cancelled, true);
+  }
+});
+
 test('Messenger supports bounded, open-ended and suffix download ranges and rejects invalid ranges', async () => {
   const worker = shop();
   for (const [range,offset,length] of [
@@ -341,7 +371,7 @@ test('Messenger supports bounded, open-ended and suffix download ranges and reje
     assert.equal(response.status,206);
     assert.equal(response.headers.get('Content-Length'),String(length));
     assert.equal(response.headers.get('Content-Range'),`bytes ${offset}-${offset+length-1}/${messengerApkBytes}`);
-    assert.deepEqual(bucket.calls[1][2],{onlyIf:{etagMatches:'fixture-upload'},range:{offset,length}});
+    assert.deepEqual(bucket.calls[1][2],{onlyIf:{etagMatches:messengerR2Etag},range:{offset,length}});
     assert.equal((await response.arrayBuffer()).byteLength,length);
   }
   for (const range of ['bytes=57542436-','bytes=9-3','bytes=-0','bytes=-','bytes=0-1,3-4','items=0-1','bytes=9007199254740992-']) {

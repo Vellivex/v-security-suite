@@ -14,6 +14,9 @@ const MESSENGER_SETUP_PATH = '/messenger';
 const MESSENGER_APK_NAME = 'Vellivex-Messenger-0.1.0-alpha08-arm64.apk';
 const MESSENGER_APK_PATH = '/downloads/' + MESSENGER_APK_NAME;
 const MESSENGER_APK_BYTES = 57542436;
+// This is the exact private upload whose complete bytes were independently hashed.
+const MESSENGER_R2_VERSION = '7e5de8972eb52fec22615efc2c9882d7';
+const MESSENGER_R2_ETAG = 'dd0ff562938b7ae238c7b7de2e97d61e';
 const MESSENGER_APK_SHA256 = '95661c6ea7f8b5d40e9fd6ba6797a5a2f6b276f681369420b4e55348784579e4';
 const RETIRED_MESSENGER_APK_PATHS = new Set([
   '/downloads/Vellivex-Messenger-0.1.0-alpha02-arm64.apk',
@@ -38,8 +41,16 @@ function messengerReleaseBucket(env) {
   return typeof bucket?.get === 'function' && typeof bucket?.head === 'function' ? bucket : null;
 }
 function messengerReleaseMatches(object) {
-  return object?.key === MESSENGER_APK_NAME && object.size === MESSENGER_APK_BYTES &&
-    object.customMetadata?.sha256 === MESSENGER_APK_SHA256;
+  if (object?.key !== MESSENGER_APK_NAME || object.size !== MESSENGER_APK_BYTES ||
+    object.version !== MESSENGER_R2_VERSION || object.etag !== MESSENGER_R2_ETAG) return false;
+  for (const [key, value] of Object.entries(object.customMetadata ?? {})) {
+    if (key.toLowerCase() === 'sha256' && value !== MESSENGER_APK_SHA256) return false;
+  }
+  const checksum = object.checksums?.sha256;
+  if (checksum === undefined) return true;
+  if (!(checksum instanceof ArrayBuffer) || checksum.byteLength !== 32) return false;
+  const hex = Array.from(new Uint8Array(checksum), byte => byte.toString(16).padStart(2, '0')).join('');
+  return hex === MESSENGER_APK_SHA256;
 }
 function messengerByteRange(value) {
   const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
@@ -91,10 +102,13 @@ async function messengerApkResponse(request, bucket) {
       }});
     }
     const object = await bucket.get(MESSENGER_APK_NAME, {
-      onlyIf: {etagMatches: metadata.etag}, ...(range ? {range} : {}),
+      onlyIf: {etagMatches: MESSENGER_R2_ETAG}, ...(range ? {range} : {}),
     });
-    if (!messengerReleaseMatches(object) || !object.body ||
-      (range && (object.range?.offset !== range.offset || object.range?.length !== range.length))) {
+    const returnedRange = object?.range;
+    const rangeMatches = range
+      ? returnedRange?.offset === range.offset && returnedRange?.length === range.length
+      : !returnedRange || (returnedRange.offset === 0 && returnedRange.length === MESSENGER_APK_BYTES);
+    if (!messengerReleaseMatches(object) || !object.body || !rangeMatches) {
       await object?.body?.cancel?.();
       return unavailable();
     }
