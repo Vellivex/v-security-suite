@@ -1,0 +1,40 @@
+name: Verify native x86_64 Matrix HTTPS and encrypted storage
+on:
+  push:
+    branches: [test/messenger-native-x86-qa-20261126]
+    paths: ['.github/workflows/messenger-native-x86-probe.yml', 'apps/messenger/physical-qa/probe-x86.sh']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-x86-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - name: Check out the diagnostic branch
+        run: |
+          set -eu
+          git init .
+          git remote add origin https://github.com/Vellivex/v-security-suite.git
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
+      - name: Fetch and verify pinned first-party diagnostic and SDK inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir "$RUNNER_TEMP/x86-inputs"
+          cd "$RUNNER_TEMP/x86-inputs"
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/15116856736/zip > arm-qa.apk
+          gh api repos/Vellivex/v-security-suite/actions/artifacts/14659184330/zip > sdk.zip
+          curl --proto '=https' --fail --location --silent --show-error --max-time 120 --output jna.aar https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.18.1/jna-5.18.1.aar
+          sha256sum --strict -c - <<'HASHES'
+          237bdc24310a7c2e99d5b7306cbb6c21f272f91d9185f6c83db30fa02943601e  arm-qa.apk
+          f761f5f0f06f9ac39cd3d9ad5957c207ca5b2becf6ca3d5687d54b8d7ea02545  sdk.zip
+          7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0  jna.aar
+          HASHES
+          unzip -q sdk.zip
+          echo '695ec434368b942d63b9e366cf2463abb2a16f36446324394b24e0b4c79df6f1  vellivex-matrix-sdk.aar' | sha256sum --strict -c -
+      - name: Exercise the independent no-account QA app on native x86_64
+        run: bash apps/messenger/physical-qa/probe-x86.sh
